@@ -1,13 +1,10 @@
 module ASM_Extensions
   module OrienterExpress
-
     # CONSTANTS
-
     MSG_INVALID_SEL = 'Orienter Express: Please select at least one edge and a group or component.'
     MSG_INVALID_ENT = 'Orienter Express: Invalid entities detected. Aborting operation.'
 
     # METHODS
-
     # Scales the entity along the Z-axis based on the length of each edge
     def self.scale_z(entity, edge)
       scale_factor = edge.length / entity.bounds.depth
@@ -136,7 +133,6 @@ module ASM_Extensions
     end
 
     # PROCESSES
-
     # Apply orientation and align entities with edge axis
     def self.orienterexpress_axis
       model = Sketchup.active_model
@@ -312,6 +308,5 @@ module ASM_Extensions
 
       Sketchup.active_model.selection.clear
     end
-
   end # Module OrienterExpress
 end # Module ASM_Extensions
