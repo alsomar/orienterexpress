@@ -5,7 +5,7 @@ module ASM_Extensions
 
     # Variables
     PLUGIN_NAME = 'Orienter Express'.freeze
-    PLUGIN_VERSION = '1.0.1'.freeze
+    PLUGIN_VERSION = '1.0.3'.freeze
     PLUGIN_DESCRIPTION = 'Align group/component copies along multiple selected edges.'.freeze
     PLUGIN_AUTHOR = 'Alejandro Soriano'.freeze
     PLUGIN_ID = File.basename(__FILE__, '.rb')

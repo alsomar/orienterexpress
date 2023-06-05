@@ -132,7 +132,7 @@ module ASM_Extensions
       entity.transform!(translation)
     end
 
-    # PROCESSES
+    # MAIN TOOLS
     # Apply orientation and align entities with edge axis
     def self.orienterexpress_axis
       model = Sketchup.active_model
@@ -308,5 +308,29 @@ module ASM_Extensions
 
       Sketchup.active_model.selection.clear
     end
+
+    # EXTRA TOOLS
+    # Resets the rotation of the selected group or component
+    def self.orienterexpress_reset_rotations
+      model = Sketchup.active_model
+      selection = model.selection
+
+      entities = selection.grep(Sketchup::Group) + selection.grep(Sketchup::ComponentInstance)
+      
+      unless entities.empty?
+        model.start_operation('Orienter Express: Reset Rotations', true)
+      
+        entities.each do |entity|
+          reset_rotations(entity)
+        end     
+      
+        model.commit_operation
+      
+        Sketchup.active_model.selection.clear
+      else
+        UI.messagebox(MSG_INVALID_SEL)
+      end
+    end
+    
   end # Module OrienterExpress
 end # Module ASM_Extensions
