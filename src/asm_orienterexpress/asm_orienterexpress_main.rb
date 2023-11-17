@@ -76,6 +76,8 @@ module ASM_Extensions
     @orienterexpress_menu.add_item("Z-axis Scaling") { OrienterExpress.orienterexpress_scale_z }
     @orienterexpress_menu.add_item("Uniform Scaling") { OrienterExpress.orienterexpress_scale_xyz }
     @orienterexpress_menu.add_item("Vertex Placement") { OrienterExpress.orienterexpress_vertex }
+    @orienterexpress_menu.add_separator
+    @orienterexpress_menu.add_item("Reset Rotations") { OrienterExpress.orienterexpress_reset_rotations }
     @OrienterExpress_loaded = true
   end 
 end # module ASM_Extensions

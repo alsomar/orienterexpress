@@ -85,7 +85,7 @@ module ASM_Extensions
     end
 
     # Orients the entity along the edge
-    def self.orient_entity(entity, edge)
+    def self.orient_z(entity, edge)
       entity_origin = entity.transformation.origin
       edge_direction = edge.line[1]
 
@@ -103,6 +103,37 @@ module ASM_Extensions
         entity.transform!(rotation)
       end
     end
+
+    def self.orient_y(entity, edge, tolerance = 0.00001)
+      return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+      
+      previous_angle = 0.0
+      z_axis = entity.transformation.zaxis
+      center = entity.bounds.center
+    
+      loop do
+        local_y_axis = entity.transformation.yaxis
+    
+        # Proyectar el eje Y local en el plano XY global
+        y_projection = Geom::Vector3d.new(local_y_axis.x, local_y_axis.y, 0)
+    
+        # Calcular el ángulo entre el eje Y local y su proyección en el plano XY
+        angle = local_y_axis.angle_between(y_projection)
+    
+        # Determinar la dirección de la rotación
+        cross_product = local_y_axis * y_projection
+        angle *= -1 if cross_product % z_axis < 0
+    
+        # Salir del bucle si el cambio en el ángulo es menor que la tolerancia
+        break if (angle - previous_angle).abs < tolerance
+    
+        previous_angle = angle
+    
+        # Crear y aplicar la transformación de rotación
+        rotation = Geom::Transformation.rotation(center, z_axis, angle)
+        entity.transform!(rotation)
+      end
+    end    
 
     # Moves the entity to the edge start
     def self.move_to_edge_start(entity, edge)
@@ -159,7 +190,8 @@ module ASM_Extensions
 
         entity_copy = create_entity_copy(entity)
         reset_rotations(entity_copy)
-        orient_entity(entity_copy, edge)
+        orient_z(entity_copy, edge)
+        orient_y(entity_copy, edge)
         move_to_edge_start(entity_copy, edge)
       end
 
@@ -194,7 +226,8 @@ module ASM_Extensions
       
         entity_copy = create_entity_copy(entity)
         reset_rotations(entity_copy)
-        orient_entity(entity_copy, edge)
+        orient_z(entity_copy, edge)
+        orient_y(entity_copy, edge)
         move_center2center(entity_copy, edge)
       end     
 
@@ -230,7 +263,8 @@ module ASM_Extensions
         entity_copy = create_entity_copy(entity)
         reset_rotations(entity_copy)
         scale_z(entity_copy, edge)
-        orient_entity(entity_copy, edge)
+        orient_z(entity_copy, edge)
+        orient_y(entity_copy, edge)
         move_center2center(entity_copy, edge)
       end     
     
@@ -266,7 +300,8 @@ module ASM_Extensions
         entity_copy = create_entity_copy(entity)
         reset_rotations(entity_copy)
         scale_xyz(entity_copy, edge)
-        orient_entity(entity_copy, edge)
+        orient_z(entity_copy, edge)
+        orient_y(entity_copy, edge)
         move_center2center(entity_copy, edge)
       end     
 
