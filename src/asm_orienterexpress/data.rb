@@ -161,9 +161,9 @@ module ASM_Extensions
     def self.orient_y(entity, _edge = nil, tolerance = 1e-6)
       return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
 
-      tr      = entity.transformation
-      z_axis  = tr.zaxis
-      y_axis  = tr.yaxis
+      transformation  = entity.transformation
+      z_axis          = transformation.zaxis
+      y_axis          = transformation.yaxis
 
       # Sanity checks
       return if z_axis.length < tolerance
