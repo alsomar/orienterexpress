@@ -4,8 +4,8 @@ module ASM_Extensions
     @dialog = nil # Settings dialog
 
     MESSAGES = {
-      no_selection: "Please select one or more groups/components.",
-      no_entities: "Please select at least a group/component."
+      invalid_sel: "Please select at least one or more edge AND a group/component.",
+      no_entities: "Please select at least one or more groups/components."
     }.freeze
 
     DEBUG = true
