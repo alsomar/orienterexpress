@@ -1,0 +1,599 @@
+module ASM_Extensions
+  module OrienterExpress
+
+    @dialog = nil # Settings dialog
+
+    MESSAGES = {
+      no_selection: "Please select one or more groups/components.",
+      invalid_sel: "Please select at least one edge and a group/component."
+    }.freeze
+
+    DEBUG = true
+
+    def self.debug_log(source, msg)
+      puts "[#{Time.now.strftime('%H:%M:%S')}][#{source}] #{msg}" if DEBUG
+    end
+
+    # Filters the input and returns only groups and components
+    def self.instances(e)
+      e.grep(Sketchup::Group).concat(e.grep(Sketchup::ComponentInstance))
+    end
+    
+    # METHODS
+
+    def self.dynamic_component?(entity)
+      return false unless entity.respond_to?(:attribute_dictionary)
+
+      entity.attribute_dictionary("dynamic_attributes") ||
+        (entity.respond_to?(:definition) &&
+        entity.definition.attribute_dictionary("dynamic_attributes"))
+    end
+
+    def self.fix_dc(entity)
+      begin
+        require 'su_dynamiccomponents'
+      rescue LoadError
+      end
+
+      return unless defined?($dc_observers)
+      
+      dc = $dc_observers.get_latest_class
+      return unless dc
+
+      return unless dynamic_component?(entity)
+
+      # FASE 2: construir lista de instancias a redibujar
+      instances = [entity]
+
+      # Opcional: incluir DCs hijos dentro de la entidad
+      if entity.respond_to?(:entities)
+        entity.entities.grep(Sketchup::ComponentInstance).each do |inst|
+          instances << inst if dynamic_component?(inst)
+        end
+      end
+
+      instances.each { |inst| dc.method(:redraw).call(inst, true, false) }
+    end
+    
+    # Scales the entity along the Z-axis based on the length of each edge
+    def self.z_scale(entity, edge)
+      scale_factor = edge.length / entity.bounds.depth
+      transformation = Geom::Transformation.scaling(entity.definition.bounds.center, 1, 1, scale_factor)
+      
+      if entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+        entity.transform!(transformation)
+      end
+    end
+    
+    # Applies uniform scaling to match Z-lengh and the edge length
+    def self.uniform_scale(entity, edge)
+      scale_factor = edge.length / entity.bounds.depth
+      transformation = Geom::Transformation.scaling(entity.definition.bounds.center, scale_factor, scale_factor, scale_factor)
+      
+      if entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+        entity.transform!(transformation)
+      end
+
+    end
+
+    def self.create_entity_copy(entity)
+      model = Sketchup.active_model
+      model.active_entities.add_instance(entity.definition, entity.transformation)
+    end
+
+    def self.reset_rotations(entity)
+      center = entity.bounds.center
+      transf = entity.transformation
+
+      # Align local Z with global Z
+      z_axis  = transf.zaxis
+      z_angle = z_axis.angle_between(Z_AXIS)
+
+      if z_angle.abs > 1e-6
+        axis_z = z_axis * Z_AXIS
+        rot_z  = Geom::Transformation.rotation(center, axis_z, z_angle)
+        entity.transform!(rot_z)
+        transf = entity.transformation
+      end
+
+      # Align local X with global X
+      x_axis  = transf.xaxis
+      x_angle = x_axis.angle_between(X_AXIS)
+
+      if x_angle.abs > 1e-6
+        axis_x = x_axis * X_AXIS
+        rot_x  = Geom::Transformation.rotation(center, axis_x, x_angle)
+        entity.transform!(rot_x)
+      end
+    end
+
+    # Orients the entity along the edge
+    def self.orient_z(entity, edge)
+      entity_origin = entity.transformation.origin
+      edge_direction = edge.line[1]
+
+      z_axis = entity.transformation.zaxis
+      angle = z_axis.angle_between(edge_direction)
+
+      # If the angle between vectors is zero (or very close to zero),
+      # then they are already aligned and no rotation is needed.
+      return if angle.abs < 1e-6
+
+      axis = z_axis.cross(edge_direction)
+
+      unless axis.length.zero?
+        rotation = Geom::Transformation.rotation(entity_origin, axis, angle)
+        entity.transform!(rotation)
+      end
+    end
+
+    def self.orient_y(entity, edge, tolerance = 0.00001)
+      return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+      
+      previous_angle = 0.0
+      z_axis = entity.transformation.zaxis
+      center = entity.bounds.center
+    
+      loop do
+        local_y_axis = entity.transformation.yaxis
+    
+        # Proyectar el eje Y local en el plano XY global
+        y_projection = Geom::Vector3d.new(local_y_axis.x, local_y_axis.y, 0)
+    
+        # Calcular el ángulo entre el eje Y local y su proyección en el plano XY
+        angle = local_y_axis.angle_between(y_projection)
+    
+        # Determinar la dirección de la rotación
+        cross_product = local_y_axis * y_projection
+        angle *= -1 if cross_product % z_axis < 0
+    
+        # Salir del bucle si el cambio en el ángulo es menor que la tolerancia
+        break if (angle - previous_angle).abs < tolerance
+    
+        previous_angle = angle
+    
+        # Crear y aplicar la transformación de rotación
+        rotation = Geom::Transformation.rotation(center, z_axis, angle)
+        entity.transform!(rotation)
+      end
+    end    
+
+    # Moves the entity to the edge start
+    def self.move_to_edge_start(entity, edge)
+      entity_origin = entity.transformation.origin
+      edge_start = edge.start.position
+
+      translation = Geom::Transformation.translation(edge_start - entity_origin)
+      entity.transform!(translation)
+    end
+
+    # Moves the entity to the edge center
+    def self.move_center2center(entity, edge)
+      gc_center_box = entity.bounds.center
+      edg_center = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+
+      vector_to_edge = edg_center - gc_center_box
+
+      translation = Geom::Transformation.translation(vector_to_edge)
+      entity.transform!(translation)
+    end
+
+    # Orients the entity to a specific point
+    def self.move_to_vertex(entity, point)
+      entity_center = entity.bounds.center
+
+      translation = Geom::Transformation.translation(point - entity_center)
+      entity.transform!(translation)
+    end
+
+    ### MAIN TOOLS ### -----------------------------------------------------------
+
+    def self.oeaxis
+      model = Sketchup.active_model
+      selection = model.selection
+
+      mt_name = __method__
+      start_time = Time.now if DEBUG
+
+      # Selection checks
+      targets = instances(selection)
+      edges   = selection.grep(Sketchup::Edge)
+
+      if targets.empty? || edges.empty?
+        missing = []
+        missing << "targets" if targets.empty?
+        missing << "edges"   if edges.empty?
+
+        UI.messagebox(MESAGES[:invalid_sel])
+        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
+        return
+      end
+
+      entity = targets.first
+
+      debug_log(mt_name, "-" * 50)
+      debug_log(mt_name, "Selection: #{selection.size} element(s)")
+
+      # Operation Start
+      op_name = "Orienter Express: Local Origin"
+      model.start_operation(op_name, true)
+      debug_log(mt_name, "Process started")
+
+      begin
+        edges.each do |edge|
+          next if edge.length.zero?
+          entity_copy = create_entity_copy(entity)
+          reset_rotations(entity_copy)
+          orient_z(entity_copy, edge)
+          orient_y(entity_copy, edge)
+          move_to_edge_start(entity_copy, edge)
+        end     
+        model.commit_operation
+        debug_log(mt_name, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if DEBUG
+          elapsed = Time.now - start_time
+          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+        end
+      end
+    end
+
+    def self.oecenter
+      model = Sketchup.active_model
+      selection = model.selection
+
+      mt_name = __method__
+      start_time = Time.now if DEBUG
+
+      # Selection checks
+      targets = instances(selection)
+      edges   = selection.grep(Sketchup::Edge)
+
+      if targets.empty? || edges.empty?
+        missing = []
+        missing << "targets" if targets.empty?
+        missing << "edges"   if edges.empty?
+
+        UI.messagebox(MESAGES[:invalid_sel])
+        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
+        return
+      end
+
+      entity = targets.first
+
+      debug_log(mt_name, "-" * 50)
+      debug_log(mt_name, "Selection: #{selection.size} element(s)")
+
+      # Operation Start
+      op_name = "Orienter Express: Edges Center"
+      model.start_operation(op_name, true)
+      debug_log(mt_name, "Process started")
+
+      begin
+        edges.each do |edge|
+          next if edge.length.zero?
+          entity_copy = create_entity_copy(entity)
+          reset_rotations(entity_copy)
+          orient_z(entity_copy, edge)
+          orient_y(entity_copy, edge)
+          move_center2center(entity_copy, edge)
+        end     
+        model.commit_operation
+        debug_log(mt_name, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if DEBUG
+          elapsed = Time.now - start_time
+          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+        end
+      end
+    end
+
+    def self.oezscale
+      model = Sketchup.active_model
+      selection = model.selection
+
+      mt_name = __method__
+      start_time = Time.now if DEBUG
+
+      # Selection checks
+      targets = instances(selection)
+      edges   = selection.grep(Sketchup::Edge)
+
+      if targets.empty? || edges.empty?
+        missing = []
+        missing << "targets" if targets.empty?
+        missing << "edges"   if edges.empty?
+
+        UI.messagebox(MESAGES[:invalid_sel])
+        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
+        return
+      end
+
+      entity = targets.first
+
+      debug_log(mt_name, "-" * 50)
+      debug_log(mt_name, "Selection: #{selection.size} element(s)")
+
+      # Operation Start
+      op_name = "Orienter Express: Z-Scaling"
+      model.start_operation(op_name, true)
+      debug_log(mt_name, "Process started")
+
+      begin
+        edges.each do |edge|
+          next if edge.length.zero?
+          entity_copy = create_entity_copy(entity)
+          reset_rotations(entity_copy)
+          z_scale(entity_copy, edge)
+          orient_z(entity_copy, edge)
+          orient_y(entity_copy, edge)
+          move_center2center(entity_copy, edge)
+          fix_dc(entity_copy)
+        end
+        model.commit_operation
+        debug_log(mt_name, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if DEBUG
+          elapsed = Time.now - start_time
+          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+        end
+
+      end
+    end
+
+    def self.oeuscale
+      model = Sketchup.active_model
+      selection = model.selection
+
+      mt_name = __method__
+      start_time = Time.now if DEBUG
+
+      # Selection checks
+      targets = instances(selection)
+      edges   = selection.grep(Sketchup::Edge)
+
+      if targets.empty? || edges.empty?
+        missing = []
+        missing << "targets" if targets.empty?
+        missing << "edges"   if edges.empty?
+
+        UI.messagebox(MESAGES[:invalid_sel])
+        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
+        return
+      end
+
+      entity = targets.first
+
+      debug_log(mt_name, "-" * 50)
+      debug_log(mt_name, "Selection: #{selection.size} element(s)")
+
+      # Operation Start
+      op_name = "Orienter Express: Uniform Scaling"
+      model.start_operation(op_name, true)
+      debug_log(mt_name, "Process started")
+
+      begin
+        edges.each do |edge|
+          next if edge.length.zero?
+          entity_copy = create_entity_copy(entity)
+          reset_rotations(entity_copy)
+          uniform_scale(entity_copy, edge)
+          orient_z(entity_copy, edge)
+          orient_y(entity_copy, edge)
+          move_center2center(entity_copy, edge)
+        end
+        model.commit_operation
+        debug_log(mt_name, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if DEBUG
+          elapsed = Time.now - start_time
+          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+        end
+      end
+
+    end
+
+    def self.oevertex
+      model = Sketchup.active_model
+      selection = model.selection
+
+      mt_name = __method__
+      start_time = Time.now if DEBUG
+
+      # Selection checks
+      targets = instances(selection)
+      edges   = selection.grep(Sketchup::Edge)
+
+      if targets.empty? || edges.empty?
+        missing = []
+        missing << "targets" if targets.empty?
+        missing << "edges"   if edges.empty?
+
+        UI.messagebox(MESAGES[:invalid_sel])
+        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
+        return
+      end
+
+      entity = targets.first
+
+      debug_log(mt_name, "-" * 50)
+      debug_log(mt_name, "Selection: #{selection.size} element(s)")
+
+      # Operation Start
+      op_name = "Orienter Express: Vertex Placing"
+      model.start_operation(op_name, true)
+      debug_log(mt_name, "Process started")
+
+      begin
+        vertices = edges.flat_map { |edge| [edge.start.position, edge.end.position] }.uniq { |vertex| vertex.to_a }
+
+        vertices.each do |vertex|
+          entity_copy = create_entity_copy(entity)
+          move_to_vertex(entity_copy, vertex)
+        end
+
+        model.commit_operation
+        debug_log(mt_name, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if DEBUG
+          elapsed = Time.now - start_time
+          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+        end
+      end
+    end
+
+    # EXTRA TOOLS
+    # Resets the rotation of the selected group or component
+    def self.oereset
+      model = Sketchup.active_model
+      selection = model.selection
+
+      targets = instances(selection)
+      
+      unless targets.empty?
+        model.start_operation('Orienter Express: Reset Rotations', true)
+      
+        targets.each do |entity|
+          reset_rotations(entity)
+        end     
+      
+        model.commit_operation
+      
+        Sketchup.active_model.selection.clear
+      else
+        UI.messagebox(MESAGES[:invalid_sel])
+      end
+    end
+    
+    ### SETTINGS ### -------------------------------------------------------------
+
+    DEFAULT_CONFIG = {
+      # General Options
+      language: "eng",
+      context_menu: false
+    }.freeze
+
+    def self.load_config
+      if File.exist?(CONFIG_FILE)
+        loaded = JSON.parse(File.read(CONFIG_FILE), symbolize_names: true)
+        DEFAULT_CONFIG.merge(loaded)
+      else
+        DEFAULT_CONFIG.dup
+      end
+    end
+
+    CONTEXT_ON = load_config
+
+    def self.save_config(config_hash)
+      begin
+        File.write(CONFIG_FILE, JSON.pretty_generate(config_hash))
+      rescue => e
+        puts "Failed to save config.\n #{e.message}"
+      end
+    end
+
+    def self.user_settings(settings)
+      mt_name = __method__
+
+      current = load_config
+
+      # Filter only the settings that actually changed
+      changed = {}
+
+      settings.each do |key, new_value|
+        old_value = current[key]
+        next if old_value == new_value  # skip if the value is unchanged
+        changed[key] = new_value
+      end
+
+      if changed.empty?
+        debug_log(mt_name, "All values already up-to-date.")
+        return
+      end
+
+      # Save only the updated settings to the config file
+      merged = current.merge(changed)
+      save_config(merged)
+
+      # Update the in-memory context only with the changed entries
+      CONTEXT_ON.merge!(changed)
+
+      # Log each updated setting on its own line
+      changed.each do |key, new_value|
+        old_value = current[key]
+        debug_log(mt_name, "Setting updated: #{key}: #{new_value.inspect}")
+      end
+    end
+
+    def self.settings_dialog
+      if @dialog && @dialog.visible?
+        @dialog.bring_to_front
+        return
+      end
+
+      html_file  = File.join(PATH_HTML, 'settings.html')
+      html_title = "#{PLUGIN_NAME} #{PLUGIN_VERSION}"
+
+      options = {
+        dialog_title: html_title,
+        preferences_key: "asm_extensions.htmldialog.testextension",
+        style: UI::HtmlDialog::STYLE_DIALOG,
+        resizable: false,
+        width: 420,
+        height: 600,
+        use_content_size: true
+      }
+
+      @dialog = UI::HtmlDialog.new(options)
+      @dialog.set_file(html_file)
+
+      # Sends current config to the dialog
+      @dialog.add_action_callback("ready") do |_context|
+        config = load_config
+
+        @dialog.execute_script("settingsJSON(#{config.to_json.inspect})")
+        @dialog.execute_script("infoJSON(#{EXTENSION.to_json.inspect})")
+      end
+
+      # Receives updated settings from JS and saves them
+      @dialog.add_action_callback("user_settings") do |_context, settings_json|
+        settings = JSON.parse(settings_json, symbolize_names: true)
+        user_settings(settings)
+      end
+
+      @dialog.center
+      @dialog.show
+    end
+
+  end # Module OrienterExpress
+end # Module ASM_Extensions

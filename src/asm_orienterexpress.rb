@@ -1,32 +1,55 @@
-require 'extensions' unless defined?(SketchupExtension)
+require 'json'
+require 'sketchup'
+require 'extensions'
 
 module ASM_Extensions
   module OrienterExpress
 
-    # Variables
-    PLUGIN_NAME = 'Orienter Express'.freeze
-    PLUGIN_VERSION = '1.1.0'.freeze
-    PLUGIN_DESCRIPTION = 'Align group/component copies along multiple selected edges.'.freeze
-    PLUGIN_AUTHOR = 'Alejandro Soriano'.freeze
-    PLUGIN_ID = File.basename(__FILE__, '.rb')
+    file = __FILE__.dup
+    folder_name = File.basename(file, '.*')
 
-    # Paths
-    PATH_ROOT = File.dirname(__FILE__)
-    PATH_ICON = File.join(PATH_ROOT, PLUGIN_ID, "icons")
-    FILE_DATA = File.join(PATH_ROOT, PLUGIN_ID, PLUGIN_ID+"_data.rb")
-    FILE_MAIN = File.join(PATH_ROOT, PLUGIN_ID, PLUGIN_ID+"_main.rb")
+    # Extension paths
+    PATH_ROOT = File.dirname(file).freeze
+    PATH = File.join(PATH_ROOT, folder_name).freeze
+    PATH_VENDOR = File.join(PATH, "vendor").freeze
+    PATH_ICONS = File.join(PATH, "icons").freeze
+    PATH_HTML = File.join(PATH, "html").freeze
 
-    # Extension Initialization
-    EXT_DATA = SketchupExtension.new(PLUGIN_NAME, FILE_MAIN)
+    # Config file
+    CONFIG_FOLDER = File.join(Dir.home, 'ASM_Extensions').freeze
+    FileUtils.mkdir_p(CONFIG_FOLDER)
+    CONFIG_FILE = File.join(CONFIG_FOLDER, ".#{folder_name}.json")
+    File.write(CONFIG_FILE, "{}") unless File.exist?(CONFIG_FILE)
+  
+    # Info file
+    extension_json_file = File.join(PATH, "extension.json")
+    extension_json = File.read(extension_json_file)
+    EXTENSION = ::JSON.parse(extension_json, symbolize_names: true).freeze
 
-    # Info
-    EXT_DATA.creator = PLUGIN_AUTHOR
-    EXT_DATA.version = PLUGIN_VERSION
-    EXT_DATA.copyright = "2022-#{Time.now.year}, #{PLUGIN_AUTHOR}"
-    EXT_DATA.description = PLUGIN_DESCRIPTION
+    PLUGIN = self
+    PLUGIN_NAME = EXTENSION[:name]
+    PLUGIN_VERSION = EXTENSION[:version]
+    PLUGIN_DESCRIPTION = EXTENSION[:description]
+    PLUGIN_AUTHOR = EXTENSION[:creator]
+    PLUGIN_COPYRIGHT = EXTENSION[:copyright]
 
-    # Register and load the extension on first install
-    Sketchup.register_extension(EXT_DATA, true)
+    # Prepares the extension for registration
+    unless file_loaded?(__FILE__)
+      loader = File.join(PATH, "main")
+
+      @ext = SketchupExtension.new(EXTENSION[:name], loader)
+      @ext.description = PLUGIN_DESCRIPTION
+      @ext.version = PLUGIN_VERSION
+      @ext.copyright = PLUGIN_COPYRIGHT
+      @ext.creator = PLUGIN_AUTHOR
+
+      Sketchup.register_extension(@ext, true)
+    end
+
+    # Provides access to the extension instance
+    def self.extension
+      @ext
+    end
 
   end # module OrienterExpress
 end # module ASM_Extensions
