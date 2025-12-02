@@ -107,6 +107,40 @@ module ASM_Extensions
       end
     end
 
+    def self.turbo_reset(entity, edge)
+      # Calcular el vector unitario de la arista
+      edge_vector = edge_unit_vector(edge)
+
+      # Usar align_axis con el vector unitario de la arista
+      align_axis(entity, global_center, local_z_axis, edge_vector)
+    end
+
+    def self.align_axis(entity, global_center, local_axis, target_axis, rotation_axis = nil)
+      # Calcular el ángulo entre el eje local y el eje objetivo
+      angle = local_axis.angle_between(target_axis)
+      return if angle.abs < 1e-6
+
+      # Determinar el eje de rotación
+      rotation_axis ||= local_axis.cross(target_axis)
+      return if rotation_axis.length.zero?
+
+      # Crear y aplicar la transformación de rotación
+      rotation_transformation = Geom::Transformation.rotation(global_center, rotation_axis, angle)
+      entity.transform!(rotation_transformation)
+    end
+
+    def self.turbo_orient(instance, edge)
+      start_point = edge.start.position
+      end_point   = edge.end.position
+      edge_vector = (end_point - start_point).normalize
+
+      transformation = instance.transformation
+      origin = transformation.origin
+      z_axis_world = transformation.zaxis
+
+      align_axis(instance, origin, z_axis_world, edge_vector)
+    end
+
     # Orients the entity along the edge
     def self.orient_z(entity, edge)
       entity_origin = entity.transformation.origin
@@ -227,6 +261,60 @@ module ASM_Extensions
           orient_z(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_to_edge_start(entity_copy, edge)
+        end     
+        model.commit_operation
+        debug_log(mt_name, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if DEBUG
+          elapsed = Time.now - start_time
+          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+        end
+      end
+    end
+
+    def self.turbocenter
+      model = Sketchup.active_model
+      selection = model.selection
+
+      mt_name = __method__
+      start_time = Time.now if DEBUG
+
+      # Selection checks
+      targets = instances(selection)
+      edges   = selection.grep(Sketchup::Edge)
+
+      if targets.empty? || edges.empty?
+        missing = []
+        missing << "targets" if targets.empty?
+        missing << "edges"   if edges.empty?
+
+        UI.messagebox(MESAGES[:invalid_sel])
+        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
+        return
+      end
+
+      entity = targets.first
+
+      debug_log(mt_name, "-" * 50)
+      debug_log(mt_name, "Selection: #{selection.size} element(s)")
+
+      # Operation Start
+      op_name = "Orienter Express: Edges Center"
+      model.start_operation(op_name, true)
+      debug_log(mt_name, "Process started")
+
+      begin
+        edges.each do |edge|
+          next if edge.length.zero?
+          entity_copy = create_entity_copy(entity)
+          turbo_orient(entity_copy, edge)
+          move_center2center(entity_copy, edge)
         end     
         model.commit_operation
         debug_log(mt_name, "Process DONE!")

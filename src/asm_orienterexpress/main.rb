@@ -126,7 +126,7 @@ module ASM_Extensions
       end
 
       def self.oecenter_tool
-        ASM_Extensions::OrienterExpress.oecenter
+        ASM_Extensions::OrienterExpress.turbocenter
       end
 
       def self.oezscale_tool
