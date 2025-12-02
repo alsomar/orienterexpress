@@ -158,36 +158,41 @@ module ASM_Extensions
       align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
-    def self.orient_y(entity, edge, tolerance = 0.00001)
+    def self.orient_y(entity, _edge = nil, tolerance = 1e-6)
       return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
-      
-      previous_angle = 0.0
-      z_axis = entity.transformation.zaxis
-      center = entity.bounds.center
-    
-      loop do
-        local_y_axis = entity.transformation.yaxis
-    
-        # Proyectar el eje Y local en el plano XY global
-        y_projection = Geom::Vector3d.new(local_y_axis.x, local_y_axis.y, 0)
-    
-        # Calcular el ángulo entre el eje Y local y su proyección en el plano XY
-        angle = local_y_axis.angle_between(y_projection)
-    
-        # Determinar la dirección de la rotación
-        cross_product = local_y_axis * y_projection
-        angle *= -1 if cross_product % z_axis < 0
-    
-        # Salir del bucle si el cambio en el ángulo es menor que la tolerancia
-        break if (angle - previous_angle).abs < tolerance
-    
-        previous_angle = angle
-    
-        # Crear y aplicar la transformación de rotación
-        rotation = Geom::Transformation.rotation(center, z_axis, angle)
-        entity.transform!(rotation)
-      end
-    end    
+
+      tr      = entity.transformation
+      z_axis  = tr.zaxis
+      y_axis  = tr.yaxis
+
+      # Sanity checks
+      return if z_axis.length < tolerance
+      return if y_axis.length < tolerance
+
+      z_axis = z_axis.clone.normalize
+      y_axis = y_axis.clone.normalize
+
+      # We want to rotate around z_axis so that y_axis becomes parallel to the global XY plane
+      # i.e. y_axis.z → 0
+
+      # Precompute some helpers
+      cross = z_axis * y_axis      # cross product
+      a = y_axis.z                 # current Z component of local Y (in world space)
+      b = cross.z                  # Z component of z_axis × y_axis
+
+      # If Y is already almost parallel to XY, do nothing
+      return if a.abs < tolerance && b.abs < tolerance
+
+      # Solve for the angle θ such that the rotated Y has zero Z component:
+      # a * cosθ + b * sinθ = 0  =>  tanθ = -a / b  =>  θ = atan2(-a, b)
+      angle = Math.atan2(-a, b)
+
+      return if angle.abs < tolerance
+
+      center   = entity.bounds.center
+      rotation = Geom::Transformation.rotation(center, z_axis, angle)
+      entity.transform!(rotation)
+    end
 
     # Moves the entity to the edge start
     def self.move_to_edge_start(entity, edge)
