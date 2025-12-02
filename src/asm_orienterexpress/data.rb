@@ -124,32 +124,37 @@ module ASM_Extensions
     end
 
     def self.align_axis(entity, global_center, local_axis, target_axis, rotation_axis = nil)
-      # Calcular el ángulo entre el eje local y el eje objetivo
+      # Compute the angle between the current axis and the target axis
       angle = local_axis.angle_between(target_axis)
-      return if angle.abs < 1e-6
+      return if angle.abs < 1e-6  # Skip if axes are already aligned
 
-      # Determinar el eje de rotación
+      # Determine the rotation axis
       rotation_axis ||= local_axis.cross(target_axis)
-      return if rotation_axis.length.zero?
+      return if rotation_axis.length.zero?  # Cannot rotate around a zero-length vector
 
-      # Crear y aplicar la transformación de rotación
+      # Build and apply the rotation transformation
       rotation_transformation = Geom::Transformation.rotation(global_center, rotation_axis, angle)
       entity.transform!(rotation_transformation)
     end
 
     def self.turbo_orient(instance, edge)
+      # Get the start and end points of the edge
       start_point = edge.start.position
       end_point   = edge.end.position
 
+      # Compute the edge direction vector
       edge_vector = (end_point - start_point)
-      return if edge_vector.length < 1e-6
+      return if edge_vector.length < 1e-6  # Skip if the edge is degenerate or has no length
 
+      # Normalize the edge vector to obtain a unit direction
       normal_vector = edge_vector.normalize
 
+      # Extract the instance transformation and world-space data
       transformation = instance.transformation
-      origin = transformation.origin
-      z_axis_world = transformation.zaxis
+      origin = transformation.origin          # Pivot point for rotation
+      z_axis_world = transformation.zaxis     # Local Z axis expressed in world coordinates
 
+      # Align the instance's Z axis to the edge direction
       align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
