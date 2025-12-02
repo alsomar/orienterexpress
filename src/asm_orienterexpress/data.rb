@@ -54,7 +54,23 @@ module ASM_Extensions
 
       instances.each { |inst| dc.method(:redraw).call(inst, true, false) }
     end
-    
+
+    def self.check_selection(edges, targets)
+      mt_name = __method__
+
+      if targets.empty? || edges.empty?
+        missing = []
+        missing << "targets" if targets.empty?
+        missing << "edges"   if edges.empty?
+
+        UI.messagebox(MESSAGES[:invalid_sel])
+        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
+        return false
+      end
+
+      true
+    end
+
     # Scales the entity along the Z-axis based on the length of each edge
     def self.z_scale(entity, edge)
       scale_factor = edge.length / entity.bounds.depth
@@ -137,26 +153,6 @@ module ASM_Extensions
       align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
-    # Orients the entity along the edge
-    def self.orient_z(entity, edge)
-      entity_origin = entity.transformation.origin
-      edge_direction = edge.line[1]
-
-      z_axis = entity.transformation.zaxis
-      angle = z_axis.angle_between(edge_direction)
-
-      # If the angle between vectors is zero (or very close to zero),
-      # then they are already aligned and no rotation is needed.
-      return if angle.abs < 1e-6
-
-      axis = z_axis.cross(edge_direction)
-
-      unless axis.length.zero?
-        rotation = Geom::Transformation.rotation(entity_origin, axis, angle)
-        entity.transform!(rotation)
-      end
-    end
-
     def self.orient_y(entity, edge, tolerance = 0.00001)
       return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
       
@@ -226,18 +222,10 @@ module ASM_Extensions
       start_time = Time.now if DEBUG
 
       # Selection checks
-      targets = instances(selection)
       edges   = selection.grep(Sketchup::Edge)
+      targets = instances(selection)
 
-      if targets.empty? || edges.empty?
-        missing = []
-        missing << "targets" if targets.empty?
-        missing << "edges"   if edges.empty?
-
-        UI.messagebox(MESAGES[:invalid_sel])
-        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
-        return
-      end
+      return unless check_selection(edges, targets)
 
       entity = targets.first
 
@@ -273,61 +261,6 @@ module ASM_Extensions
       end
     end
 
-    def self.turbocenter
-      model = Sketchup.active_model
-      selection = model.selection
-
-      mt_name = __method__
-      start_time = Time.now if DEBUG
-
-      # Selection checks
-      targets = instances(selection)
-      edges   = selection.grep(Sketchup::Edge)
-
-      if targets.empty? || edges.empty?
-        missing = []
-        missing << "targets" if targets.empty?
-        missing << "edges"   if edges.empty?
-
-        UI.messagebox(MESAGES[:invalid_sel])
-        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
-        return
-      end
-
-      entity = targets.first
-
-      debug_log(mt_name, "-" * 50)
-      debug_log(mt_name, "Selection: #{selection.size} element(s)")
-
-      # Operation Start
-      op_name = "Orienter Express: Edges Center"
-      model.start_operation(op_name, true)
-      debug_log(mt_name, "Process START")
-
-      begin
-        edges.each do |edge|
-          next if edge.length.zero?
-          entity_copy = create_entity_copy(entity)
-          turbo_orient(entity_copy, edge)
-          orient_y(entity_copy, edge)
-          move_center2center(entity_copy, edge)
-        end     
-        model.commit_operation
-        debug_log(mt_name, "Process DONE!")
-      rescue => e
-        model.abort_operation
-        UI.messagebox("Error: #{e.message}")
-        debug_log(mt_name, "Process ERROR #{e.message}")
-        debug_log(mt_name, e.backtrace.join("\n"))
-      ensure
-        model.active_view.refresh
-        if DEBUG
-          elapsed = Time.now - start_time
-          debug_log(mt_name, "Elapsed time: #{format('%.3f', elapsed)} sec.")
-        end
-      end
-    end
-
     def self.oecenter
       model = Sketchup.active_model
       selection = model.selection
@@ -336,18 +269,10 @@ module ASM_Extensions
       start_time = Time.now if DEBUG
 
       # Selection checks
-      targets = instances(selection)
       edges   = selection.grep(Sketchup::Edge)
+      targets = instances(selection)
 
-      if targets.empty? || edges.empty?
-        missing = []
-        missing << "targets" if targets.empty?
-        missing << "edges"   if edges.empty?
-
-        UI.messagebox(MESAGES[:invalid_sel])
-        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
-        return
-      end
+      return unless check_selection(edges, targets)
 
       entity = targets.first
 
@@ -391,18 +316,10 @@ module ASM_Extensions
       start_time = Time.now if DEBUG
 
       # Selection checks
-      targets = instances(selection)
       edges   = selection.grep(Sketchup::Edge)
+      targets = instances(selection)
 
-      if targets.empty? || edges.empty?
-        missing = []
-        missing << "targets" if targets.empty?
-        missing << "edges"   if edges.empty?
-
-        UI.messagebox(MESAGES[:invalid_sel])
-        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
-        return
-      end
+      return unless check_selection(edges, targets)
 
       entity = targets.first
 
@@ -448,18 +365,10 @@ module ASM_Extensions
       start_time = Time.now if DEBUG
 
       # Selection checks
-      targets = instances(selection)
       edges   = selection.grep(Sketchup::Edge)
+      targets = instances(selection)
 
-      if targets.empty? || edges.empty?
-        missing = []
-        missing << "targets" if targets.empty?
-        missing << "edges"   if edges.empty?
-
-        UI.messagebox(MESAGES[:invalid_sel])
-        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
-        return
-      end
+      return unless check_selection(edges, targets)
 
       entity = targets.first
 
@@ -504,18 +413,10 @@ module ASM_Extensions
       start_time = Time.now if DEBUG
 
       # Selection checks
-      targets = instances(selection)
       edges   = selection.grep(Sketchup::Edge)
+      targets = instances(selection)
 
-      if targets.empty? || edges.empty?
-        missing = []
-        missing << "targets" if targets.empty?
-        missing << "edges"   if edges.empty?
-
-        UI.messagebox(MESAGES[:invalid_sel])
-        debug_log(mt_name, "Invalid selection: missing #{missing.join(' & ')}") if DEBUG
-        return
-      end
+      return unless check_selection(edges, targets)
 
       entity = targets.first
 
