@@ -5,7 +5,7 @@ module ASM_Extensions
 
     MESSAGES = {
       no_selection: "Please select one or more groups/components.",
-      invalid_sel: "Please select at least one edge and a group/component."
+      no_entities: "Please select at least a group/component."
     }.freeze
 
     DEBUG = true
@@ -60,7 +60,7 @@ module ASM_Extensions
 
       if targets.empty? || edges.empty?
         missing = []
-        missing << "targets" if targets.empty?
+        missing << "entities" if targets.empty?
         missing << "edges"   if edges.empty?
 
         UI.messagebox(MESSAGES[:invalid_sel])
@@ -97,32 +97,6 @@ module ASM_Extensions
       model.active_entities.add_instance(entity.definition, entity.transformation)
     end
 
-    def self.reset_rotations(entity)
-      center = entity.bounds.center
-      transf = entity.transformation
-
-      # Align local Z with global Z
-      z_axis  = transf.zaxis
-      z_angle = z_axis.angle_between(Z_AXIS)
-
-      if z_angle.abs > 1e-6
-        axis_z = z_axis * Z_AXIS
-        rot_z  = Geom::Transformation.rotation(center, axis_z, z_angle)
-        entity.transform!(rot_z)
-        transf = entity.transformation
-      end
-
-      # Align local X with global X
-      x_axis  = transf.xaxis
-      x_angle = x_axis.angle_between(X_AXIS)
-
-      if x_angle.abs > 1e-6
-        axis_x = x_axis * X_AXIS
-        rot_x  = Geom::Transformation.rotation(center, axis_x, x_angle)
-        entity.transform!(rot_x)
-      end
-    end
-
     def self.align_axis(entity, global_center, local_axis, target_axis, rotation_axis = nil)
       # Compute the angle between the current axis and the target axis
       angle = local_axis.angle_between(target_axis)
@@ -137,33 +111,12 @@ module ASM_Extensions
       entity.transform!(rotation_transformation)
     end
 
-    def self.orient_z(instance, edge)
-      # Get the start and end points of the edge
-      start_point = edge.start.position
-      end_point   = edge.end.position
-
-      # Compute the edge direction vector
-      edge_vector = (end_point - start_point)
-      return if edge_vector.length < 1e-6  # Skip if the edge is degenerate or has no length
-
-      # Normalize the edge vector to obtain a unit direction
-      normal_vector = edge_vector.normalize
-
-      # Extract the instance transformation and world-space data
-      transformation = instance.transformation
-      origin = transformation.origin          # Pivot point for rotation
-      z_axis_world = transformation.zaxis     # Local Z axis expressed in world coordinates
-
-      # Align the instance's Z axis to the edge direction
-      align_axis(instance, origin, z_axis_world, normal_vector)
-    end
-
     def self.orient_y(entity, edge)
-
+      # Get the local transformation and axes of the entity
       transformation  = entity.transformation
-      z_axis          = transformation.zaxis
-      y_axis          = transformation.yaxis
-      tolerance       = 1e-6
+      z_axis          = transformation.zaxis  # Local Z axis (used as rotation axis)
+      y_axis          = transformation.yaxis  # Local Y axis (to be aligned with global XY)
+      tolerance       = 1e-6                  # Threshold to skip negligible rotations
 
       # Sanity checks
       return if z_axis.length < tolerance
@@ -192,6 +145,27 @@ module ASM_Extensions
       center   = entity.bounds.center
       rotation = Geom::Transformation.rotation(center, z_axis, angle)
       entity.transform!(rotation)
+    end
+
+    def self.orient_z(instance, edge)
+      # Get the start and end points of the edge
+      start_point = edge.start.position
+      end_point   = edge.end.position
+
+      # Compute the edge direction vector
+      edge_vector = (end_point - start_point)
+      return if edge_vector.length < 1e-6  # Skip if the edge is degenerate or has no length
+
+      # Normalize the edge vector to obtain a unit direction
+      normal_vector = edge_vector.normalize
+
+      # Extract the instance transformation and world-space data
+      transformation = instance.transformation
+      origin = transformation.origin          # Pivot point for rotation
+      z_axis_world = transformation.zaxis     # Local Z axis expressed in world coordinates
+
+      # Align the instance's Z axis to the edge direction
+      align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
     # Moves the entity to the edge start
@@ -461,26 +435,71 @@ module ASM_Extensions
       end
     end
 
-    # EXTRA TOOLS
-    # Resets the rotation of the selected group or component
+    ### EXTRA TOOLS ### ----------------------------------------------------------
+
     def self.oereset
       model = Sketchup.active_model
       selection = model.selection
 
+      mt_name = __method__
+      start_time = Time.now if DEBUG
+
+      # Selection checks
       targets = instances(selection)
-      
-      unless targets.empty?
-        model.start_operation('Orienter Express: Reset Rotations', true)
-      
+
+      if targets.empty?
+        UI.messagebox(MESSAGES[:no_entities])
+        debug_log(mt_name, "Invalid selection: missing entities") if DEBUG
+        return
+      end
+
+      debug_log(mt_name, "-" * 50)
+      debug_log(mt_name, "Selection: #{selection.size} element(s)")
+
+      # Operation Start
+      op_name = "Orienter Express: Reset Rotations"
+      model.start_operation(op_name, true)
+      debug_log(mt_name, "Process START")
+
+      begin
         targets.each do |entity|
-          reset_rotations(entity)
-        end     
-      
+          center = entity.bounds.center
+          transf = entity.transformation
+
+          # Align local Z with global Z
+          z_axis  = transf.zaxis
+          z_angle = z_axis.angle_between(Z_AXIS)
+
+          if z_angle.abs > 1e-6
+            axis_z = z_axis * Z_AXIS
+            rot_z  = Geom::Transformation.rotation(center, axis_z, z_angle)
+            entity.transform!(rot_z)
+            transf = entity.transformation
+          end
+
+          # Align local X with global X
+          x_axis  = transf.xaxis
+          x_angle = x_axis.angle_between(X_AXIS)
+
+          if x_angle.abs > 1e-6
+            axis_x = x_axis * X_AXIS
+            rot_x  = Geom::Transformation.rotation(center, axis_x, x_angle)
+            entity.transform!(rot_x)
+          end
+        end
         model.commit_operation
-      
-        Sketchup.active_model.selection.clear
-      else
-        UI.messagebox(MESAGES[:invalid_sel])
+        debug_log(mt_name, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        debug_log(mt_name, "Process ERROR #{e.message}")
+        debug_log(mt_name, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if DEBUG
+          elapsed = Time.now - start_time
+          debug_log(mt_name, "Elapsed time: #{format('%.3f', elapsed)} sec.")
+        end
       end
     end
     
