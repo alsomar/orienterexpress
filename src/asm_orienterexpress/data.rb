@@ -137,7 +137,7 @@ module ASM_Extensions
       entity.transform!(rotation_transformation)
     end
 
-    def self.turbo_orient(instance, edge)
+    def self.orient_z(instance, edge)
       # Get the start and end points of the edge
       start_point = edge.start.position
       end_point   = edge.end.position
@@ -158,12 +158,12 @@ module ASM_Extensions
       align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
-    def self.orient_y(entity, _edge = nil, tolerance = 1e-6)
-      return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+    def self.orient_y(entity, edge)
 
       transformation  = entity.transformation
       z_axis          = transformation.zaxis
       y_axis          = transformation.yaxis
+      tolerance       = 1e-6
 
       # Sanity checks
       return if z_axis.length < tolerance
@@ -251,7 +251,7 @@ module ASM_Extensions
         edges.each do |edge|
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
-          turbo_orient(entity_copy, edge)
+          orient_z(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_to_edge_start(entity_copy, edge)
         end     
@@ -298,7 +298,7 @@ module ASM_Extensions
         edges.each do |edge|
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
-          turbo_orient(entity_copy, edge)
+          orient_z(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end     
@@ -346,7 +346,7 @@ module ASM_Extensions
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
           z_scale(entity_copy, edge)
-          turbo_orient(entity_copy, edge)
+          orient_z(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_center2center(entity_copy, edge)
           # fix_dc(entity_copy)
@@ -395,7 +395,7 @@ module ASM_Extensions
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
           uniform_scale(entity_copy, edge)
-          turbo_orient(entity_copy, edge)
+          orient_z(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end
