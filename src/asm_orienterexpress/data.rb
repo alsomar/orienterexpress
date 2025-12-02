@@ -107,14 +107,6 @@ module ASM_Extensions
       end
     end
 
-    def self.turbo_reset(entity, edge)
-      # Calcular el vector unitario de la arista
-      edge_vector = edge_unit_vector(edge)
-
-      # Usar align_axis con el vector unitario de la arista
-      align_axis(entity, global_center, local_z_axis, edge_vector)
-    end
-
     def self.align_axis(entity, global_center, local_axis, target_axis, rotation_axis = nil)
       # Calcular el ángulo entre el eje local y el eje objetivo
       angle = local_axis.angle_between(target_axis)
@@ -132,13 +124,17 @@ module ASM_Extensions
     def self.turbo_orient(instance, edge)
       start_point = edge.start.position
       end_point   = edge.end.position
-      edge_vector = (end_point - start_point).normalize
+
+      edge_vector = (end_point - start_point)
+      return if edge_vector.length < 1e-6
+
+      normal_vector = edge_vector.normalize
 
       transformation = instance.transformation
       origin = transformation.origin
       z_axis_world = transformation.zaxis
 
-      align_axis(instance, origin, z_axis_world, edge_vector)
+      align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
     # Orients the entity along the edge
