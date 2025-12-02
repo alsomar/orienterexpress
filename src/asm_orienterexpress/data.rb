@@ -247,14 +247,13 @@ module ASM_Extensions
       # Operation Start
       op_name = "Orienter Express: Local Origin"
       model.start_operation(op_name, true)
-      debug_log(mt_name, "Process started")
+      debug_log(mt_name, "Process START")
 
       begin
         edges.each do |edge|
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
-          reset_rotations(entity_copy)
-          orient_z(entity_copy, edge)
+          turbo_orient(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_to_edge_start(entity_copy, edge)
         end     
@@ -303,13 +302,14 @@ module ASM_Extensions
       # Operation Start
       op_name = "Orienter Express: Edges Center"
       model.start_operation(op_name, true)
-      debug_log(mt_name, "Process started")
+      debug_log(mt_name, "Process START")
 
       begin
         edges.each do |edge|
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
           turbo_orient(entity_copy, edge)
+          orient_y(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end     
         model.commit_operation
@@ -317,13 +317,13 @@ module ASM_Extensions
       rescue => e
         model.abort_operation
         UI.messagebox("Error: #{e.message}")
-        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, "Process ERROR #{e.message}")
         debug_log(mt_name, e.backtrace.join("\n"))
       ensure
         model.active_view.refresh
         if DEBUG
           elapsed = Time.now - start_time
-          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+          debug_log(mt_name, "Elapsed time: #{format('%.3f', elapsed)} sec.")
         end
       end
     end
@@ -357,14 +357,13 @@ module ASM_Extensions
       # Operation Start
       op_name = "Orienter Express: Edges Center"
       model.start_operation(op_name, true)
-      debug_log(mt_name, "Process started")
+      debug_log(mt_name, "Process START")
 
       begin
         edges.each do |edge|
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
-          reset_rotations(entity_copy)
-          orient_z(entity_copy, edge)
+          turbo_orient(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end     
@@ -373,13 +372,13 @@ module ASM_Extensions
       rescue => e
         model.abort_operation
         UI.messagebox("Error: #{e.message}")
-        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, "Process ERROR #{e.message}")
         debug_log(mt_name, e.backtrace.join("\n"))
       ensure
         model.active_view.refresh
         if DEBUG
           elapsed = Time.now - start_time
-          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+          debug_log(mt_name, "Elapsed time: #{format('%.3f', elapsed)} sec.")
         end
       end
     end
@@ -413,33 +412,31 @@ module ASM_Extensions
       # Operation Start
       op_name = "Orienter Express: Z-Scaling"
       model.start_operation(op_name, true)
-      debug_log(mt_name, "Process started")
+      debug_log(mt_name, "Process START")
 
       begin
         edges.each do |edge|
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
-          reset_rotations(entity_copy)
           z_scale(entity_copy, edge)
-          orient_z(entity_copy, edge)
+          turbo_orient(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_center2center(entity_copy, edge)
-          fix_dc(entity_copy)
+          # fix_dc(entity_copy)
         end
         model.commit_operation
         debug_log(mt_name, "Process DONE!")
       rescue => e
         model.abort_operation
         UI.messagebox("Error: #{e.message}")
-        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, "Process ERROR #{e.message}")
         debug_log(mt_name, e.backtrace.join("\n"))
       ensure
         model.active_view.refresh
         if DEBUG
           elapsed = Time.now - start_time
-          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+          debug_log(mt_name, "Elapsed time: #{format('%.3f', elapsed)} sec.")
         end
-
       end
     end
 
@@ -472,15 +469,14 @@ module ASM_Extensions
       # Operation Start
       op_name = "Orienter Express: Uniform Scaling"
       model.start_operation(op_name, true)
-      debug_log(mt_name, "Process started")
+      debug_log(mt_name, "Process START")
 
       begin
         edges.each do |edge|
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
-          reset_rotations(entity_copy)
           uniform_scale(entity_copy, edge)
-          orient_z(entity_copy, edge)
+          turbo_orient(entity_copy, edge)
           orient_y(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end
@@ -489,16 +485,15 @@ module ASM_Extensions
       rescue => e
         model.abort_operation
         UI.messagebox("Error: #{e.message}")
-        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, "Process ERROR #{e.message}")
         debug_log(mt_name, e.backtrace.join("\n"))
       ensure
         model.active_view.refresh
         if DEBUG
           elapsed = Time.now - start_time
-          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+          debug_log(mt_name, "Elapsed time: #{format('%.3f', elapsed)} sec.")
         end
       end
-
     end
 
     def self.oevertex
@@ -530,7 +525,7 @@ module ASM_Extensions
       # Operation Start
       op_name = "Orienter Express: Vertex Placing"
       model.start_operation(op_name, true)
-      debug_log(mt_name, "Process started")
+      debug_log(mt_name, "Process START")
 
       begin
         vertices = edges.flat_map { |edge| [edge.start.position, edge.end.position] }.uniq { |vertex| vertex.to_a }
@@ -539,19 +534,18 @@ module ASM_Extensions
           entity_copy = create_entity_copy(entity)
           move_to_vertex(entity_copy, vertex)
         end
-
         model.commit_operation
         debug_log(mt_name, "Process DONE!")
       rescue => e
         model.abort_operation
         UI.messagebox("Error: #{e.message}")
-        debug_log(mt_name, "Process ERROR! #{e.message}")
+        debug_log(mt_name, "Process ERROR #{e.message}")
         debug_log(mt_name, e.backtrace.join("\n"))
       ensure
         model.active_view.refresh
         if DEBUG
           elapsed = Time.now - start_time
-          debug_log(mt_name, "Process finished (#{format('%.3f', elapsed)} s)")
+          debug_log(mt_name, "Elapsed time: #{format('%.3f', elapsed)} sec.")
         end
       end
     end
