@@ -51,7 +51,9 @@ module ASM_Extensions
       entity.transform!(rotation_transformation)
     end
 
-    def self.orient_y(entity, edge)
+    # Rotates the entity around its local Z axis so that the local Y axis
+    # ends up parallel to the global ground plane (Y component of Z = 0).
+    def self.orient_y(entity, _edge)
       transformation  = entity.transformation
       z_axis          = transformation.zaxis
       y_axis          = transformation.yaxis
@@ -60,11 +62,39 @@ module ASM_Extensions
       return if z_axis.length < tolerance
       return if y_axis.length < tolerance
 
-      z_axis = z_axis.clone.normalize
-      y_axis = y_axis.clone.normalize
+      z_axis = z_axis.normalize
+      y_axis = y_axis.normalize
 
       cross = z_axis * y_axis
       a = y_axis.z
+      b = cross.z
+
+      return if a.abs < tolerance && b.abs < tolerance
+
+      angle = Math.atan2(-a, b)
+      return if angle.abs < tolerance
+
+      center   = entity.bounds.center
+      rotation = Geom::Transformation.rotation(center, z_axis, angle)
+      entity.transform!(rotation)
+    end
+
+    # Rotates the entity around its local Z axis so that the local X axis
+    # ends up parallel to the global ground plane (X component of Z = 0).
+    def self.orient_x(entity, _edge)
+      transformation  = entity.transformation
+      z_axis          = transformation.zaxis
+      x_axis          = transformation.xaxis
+      tolerance       = 1e-6
+
+      return if z_axis.length < tolerance
+      return if x_axis.length < tolerance
+
+      z_axis = z_axis.normalize
+      x_axis = x_axis.normalize
+
+      cross = z_axis * x_axis
+      a = x_axis.z
       b = cross.z
 
       return if a.abs < tolerance && b.abs < tolerance
@@ -145,7 +175,7 @@ module ASM_Extensions
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
           orient_z(entity_copy, edge)
-          orient_y(entity_copy, edge)
+          orient_x(entity_copy, edge)
           move_to_edge_start(entity_copy, edge)
         end
         model.commit_operation
@@ -189,7 +219,7 @@ module ASM_Extensions
           next if edge.length.zero?
           entity_copy = create_entity_copy(entity)
           orient_z(entity_copy, edge)
-          orient_y(entity_copy, edge)
+          orient_x(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end
         model.commit_operation
@@ -234,7 +264,7 @@ module ASM_Extensions
           entity_copy = create_entity_copy(entity)
           z_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
-          orient_y(entity_copy, edge)
+          orient_x(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end
         model.commit_operation
@@ -279,7 +309,7 @@ module ASM_Extensions
           entity_copy = create_entity_copy(entity)
           uniform_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
-          orient_y(entity_copy, edge)
+          orient_x(entity_copy, edge)
           move_center2center(entity_copy, edge)
         end
         model.commit_operation

@@ -11,6 +11,9 @@ vendor/bundle/
 .yardoc/
 .yardopts
 
+# SketchUp
+*.skb
+
 # OS
 .DS_Store
 Thumbs.db
