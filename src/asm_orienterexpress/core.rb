@@ -1,9 +1,14 @@
-Sketchup.require 'asm_orienterexpress/data'
+Sketchup.require 'asm_orienterexpress/config/init_config'
+Sketchup.require 'asm_orienterexpress/lang/init_lang'
+Sketchup.require 'asm_orienterexpress/ops/init_ops'
+Sketchup.require 'asm_orienterexpress/dialogs/init_dialogs'
 
 module ASM_Extensions
   module OrienterExpress
 
     ### MENU & TOOLBARS ### ------------------------------------------------------
+
+    Lang.configure(CONFIG[:language] || "auto")
 
     unless file_loaded?(__FILE__)
 
@@ -18,64 +23,64 @@ module ASM_Extensions
       end
 
       # Commands
-      cmd = UI::Command.new('Origin Placement') {self.oeaxis_tool}
+      cmd = UI::Command.new(Lang.commands.oeaxis.label.to_s) { self.oeaxis_tool }
       cmd.small_icon = self.icon("oeaxis_24")
       cmd.large_icon = self.icon("oeaxis_24")
-      cmd.status_bar_text = 'This one stands for axis.'
-      cmd.tooltip = 'Origin Placement'
+      cmd.status_bar_text = Lang.commands.oeaxis.status
+      cmd.tooltip = Lang.commands.oeaxis.tooltip
       cmd_oeaxis = cmd
       @commands[:oeaxis] = cmd
 
-      cmd = UI::Command.new('Center Placement') {self.oecenter_tool}
+      cmd = UI::Command.new(Lang.commands.oecenter.label.to_s) { self.oecenter_tool }
       cmd.small_icon = self.icon("oecenter_24")
       cmd.large_icon = self.icon("oecenter_24")
-      cmd.status_bar_text = 'This one stands for Benicarló.'
-      cmd.tooltip = 'Center Placement'
+      cmd.status_bar_text = Lang.commands.oecenter.status
+      cmd.tooltip = Lang.commands.oecenter.tooltip
       cmd_oecenter = cmd
       @commands[:oecenter] = cmd
 
-      cmd = UI::Command.new('Z-axis Scaling') {self.oezscale_tool}
+      cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
       cmd.small_icon = self.icon("oezscale_24")
       cmd.large_icon = self.icon("oezscale_24")
-      cmd.status_bar_text = 'This one stands for Santa Pola.'
-      cmd.tooltip = 'Z-axis Scaling'
+      cmd.status_bar_text = Lang.commands.oezscale.status
+      cmd.tooltip = Lang.commands.oezscale.tooltip
       cmd_oezscale = cmd
       @commands[:oezscale] = cmd
 
-      cmd = UI::Command.new('Uniform Scaling') {self.oeuscale_tool}
+      cmd = UI::Command.new(Lang.commands.oeuscale.label.to_s) { self.oeuscale_tool }
       cmd.small_icon = self.icon("oeuscale_24")
       cmd.large_icon = self.icon("oeuscale_24")
-      cmd.status_bar_text = 'This one stands for Algeciras.'
-      cmd.tooltip = 'Uniform Scaling'
+      cmd.status_bar_text = Lang.commands.oeuscale.status
+      cmd.tooltip = Lang.commands.oeuscale.tooltip
       cmd_oeuscale = cmd
       @commands[:oeuscale] = cmd
 
-      cmd = UI::Command.new('Vertex Placement') {self.oevertex_tool}
+      cmd = UI::Command.new(Lang.commands.oevertex.label.to_s) { self.oevertex_tool }
       cmd.small_icon = self.icon("oevertex_24")
       cmd.large_icon = self.icon("oevertex_24")
-      cmd.status_bar_text = 'This one stands for Algeciras.'
-      cmd.tooltip = 'Vertex Placement'
+      cmd.status_bar_text = Lang.commands.oevertex.status
+      cmd.tooltip = Lang.commands.oevertex.tooltip
       cmd_oevertex = cmd
       @commands[:oevertex] = cmd
 
-      cmd = UI::Command.new('Reset Rotations') {self.oereset_tool}
+      cmd = UI::Command.new(Lang.commands.oereset.label.to_s) { self.oereset_tool }
       cmd.small_icon = self.icon("oereset_24")
       cmd.large_icon = self.icon("oereset_24")
-      cmd.status_bar_text = 'This one stands for Algeciras.'
-      cmd.tooltip = 'Reset Rotations'
+      cmd.status_bar_text = Lang.commands.oereset.status
+      cmd.tooltip = Lang.commands.oereset.tooltip
       cmd_oereset = cmd
       @commands[:oereset] = cmd
 
-      cmd = UI::Command.new('OrienterExpress Settings') {self.settings_tool}
+      cmd = UI::Command.new(Lang.commands.settings.label.to_s) { self.settings_tool }
       cmd.small_icon = self.icon("settings_24")
       cmd.large_icon = self.icon("settings_24")
-      cmd.status_bar_text = 'Settings'
-      cmd.tooltip = 'OrienterExpress Settings'
+      cmd.status_bar_text = Lang.commands.settings.status
+      cmd.tooltip = Lang.commands.settings.tooltip
       cmd_settings = cmd
       @commands[:settings] = cmd
 
       # Menu
-      menu = UI.menu('Extensions').add_submenu(PLUGIN_NAME)
+      menu = UI.menu('Extensions').add_submenu(EXT_NAME)
       menu.add_item(cmd_oeaxis)
       menu.add_item(cmd_oecenter)
       menu.add_item(cmd_oezscale)
@@ -88,8 +93,8 @@ module ASM_Extensions
 
       # Context menu
       UI.add_context_menu_handler do |context_menu|
-        next unless CONTEXT_ON[:context_menu]
-        menu = context_menu.add_submenu(PLUGIN_NAME)
+        next unless CONFIG[:context_menu]
+        menu = context_menu.add_submenu(EXT_NAME)
         menu.add_item(cmd_oeaxis)
         menu.add_item(cmd_oecenter)
         menu.add_item(cmd_oezscale)
@@ -102,7 +107,7 @@ module ASM_Extensions
       end
 
       # Toolbar
-      toolbar = UI::Toolbar.new (PLUGIN_NAME)
+      toolbar = UI::Toolbar.new(EXT_NAME)
       toolbar.add_item(cmd_oeaxis)
       toolbar.add_item(cmd_oecenter)
       toolbar.add_item(cmd_oezscale)
@@ -119,7 +124,7 @@ module ASM_Extensions
         toolbar.show
       end
 
-      ## MAIN SCRIPTS ## ---------------------------------------------------------
+      ## TOOL METHODS ## ---------------------------------------------------------
 
       def self.oeaxis_tool
         ASM_Extensions::OrienterExpress.oeaxis
@@ -146,7 +151,7 @@ module ASM_Extensions
       end
 
       def self.settings_tool
-        ASM_Extensions::OrienterExpress.settings_dialog
+        ASM_Extensions::OrienterExpress::Dialogs.settings_dialog
       end
 
       file_loaded(__FILE__)

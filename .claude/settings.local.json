@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /d/Code/Projects/orienterexpress -not -path */.git/* -type d)",
+      "Read(//d/Code/Projects/TestExt/**)",
+      "Bash(wc -l d:/Code/Projects/TestExt/src/asm_testext/*.rb d:/Code/Projects/TestExt/src/asm_testext/*/*.rb d:/Code/Projects/TestExt/src/asm_testext/*/*/*.rb)",
+      "Bash(git checkout:*)",
+      "Bash(bundle install:*)",
+      "Bash(bundle exec:*)"
+    ]
+  }
+}

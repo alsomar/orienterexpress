@@ -1,0 +1,21 @@
+# Bundler
+Gemfile.lock
+.bundle/
+vendor/bundle/
+
+# RuboCop cache
+.rubocop-https---*/
+
+# Solargraph
+.solargraph.yml
+.yardoc/
+.yardopts
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+*.swp
+*~
