@@ -1,11 +1,11 @@
 module ASM_Extensions
   module OrienterExpress
 
-    INFO_NAME    = EXTENSION[:name].to_s.freeze
-    INFO_AUTHOR  = EXTENSION[:creator].to_s.freeze
+    INFO_NAME    = "Orienter Express"
+    INFO_AUTHOR  = "Alejandro Soriano"
     INFO_VERSION = EXTENSION[:version].to_s.freeze
     INFO_UPDATE  = EXTENSION[:update].to_s.freeze
-    INFO_COPY    = "\u00A9 #{INFO_AUTHOR}, 2025"
+    INFO_COPY    = "\u00A9 #{INFO_AUTHOR}, 2026"
 
     def self.format_update_date(locale = "en-US")
       parts = INFO_UPDATE.split("-").map(&:to_i)

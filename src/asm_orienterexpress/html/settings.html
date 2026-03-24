@@ -8,7 +8,8 @@
   <link href="../libs/asav.css" rel="stylesheet">
   <script src="../vendor/modus/jquery.js"></script>
   <script src="../vendor/modus/bootstrap.bundle.min.js"></script>
-  <script src="../vendor/vue.js"></script>
+  <script src="../vendor/vue.min.js"></script>
+  <!-- <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script> -->
   <script src="../libs/asav.js"></script>
 </head>
 <body>
@@ -130,7 +131,7 @@
                     </div>
 
                     <!-- Show Reset Button -->
-                    <div class="custom-control custom-switch mt-2">
+                    <div class="custom-control custom-switch">
                       <input type="checkbox" class="custom-control-input" v-model="showReset" id="showReset">
                       <label class="custom-control-label" for="showReset">{{ t('html.settings.reset_button') }}</label>
                     </div>
@@ -201,7 +202,7 @@
         </div>
       </div>
 
-      <!-- Reset Confirm Modal -->
+      <!-- Modal: Reset Confirm -->
       <div class="modal fade" id="resetConfirmModal" tabindex="-1" role="dialog" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered" role="document">
           <div class="modal-content">
@@ -226,6 +227,7 @@
           <span>{{ t('html.info.copyright') }}</span>
         </p>
       </div>
+
     </div>
   </div>
 
