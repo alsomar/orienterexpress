@@ -51,7 +51,14 @@ module ASM_Extensions
       return if angle.abs < 1e-6
 
       rotation_axis ||= local_axis.cross(target_axis)
-      return if rotation_axis.length.zero?
+
+      if rotation_axis.length < 1e-6
+        # Antiparallel case (180°): cross product is undefined, pick any perpendicular axis.
+        rotation_axis = local_axis.cross(X_AXIS)
+        rotation_axis = local_axis.cross(Y_AXIS) if rotation_axis.length < 1e-6
+      end
+
+      return if rotation_axis.length < 1e-6
 
       rotation_transformation = Geom::Transformation.rotation(global_center, rotation_axis, angle)
       entity.transform!(rotation_transformation)
