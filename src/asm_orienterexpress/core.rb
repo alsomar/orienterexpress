@@ -63,6 +63,18 @@ module ASM_Extensions
       cmd_oevertex = cmd
       @commands[:oevertex] = cmd
 
+      cmd = UI::Command.new(Lang.commands.oeflow.label.to_s) { self.oeflow_tool }
+      cmd.status_bar_text = Lang.commands.oeflow.status
+      cmd.tooltip = Lang.commands.oeflow.tooltip
+      cmd_oeflow = cmd
+      @commands[:oeflow] = cmd
+
+      cmd = UI::Command.new(Lang.commands.oeface.label.to_s) { self.oeface_tool }
+      cmd.status_bar_text = Lang.commands.oeface.status
+      cmd.tooltip = Lang.commands.oeface.tooltip
+      cmd_oeface = cmd
+      @commands[:oeface] = cmd
+
       cmd = UI::Command.new(Lang.commands.oereset.label.to_s) { self.oereset_tool }
       cmd.small_icon = self.icon("oereset_24")
       cmd.large_icon = self.icon("oereset_24")
@@ -86,6 +98,8 @@ module ASM_Extensions
       menu.add_item(cmd_oezscale)
       menu.add_item(cmd_oeuscale)
       menu.add_item(cmd_oevertex)
+      menu.add_item(cmd_oeflow)
+      menu.add_item(cmd_oeface)
       menu.add_separator
       menu.add_item(cmd_oereset)
       menu.add_separator
@@ -100,6 +114,8 @@ module ASM_Extensions
         menu.add_item(cmd_oezscale)
         menu.add_item(cmd_oeuscale)
         menu.add_item(cmd_oevertex)
+        menu.add_item(cmd_oeflow)
+        menu.add_item(cmd_oeface)
         menu.add_separator
         menu.add_item(cmd_oereset)
         menu.add_separator
@@ -113,6 +129,8 @@ module ASM_Extensions
       toolbar.add_item(cmd_oezscale)
       toolbar.add_item(cmd_oeuscale)
       toolbar.add_item(cmd_oevertex)
+      toolbar.add_item(cmd_oeflow)
+      toolbar.add_item(cmd_oeface)
       toolbar.add_separator
       toolbar.add_item(cmd_oereset)
       toolbar.add_separator
@@ -144,6 +162,14 @@ module ASM_Extensions
 
       def self.oevertex_tool
         ASM_Extensions::OrienterExpress.oevertex
+      end
+
+      def self.oeflow_tool
+        ASM_Extensions::OrienterExpress.oeflow
+      end
+
+      def self.oeface_tool
+        ASM_Extensions::OrienterExpress.oeface
       end
 
       def self.oereset_tool

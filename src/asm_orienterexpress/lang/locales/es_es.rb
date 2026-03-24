@@ -31,6 +31,16 @@ module ASM_Extensions
               tooltip: "Colocación en vértices",
               status:  "Coloca copias en los vértices de las aristas."
             },
+            oeflow: {
+              label:   "Colocación en flujo",
+              tooltip: "Colocación en flujo",
+              status:  "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes."
+            },
+            oeface: {
+              label:   "Colocación en cara",
+              tooltip: "Colocación en cara",
+              status:  "Coloca copias en el centroide de cada cara, orientadas según la normal."
+            },
             oereset: {
               label:   "Resetear rotaciones",
               tooltip: "Resetear rotaciones",

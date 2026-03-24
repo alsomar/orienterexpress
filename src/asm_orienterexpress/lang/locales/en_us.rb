@@ -31,6 +31,16 @@ module ASM_Extensions
               tooltip: "Vertex Placement",
               status:  "Place copies at edge vertices."
             },
+            oeflow: {
+              label:   "Flow Placement",
+              tooltip: "Flow Placement",
+              status:  "Place oriented copies at vertices, aligned to the incoming edge flow."
+            },
+            oeface: {
+              label:   "Face Placement",
+              tooltip: "Face Placement",
+              status:  "Place copies at face centroids, oriented along the face normal."
+            },
             oereset: {
               label:   "Reset Rotations",
               tooltip: "Reset Rotations",

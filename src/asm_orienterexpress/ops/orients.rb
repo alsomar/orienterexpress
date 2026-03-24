@@ -148,6 +148,51 @@ module ASM_Extensions
       entity.transform!(translation)
     end
 
+    # Moves the entity so the center of its local -Z face (definition space)
+    # lands on the given point. Used to place components flush against a surface.
+    def self.move_bottom_to(entity, point)
+      db           = entity.definition.bounds
+      local_bottom = Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+      world_bottom = entity.transformation * local_bottom
+      translation  = Geom::Transformation.translation(point - world_bottom)
+      entity.transform!(translation)
+    end
+
+    # Returns the centroid of a face as the average position of its outer loop vertices.
+    def self.face_centroid(face)
+      verts = face.outer_loop.vertices
+      n = verts.length.to_f
+      x = verts.sum { |v| v.position.x } / n
+      y = verts.sum { |v| v.position.y } / n
+      z = verts.sum { |v| v.position.z } / n
+      Geom::Point3d.new(x, y, z)
+    end
+
+    # For a given vertex, computes the sum of unit vectors pointing FROM each
+    # connected edge's other endpoint TO the vertex. Returns the normalized
+    # result, or nil if the vectors cancel out or no valid edges are found.
+    def self.vertex_flow_direction(vertex, edges)
+      sum_x = 0.0
+      sum_y = 0.0
+      sum_z = 0.0
+
+      edges.each do |edge|
+        other = (edge.start == vertex) ? edge.end.position : edge.start.position
+        dir   = vertex.position - other
+        next if dir.length < 1e-6
+
+        n      = dir.normalize
+        sum_x += n.x
+        sum_y += n.y
+        sum_z += n.z
+      end
+
+      result = Geom::Vector3d.new(sum_x, sum_y, sum_z)
+      return nil if result.length < 1e-6
+
+      result.normalize
+    end
+
     ### MAIN TOOLS ### ------------------------------------------------------------
 
     def self.oeaxis
@@ -371,6 +416,110 @@ module ASM_Extensions
       end
     end
 
+    def self.oeflow
+      model     = Sketchup.active_model
+      selection = model.selection
+      method_id = __method__
+
+      edges   = selection.grep(Sketchup::Edge)
+      targets = instances(selection)
+
+      return unless check_selection(edges, targets)
+
+      entity = targets.first
+
+      start_time = Time.now if Debug.enabled
+      Debug.separator
+      Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
+
+      # Group selected edges by their Sketchup::Vertex objects
+      vertex_edges = {}
+      edges.each do |edge|
+        [edge.start, edge.end].each do |vertex|
+          vertex_edges[vertex] ||= []
+          vertex_edges[vertex] << edge
+        end
+      end
+
+      op_name = "Orienter Express: Flow Placing"
+      model.start_operation(op_name, true)
+      Debug.log(self, method_id, "Process START")
+
+      begin
+        vertex_edges.each do |vertex, connected|
+          direction = vertex_flow_direction(vertex, connected)
+          next unless direction
+
+          entity_copy = create_entity_copy(entity)
+          t           = entity_copy.transformation
+          align_axis(entity_copy, t.origin, t.zaxis, direction)
+          orient_x(entity_copy, nil)
+          move_to_vertex(entity_copy, vertex.position)
+        end
+        model.commit_operation
+        Debug.log(self, method_id, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        Debug.log(self, method_id, "ERROR #{e.class}: #{e.message}")
+        Debug.log(self, method_id, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if Debug.enabled
+          elapsed = Time.now - start_time
+          Debug.log(self, method_id, "Process DONE! Elapsed #{format('%.3f', elapsed)} sec.")
+        end
+      end
+    end
+
+    def self.oeface
+      model     = Sketchup.active_model
+      selection = model.selection
+      method_id = __method__
+
+      faces   = selection.grep(Sketchup::Face)
+      targets = instances(selection)
+
+      return unless check_face_selection(faces, targets)
+
+      entity = targets.first
+
+      start_time = Time.now if Debug.enabled
+      Debug.separator
+      Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
+
+      op_name = "Orienter Express: Face Placement"
+      model.start_operation(op_name, true)
+      Debug.log(self, method_id, "Process START")
+
+      begin
+        faces.each do |face|
+          normal = face.normal
+          next if normal.length < 1e-6
+
+          centroid    = face_centroid(face)
+          entity_copy = create_entity_copy(entity)
+          t           = entity_copy.transformation
+          align_axis(entity_copy, t.origin, t.zaxis, normal)
+          orient_x(entity_copy, nil)
+          move_bottom_to(entity_copy, centroid)
+        end
+        model.commit_operation
+        Debug.log(self, method_id, "Process DONE!")
+      rescue => e
+        model.abort_operation
+        UI.messagebox("Error: #{e.message}")
+        Debug.log(self, method_id, "ERROR #{e.class}: #{e.message}")
+        Debug.log(self, method_id, e.backtrace.join("\n"))
+      ensure
+        model.active_view.refresh
+        if Debug.enabled
+          elapsed = Time.now - start_time
+          Debug.log(self, method_id, "Process DONE! Elapsed #{format('%.3f', elapsed)} sec.")
+        end
+      end
+    end
+
     ### EXTRA TOOLS ### -----------------------------------------------------------
 
     def self.oereset
@@ -431,6 +580,9 @@ module ASM_Extensions
         end
       end
     end
+
+    private_class_method :face_centroid
+    private_class_method :vertex_flow_direction
 
   end # module OrienterExpress
 end # module ASM_Extensions

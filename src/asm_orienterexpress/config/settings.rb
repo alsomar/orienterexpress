@@ -15,8 +15,9 @@ module ASM_Extensions
     }.freeze
 
     MESSAGES = {
-      invalid_sel: "Please select at least one or more edges AND one group/component.",
-      no_entities: "Please select at least one or more groups/components."
+      invalid_sel:      "Please select at least one or more edges AND one group/component.",
+      invalid_face_sel: "Please select at least one or more faces AND one group/component.",
+      no_entities:      "Please select at least one or more groups/components."
     }.freeze
 
     def self.ensure_config

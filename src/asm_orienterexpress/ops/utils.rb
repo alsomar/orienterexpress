@@ -17,6 +17,22 @@ module ASM_Extensions
       true
     end
 
+    def self.check_face_selection(faces, targets)
+      method_id = __method__
+
+      if targets.empty? || faces.empty?
+        missing = []
+        missing << "entities" if targets.empty?
+        missing << "faces"    if faces.empty?
+
+        UI.messagebox(MESSAGES[:invalid_face_sel])
+        Debug.log(self, method_id, "Invalid selection: missing #{missing.join(' & ')}")
+        return false
+      end
+
+      true
+    end
+
     def self.check_targets(targets)
       method_id = __method__
 
