@@ -6,7 +6,7 @@ module ASM_Extensions
     # Scales the entity along its local Z-axis to match the edge length.
     # Only the Z column of the transformation matrix is modified.
     def self.z_scale(entity, edge)
-      return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+      return unless instance?(entity)
 
       db    = entity.definition.bounds
       def_z = (db.max.z - db.min.z).abs
@@ -26,7 +26,7 @@ module ASM_Extensions
     # Scales all axes uniformly so that the Z extent matches the edge length.
     # The ratio between X, Y, Z scales is preserved.
     def self.uniform_scale(entity, edge)
-      return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
+      return unless instance?(entity)
 
       db    = entity.definition.bounds
       def_z = (db.max.z - db.min.z).abs
@@ -213,7 +213,7 @@ module ASM_Extensions
       selection = model.selection
       method_id = __method__
 
-      edges   = selection.grep(Sketchup::Edge)
+      edges   = edges(selection)
       targets = instances(selection)
 
       return unless check_selection(edges, targets)
@@ -257,7 +257,7 @@ module ASM_Extensions
       selection = model.selection
       method_id = __method__
 
-      edges   = selection.grep(Sketchup::Edge)
+      edges   = edges(selection)
       targets = instances(selection)
 
       return unless check_selection(edges, targets)
@@ -301,7 +301,7 @@ module ASM_Extensions
       selection = model.selection
       method_id = __method__
 
-      edges   = selection.grep(Sketchup::Edge)
+      edges   = edges(selection)
       targets = instances(selection)
 
       return unless check_selection(edges, targets)
@@ -346,7 +346,7 @@ module ASM_Extensions
       selection = model.selection
       method_id = __method__
 
-      edges   = selection.grep(Sketchup::Edge)
+      edges   = edges(selection)
       targets = instances(selection)
 
       return unless check_selection(edges, targets)
@@ -391,7 +391,7 @@ module ASM_Extensions
       selection = model.selection
       method_id = __method__
 
-      edges   = selection.grep(Sketchup::Edge)
+      edges   = edges(selection)
       targets = instances(selection)
 
       return unless check_selection(edges, targets)
@@ -434,7 +434,7 @@ module ASM_Extensions
       selection = model.selection
       method_id = __method__
 
-      edges   = selection.grep(Sketchup::Edge)
+      edges   = edges(selection)
       targets = instances(selection)
 
       return unless check_selection(edges, targets)
@@ -490,7 +490,7 @@ module ASM_Extensions
       selection = model.selection
       method_id = __method__
 
-      faces   = selection.grep(Sketchup::Face)
+      faces   = faces(selection)
       targets = instances(selection)
 
       return unless check_face_selection(faces, targets)

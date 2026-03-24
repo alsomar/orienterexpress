@@ -17,6 +17,10 @@ module ASM_Extensions
       e.grep(Sketchup::Edge)
     end
 
+    def self.instance?(e)
+      e.is_a?(Sketchup::Group) || e.is_a?(Sketchup::ComponentInstance)
+    end
+
     def self.instances(e)
       groups(e) + components(e)
     end
