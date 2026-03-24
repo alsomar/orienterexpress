@@ -41,74 +41,68 @@ module ASM_Extensions
       entity.transformation = Geom::Transformation.new(a)
     end
 
-    def self.create_entity_copy(entity)
-      model = Sketchup.active_model
-      model.active_entities.add_instance(entity.definition, entity.transformation)
+    def self.create_entity_copy(definition, transformation)
+      Sketchup.active_model.active_entities.add_instance(definition, transformation)
     end
 
     def self.align_axis(entity, global_center, local_axis, target_axis, rotation_axis = nil)
-      angle = local_axis.angle_between(target_axis)
+      return if local_axis.length < 1e-6
+      return if target_axis.length < 1e-6
+
+      local_n  = local_axis.normalize
+      target_n = target_axis.normalize
+
+      angle = local_n.angle_between(target_n)
       return if angle.abs < 1e-6
 
-      rotation_axis ||= local_axis.cross(target_axis)
+      # Cross product of unit vectors has length sin(angle), independent of input magnitudes.
+      rotation_axis ||= local_n.cross(target_n)
 
       if rotation_axis.length < 1e-6
-        # Antiparallel case (180°): cross product is undefined, pick any perpendicular axis.
-        rotation_axis = local_axis.cross(X_AXIS)
-        rotation_axis = local_axis.cross(Y_AXIS) if rotation_axis.length < 1e-6
+        # Antiparallel case (180°): pick any perpendicular axis.
+        rotation_axis = local_n.cross(X_AXIS)
+        rotation_axis = local_n.cross(Y_AXIS) if rotation_axis.length < 1e-6
       end
 
-      return if rotation_axis.length < 1e-6
+      # Use 1e-3 threshold so SketchUp's internal normalization always succeeds.
+      return if rotation_axis.length < 1e-3
 
       rotation_transformation = Geom::Transformation.rotation(global_center, rotation_axis, angle)
       entity.transform!(rotation_transformation)
     end
 
     # Rotates the entity around its local Z axis so that the local Y axis
-    # ends up parallel to the global ground plane (Y component of Z = 0).
-    def self.orient_y(entity, _edge)
-      transformation  = entity.transformation
-      z_axis          = transformation.zaxis
-      y_axis          = transformation.yaxis
-      tolerance       = 1e-6
-
-      return if z_axis.length < tolerance
-      return if y_axis.length < tolerance
-
-      z_axis = z_axis.normalize
-      y_axis = y_axis.normalize
-
-      cross = z_axis * y_axis
-      a = y_axis.z
-      b = cross.z
-
-      return if a.abs < tolerance && b.abs < tolerance
-
-      angle = Math.atan2(-a, b)
-      return if angle.abs < tolerance
-
-      center   = entity.bounds.center
-      rotation = Geom::Transformation.rotation(center, z_axis, angle)
-      entity.transform!(rotation)
+    # ends up parallel to the global ground plane.
+    def self.orient_y(entity)
+      orient_ground(entity, entity.transformation.yaxis)
     end
 
     # Rotates the entity around its local Z axis so that the local X axis
-    # ends up parallel to the global ground plane (X component of Z = 0).
-    def self.orient_x(entity, _edge)
-      transformation  = entity.transformation
-      z_axis          = transformation.zaxis
-      x_axis          = transformation.xaxis
-      tolerance       = 1e-6
+    # ends up parallel to the global ground plane.
+    def self.orient_x(entity)
+      orient_ground(entity, entity.transformation.xaxis)
+    end
+
+    # Rotates the entity around its local Z axis so that the given local axis
+    # ends up parallel to the global ground plane (zero Z component).
+    def self.orient_ground(entity, local_axis)
+      transformation = entity.transformation
+      z_axis         = transformation.zaxis
+      tolerance      = 1e-6
 
       return if z_axis.length < tolerance
-      return if x_axis.length < tolerance
+      return if local_axis.length < tolerance
 
-      z_axis = z_axis.normalize
-      x_axis = x_axis.normalize
+      z_axis     = z_axis.normalize
+      local_axis = local_axis.normalize
 
-      cross = z_axis * x_axis
-      a = x_axis.z
-      b = cross.z
+      # When Z is parallel to world Z, all perpendicular axes are already
+      # ground-parallel — no rotation needed.
+      return if (z_axis.z.abs - 1.0).abs < tolerance
+
+      cross = z_axis * local_axis
+      a     = local_axis.z
+      b     = cross.z
 
       return if a.abs < tolerance && b.abs < tolerance
 
@@ -218,7 +212,9 @@ module ASM_Extensions
 
       return unless check_selection(edges, targets)
 
-      entity = targets.first
+      entity     = targets.first
+      entity_def = entity.definition
+      entity_t   = entity.transformation
 
       start_time = Time.now if Debug.enabled
       Debug.separator
@@ -231,9 +227,9 @@ module ASM_Extensions
       begin
         edges.each do |edge|
           next if edge.length.zero?
-          entity_copy = create_entity_copy(entity)
+          entity_copy = create_entity_copy(entity_def, entity_t)
           orient_z(entity_copy, edge)
-          orient_x(entity_copy, edge)
+          orient_x(entity_copy)
           move_to_edge_start(entity_copy, edge)
         end
         model.commit_operation
@@ -262,7 +258,9 @@ module ASM_Extensions
 
       return unless check_selection(edges, targets)
 
-      entity = targets.first
+      entity     = targets.first
+      entity_def = entity.definition
+      entity_t   = entity.transformation
 
       start_time = Time.now if Debug.enabled
       Debug.separator
@@ -275,9 +273,9 @@ module ASM_Extensions
       begin
         edges.each do |edge|
           next if edge.length.zero?
-          entity_copy = create_entity_copy(entity)
+          entity_copy = create_entity_copy(entity_def, entity_t)
           orient_z(entity_copy, edge)
-          orient_x(entity_copy, edge)
+          orient_x(entity_copy)
           move_center2center(entity_copy, edge)
         end
         model.commit_operation
@@ -306,7 +304,9 @@ module ASM_Extensions
 
       return unless check_selection(edges, targets)
 
-      entity = targets.first
+      entity     = targets.first
+      entity_def = entity.definition
+      entity_t   = entity.transformation
 
       start_time = Time.now if Debug.enabled
       Debug.separator
@@ -319,10 +319,10 @@ module ASM_Extensions
       begin
         edges.each do |edge|
           next if edge.length.zero?
-          entity_copy = create_entity_copy(entity)
+          entity_copy = create_entity_copy(entity_def, entity_t)
           z_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
-          orient_x(entity_copy, edge)
+          orient_x(entity_copy)
           move_center2center(entity_copy, edge)
         end
         model.commit_operation
@@ -351,7 +351,9 @@ module ASM_Extensions
 
       return unless check_selection(edges, targets)
 
-      entity = targets.first
+      entity     = targets.first
+      entity_def = entity.definition
+      entity_t   = entity.transformation
 
       start_time = Time.now if Debug.enabled
       Debug.separator
@@ -364,10 +366,10 @@ module ASM_Extensions
       begin
         edges.each do |edge|
           next if edge.length.zero?
-          entity_copy = create_entity_copy(entity)
+          entity_copy = create_entity_copy(entity_def, entity_t)
           uniform_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
-          orient_x(entity_copy, edge)
+          orient_x(entity_copy)
           move_center2center(entity_copy, edge)
         end
         model.commit_operation
@@ -396,7 +398,9 @@ module ASM_Extensions
 
       return unless check_selection(edges, targets)
 
-      entity = targets.first
+      entity     = targets.first
+      entity_def = entity.definition
+      entity_t   = entity.transformation
 
       start_time = Time.now if Debug.enabled
       Debug.separator
@@ -410,7 +414,7 @@ module ASM_Extensions
         vertices = edges.flat_map { |edge| [edge.start.position, edge.end.position] }.uniq { |v| v.to_a }
 
         vertices.each do |vertex|
-          entity_copy = create_entity_copy(entity)
+          entity_copy = create_entity_copy(entity_def, entity_t)
           move_to_vertex(entity_copy, vertex)
         end
         model.commit_operation
@@ -439,7 +443,9 @@ module ASM_Extensions
 
       return unless check_selection(edges, targets)
 
-      entity = targets.first
+      entity     = targets.first
+      entity_def = entity.definition
+      entity_t   = entity.transformation
 
       start_time = Time.now if Debug.enabled
       Debug.separator
@@ -463,10 +469,10 @@ module ASM_Extensions
           direction = vertex_flow_direction(vertex, connected)
           next unless direction
 
-          entity_copy = create_entity_copy(entity)
+          entity_copy = create_entity_copy(entity_def, entity_t)
           t           = entity_copy.transformation
           align_axis(entity_copy, t.origin, t.zaxis, direction)
-          orient_x(entity_copy, nil)
+          orient_x(entity_copy)
           move_to_vertex(entity_copy, vertex.position)
         end
         model.commit_operation
@@ -495,7 +501,9 @@ module ASM_Extensions
 
       return unless check_face_selection(faces, targets)
 
-      entity = targets.first
+      entity     = targets.first
+      entity_def = entity.definition
+      entity_t   = entity.transformation
 
       start_time = Time.now if Debug.enabled
       Debug.separator
@@ -511,10 +519,10 @@ module ASM_Extensions
           next if normal.length < 1e-6
 
           centroid    = face_centroid(face)
-          entity_copy = create_entity_copy(entity)
+          entity_copy = create_entity_copy(entity_def, entity_t)
           t           = entity_copy.transformation
           align_axis(entity_copy, t.origin, t.zaxis, normal)
-          orient_x(entity_copy, nil)
+          orient_x(entity_copy)
           move_bottom_to(entity_copy, centroid)
         end
         model.commit_operation
@@ -555,28 +563,8 @@ module ASM_Extensions
       begin
         targets.each do |entity|
           center = entity.bounds.center
-          transf = entity.transformation
-
-          # Align local Z with global Z
-          z_axis  = transf.zaxis
-          z_angle = z_axis.angle_between(Z_AXIS)
-
-          if z_angle.abs > 1e-6
-            axis_z = z_axis * Z_AXIS
-            rot_z  = Geom::Transformation.rotation(center, axis_z, z_angle)
-            entity.transform!(rot_z)
-            transf = entity.transformation
-          end
-
-          # Align local X with global X
-          x_axis  = transf.xaxis
-          x_angle = x_axis.angle_between(X_AXIS)
-
-          if x_angle.abs > 1e-6
-            axis_x = x_axis * X_AXIS
-            rot_x  = Geom::Transformation.rotation(center, axis_x, x_angle)
-            entity.transform!(rot_x)
-          end
+          align_axis(entity, center, entity.transformation.zaxis, Z_AXIS)
+          align_axis(entity, center, entity.transformation.xaxis, X_AXIS)
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -594,6 +582,7 @@ module ASM_Extensions
       end
     end
 
+    private_class_method :orient_ground
     private_class_method :face_centroid
     private_class_method :vertex_flow_direction
 
