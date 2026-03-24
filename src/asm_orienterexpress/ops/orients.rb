@@ -3,24 +3,36 @@ module ASM_Extensions
 
     ### TRANSFORMATIONS ### -------------------------------------------------------
 
-    # Scales the entity along the Z-axis based on the length of each edge
+    # Scales the entity along its local Z-axis to match the edge length.
+    # Works correctly regardless of the component's current rotation.
     def self.z_scale(entity, edge)
-      scale_factor = edge.length / entity.bounds.depth
-      transformation = Geom::Transformation.scaling(entity.definition.bounds.center, 1, 1, scale_factor)
+      return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
 
-      if entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
-        entity.transform!(transformation)
-      end
+      local_z_length = entity.transformation.zaxis.length
+      return if local_z_length < 1e-6
+
+      local_depth = entity.definition.bounds.depth * local_z_length
+      return if local_depth < 1e-6
+
+      scale_factor = edge.length / local_depth
+      local_scale  = Geom::Transformation.scaling(entity.definition.bounds.center, 1, 1, scale_factor)
+      entity.transformation = entity.transformation * local_scale
     end
 
-    # Applies uniform scaling to match Z-length and the edge length
+    # Applies uniform scaling along the local axes to match Z-length to the edge length.
+    # Works correctly regardless of the component's current rotation.
     def self.uniform_scale(entity, edge)
-      scale_factor = edge.length / entity.bounds.depth
-      transformation = Geom::Transformation.scaling(entity.definition.bounds.center, scale_factor, scale_factor, scale_factor)
+      return unless entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
 
-      if entity.is_a?(Sketchup::Group) || entity.is_a?(Sketchup::ComponentInstance)
-        entity.transform!(transformation)
-      end
+      local_z_length = entity.transformation.zaxis.length
+      return if local_z_length < 1e-6
+
+      local_depth = entity.definition.bounds.depth * local_z_length
+      return if local_depth < 1e-6
+
+      scale_factor = edge.length / local_depth
+      local_scale  = Geom::Transformation.scaling(entity.definition.bounds.center, scale_factor, scale_factor, scale_factor)
+      entity.transformation = entity.transformation * local_scale
     end
 
     def self.create_entity_copy(entity)

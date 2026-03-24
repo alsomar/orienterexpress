@@ -4,10 +4,13 @@ module ASM_Extensions
   module OrienterExpress
     module Dialogs
 
-      @settings = nil
+      # Preserve the dialog reference across extension reloads so we can
+      # re-push data to an already-open dialog without creating a duplicate.
+      @settings = nil unless instance_variable_defined?(:@settings)
 
       def self.settings_dialog
         if @settings && @settings.visible?
+          push_initial_data(@settings)
           @settings.bring_to_front
           return
         end
@@ -25,33 +28,43 @@ module ASM_Extensions
           use_content_size: true
         }
 
-        @settings = UI::HtmlDialog.new(options)
-        @settings.set_file(html_file)
+        dialog = UI::HtmlDialog.new(options)
+        dialog.set_file(html_file)
+        @settings = dialog
 
-        # Sends current config and i18n payload to the dialog
-        @settings.add_action_callback("ready") do |_context|
-          config  = ASM_Extensions::OrienterExpress.load_config
-          payload = { locale: Lang.locale.to_s, data: Lang.dump }.to_json
-
-          @settings.execute_script("settingsJSON(#{config.to_json.inspect})")
-          @settings.execute_script("i18nJSON(#{payload.inspect})")
+        # Uses the local `dialog` variable so callbacks remain valid even if
+        # a reload resets @settings to nil on the module level.
+        dialog.add_action_callback("ready") do |_context|
+          push_initial_data(dialog)
         end
 
-        # Receives updated settings from JS and saves them
-        @settings.add_action_callback("user_settings") do |_context, settings_json|
+        dialog.add_action_callback("user_settings") do |_context, settings_json|
           settings = JSON.parse(settings_json, symbolize_names: true)
           ASM_Extensions::OrienterExpress.user_settings(settings)
 
           if settings.key?(:language)
             Lang.configure(settings[:language])
             payload = { locale: Lang.locale.to_s, data: Lang.dump }.to_json
-            @settings.execute_script("i18nJSON(#{payload.inspect})")
+            dialog.execute_script("i18nJSON(#{payload.inspect})")
           end
         end
 
-        @settings.center
-        @settings.show
+        dialog.center
+        dialog.show
       end
+
+      # Ensures i18n data is always loaded before pushing to the dialog.
+      # Called both from the `ready` callback and when bringing the dialog
+      # to front, so a reload never leaves the dialog with stale/empty data.
+      def self.push_initial_data(dialog)
+        Lang.configure(CONFIG[:language] || "auto") if Lang.dictionary.empty?
+        config  = ASM_Extensions::OrienterExpress.load_config
+        payload = { locale: Lang.locale.to_s, data: Lang.dump }.to_json
+        dialog.execute_script("settingsJSON(#{config.to_json.inspect})")
+        dialog.execute_script("i18nJSON(#{payload.inspect})")
+      end
+
+      private_class_method :push_initial_data
 
     end # module Dialogs
   end # module OrienterExpress

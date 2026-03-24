@@ -6,7 +6,12 @@
       "Bash(wc -l d:/Code/Projects/TestExt/src/asm_testext/*.rb d:/Code/Projects/TestExt/src/asm_testext/*/*.rb d:/Code/Projects/TestExt/src/asm_testext/*/*/*.rb)",
       "Bash(git checkout:*)",
       "Bash(bundle install:*)",
-      "Bash(bundle exec:*)"
+      "Bash(bundle exec:*)",
+      "Read(//d/Code/Projects/savepal/**)"
+    ],
+    "additionalDirectories": [
+      "D:\\Code\\Projects\\TestExt\\src\\asm_testext\\dialogs",
+      "D:\\Code\\Projects\\savepal\\src\\asm_savepal\\dialogs"
     ]
   }
 }
