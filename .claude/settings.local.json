@@ -7,7 +7,9 @@
       "Bash(git checkout:*)",
       "Bash(bundle install:*)",
       "Bash(bundle exec:*)",
-      "Read(//d/Code/Projects/savepal/**)"
+      "Read(//d/Code/Projects/savepal/**)",
+      "Bash(rubocop --version)",
+      "Bash(rubocop)"
     ],
     "additionalDirectories": [
       "D:\\Code\\Projects\\TestExt\\src\\asm_testext\\dialogs",

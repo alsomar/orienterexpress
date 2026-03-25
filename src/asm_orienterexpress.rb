@@ -11,7 +11,7 @@ module ASM_Extensions
       EXT_ID  = File.basename(file, ".*")
       EXT_DIR = File.join(dir, EXT_ID)
       loader  = File.join(EXT_DIR, "bootstrap")
-      info    = File.join(EXT_DIR, "extension.json")
+      info    = File.join(EXT_DIR, "info.json")
 
       # Read extension metadata
       EXTENSION = JSON.parse(File.read(info), symbolize_names: true).freeze
