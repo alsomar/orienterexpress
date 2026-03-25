@@ -55,13 +55,16 @@ module ASM_Extensions
       angle = local_n.angle_between(target_n)
       return if angle.abs < 1e-6
 
-      # Cross product of unit vectors has length sin(angle), independent of input magnitudes.
-      rotation_axis ||= local_n.cross(target_n)
-
-      if rotation_axis.length < 1e-6
-        # Antiparallel case (180°): pick any perpendicular axis.
-        rotation_axis = local_n.cross(X_AXIS)
-        rotation_axis = local_n.cross(Y_AXIS) if rotation_axis.length < 1e-6
+      unless rotation_axis
+        if angle > Math::PI - 0.01
+          # Near-antiparallel (≥ ~179.4°): cross product is numerically unreliable —
+          # the residual may exceed the 1e-3 guard and silently suppress the rotation.
+          # Pick any perpendicular axis instead.
+          rotation_axis = local_n.cross(X_AXIS)
+          rotation_axis = local_n.cross(Y_AXIS) if rotation_axis.length < 1e-3
+        else
+          rotation_axis = local_n.cross(target_n)
+        end
       end
 
       # Use 1e-3 threshold so SketchUp's internal normalization always succeeds.
