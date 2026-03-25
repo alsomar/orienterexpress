@@ -178,29 +178,55 @@ module ASM_Extensions
       Geom::Point3d.new(x, y, z)
     end
 
-    # For a given vertex, computes the sum of unit vectors pointing FROM each
-    # connected edge's other endpoint TO the vertex. Returns the normalized
-    # result, or nil if the vectors cancel out or no valid edges are found.
+    # For a given vertex, returns the dominant outward direction using three
+    # strategies in cascade:
+    #   1. Sum of unit vectors from neighbors to vertex (works for asymmetric graphs).
+    #   2. Average normal of connected faces (works for symmetric grids on surfaces).
+    #   3. Cross product of two non-parallel edge directions (coplanar wireframes).
+    # Returns nil if no valid direction can be determined.
     def self.vertex_flow_direction(vertex, edges)
-      sum_x = 0.0
-      sum_y = 0.0
-      sum_z = 0.0
-
+      dirs = []
       edges.each do |edge|
         other = (edge.start == vertex) ? edge.end.position : edge.start.position
         dir   = vertex.position - other
         next if dir.length < 1e-6
-
-        n      = dir.normalize
-        sum_x += n.x
-        sum_y += n.y
-        sum_z += n.z
+        dirs << dir.normalize
       end
 
-      result = Geom::Vector3d.new(sum_x, sum_y, sum_z)
-      return nil if result.length < 1e-6
+      return nil if dirs.empty?
 
-      result.normalize
+      # 1. Sum of direction vectors.
+      sum = Geom::Vector3d.new(dirs.sum(&:x), dirs.sum(&:y), dirs.sum(&:z))
+      return sum.normalize if sum.length > 1e-6
+
+      # 2. Vectors cancelled — average normals of connected faces.
+      face_normals  = []
+      seen_face_ids = {}
+      edges.each do |edge|
+        edge.faces.each do |face|
+          next if seen_face_ids[face.entityID]
+          seen_face_ids[face.entityID] = true
+          fn = face.normal
+          next if fn.length < 1e-6
+          fn = fn.normalize
+          # Flip to stay consistent with the first normal encountered.
+          fn = fn.reverse if !face_normals.empty? && face_normals.first.dot(fn) < 0
+          face_normals << fn
+        end
+      end
+
+      unless face_normals.empty?
+        fn_sum = Geom::Vector3d.new(face_normals.sum(&:x), face_normals.sum(&:y), face_normals.sum(&:z))
+        return fn_sum.normalize if fn_sum.length > 1e-6
+      end
+
+      # 3. Coplanar wireframe — cross product of first two non-parallel edge directions.
+      dirs.combination(2) do |a, b|
+        cross = a.cross(b)
+        return cross.normalize if cross.length > 1e-3
+      end
+
+      nil
     end
 
     ### MAIN TOOLS ### ------------------------------------------------------------
