@@ -178,12 +178,10 @@ module ASM_Extensions
       Geom::Point3d.new(x, y, z)
     end
 
-    # For a given vertex, returns the dominant outward direction using three
-    # strategies in cascade:
-    #   1. Sum of unit vectors from neighbors to vertex (works for asymmetric graphs).
-    #   2. Average normal of connected faces (works for symmetric grids on surfaces).
-    #   3. Cross product of two non-parallel edge directions (coplanar wireframes).
-    # Returns nil if no valid direction can be determined.
+    # Returns the flow direction for a single vertex using reliable strategies only:
+    #   1. Sum of unit vectors from neighbors to vertex (asymmetric nodes).
+    #   2. Average normal of connected faces (symmetric nodes on a surface).
+    # Returns nil when both strategies cancel out or yield no usable data.
     def self.vertex_flow_direction(vertex, edges)
       dirs = []
       edges.each do |edge|
@@ -199,7 +197,7 @@ module ASM_Extensions
       sum = Geom::Vector3d.new(dirs.sum(&:x), dirs.sum(&:y), dirs.sum(&:z))
       return sum.normalize if sum.length > 1e-6
 
-      # 2. Vectors cancelled — average normals of connected faces.
+      # 2. Average normals of connected faces.
       face_normals  = []
       seen_face_ids = {}
       edges.each do |edge|
@@ -209,7 +207,6 @@ module ASM_Extensions
           fn = face.normal
           next if fn.length < 1e-6
           fn = fn.normalize
-          # Flip to stay consistent with the first normal encountered.
           fn = fn.reverse if !face_normals.empty? && face_normals.first.dot(fn) < 0
           face_normals << fn
         end
@@ -220,13 +217,70 @@ module ASM_Extensions
         return fn_sum.normalize if fn_sum.length > 1e-6
       end
 
-      # 3. Coplanar wireframe — cross product of first two non-parallel edge directions.
-      dirs.combination(2) do |a, b|
-        cross = a.cross(b)
-        return cross.normalize if cross.length > 1e-3
+      nil
+    end
+
+    # Computes flow directions for every vertex in the map, combining all three
+    # strategies and propagating sign from reliable vertices to ambiguous ones.
+    #
+    # Strategy 3 (cross product of coplanar edges) gives a perpendicular direction
+    # but with arbitrary sign. A BFS pass from reliable vertices (strategies 1+2)
+    # corrects the sign of any candidate whose plane normal has a measurable
+    # component along a neighbouring reliable direction — e.g. cube corners
+    # anchoring the orientation of adjacent symmetric faces.
+    # Candidates with no reachable reliable neighbour keep their arbitrary sign.
+    def self.all_vertex_flow_directions(vertex_edges)
+      reliable   = {}   # vertex => direction  (sign is correct)
+      candidates = {}   # vertex => direction  (sign may be flipped)
+
+      vertex_edges.each do |vertex, edges|
+        d = vertex_flow_direction(vertex, edges)
+        if d
+          reliable[vertex] = d
+        else
+          # Strategy 3: coplanar normal — cross product of first non-parallel pair.
+          dirs = []
+          edges.each do |edge|
+            other = (edge.start == vertex) ? edge.end.position : edge.start.position
+            dir   = vertex.position - other
+            next if dir.length < 1e-6
+            dirs << dir.normalize
+          end
+          dirs.combination(2) do |a, b|
+            cross = a.cross(b)
+            if cross.length > 1e-3
+              candidates[vertex] = cross.normalize
+              break
+            end
+          end
+        end
       end
 
-      nil
+      # BFS: propagate sign from reliable to candidates along shared edges.
+      visited = reliable.keys.dup
+      queue   = reliable.keys.dup
+
+      until queue.empty?
+        v   = queue.shift
+        dir = reliable[v]
+
+        vertex_edges[v].each do |edge|
+          neighbor = (edge.start == v) ? edge.end : edge.start
+          next if visited.include?(neighbor)
+          next unless candidates.key?(neighbor)
+
+          cross = candidates[neighbor]
+          dot   = dir.dot(cross)
+          next if dot.abs < 0.1   # in-plane neighbour — not useful for sign
+
+          reliable[neighbor] = dot >= 0 ? cross : cross.reverse
+          candidates.delete(neighbor)
+          visited << neighbor
+          queue   << neighbor
+        end
+      end
+
+      reliable.merge(candidates)
     end
 
     ### MAIN TOOLS ### ------------------------------------------------------------
@@ -494,10 +548,7 @@ module ASM_Extensions
       Debug.log(self, method_id, "Process START")
 
       begin
-        vertex_edges.each do |vertex, connected|
-          direction = vertex_flow_direction(vertex, connected)
-          next unless direction
-
+        all_vertex_flow_directions(vertex_edges).each do |vertex, direction|
           entity_copy = create_entity_copy(entity_def, entity_t)
           t           = entity_copy.transformation
           align_axis(entity_copy, t.origin, t.zaxis, direction)
@@ -614,6 +665,7 @@ module ASM_Extensions
     private_class_method :orient_ground
     private_class_method :face_centroid
     private_class_method :vertex_flow_direction
+    private_class_method :all_vertex_flow_directions
 
   end # module OrienterExpress
 end # module ASM_Extensions
