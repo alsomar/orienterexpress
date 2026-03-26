@@ -133,39 +133,31 @@ module ASM_Extensions
       align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
-    def self.move_to_edge_start(entity, edge)
-      entity_origin = entity.transformation.origin
-      edge_start    = edge.start.position
-
-      translation = Geom::Transformation.translation(edge_start - entity_origin)
-      entity.transform!(translation)
+    # Returns the effective insertion mode for a tool, respecting the global
+    # setting and per-tool overrides when the global mode is 'custom'.
+    def self.resolved_insertion_point(tool_key)
+      global = CONFIG[:insertion_point]
+      return global unless global == 'custom'
+      custom = CONFIG[:insertion_point_custom]
+      (custom.is_a?(Hash) && custom[tool_key]) || 'center'
     end
 
-    def self.move_center2center(entity, edge)
-      gc_center_box = entity.bounds.center
-      edg_center    = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
-
-      vector_to_edge = edg_center - gc_center_box
-
-      translation = Geom::Transformation.translation(vector_to_edge)
-      entity.transform!(translation)
-    end
-
-    def self.move_to_vertex(entity, point)
-      entity_center = entity.bounds.center
-
-      translation = Geom::Transformation.translation(point - entity_center)
-      entity.transform!(translation)
-    end
-
-    # Moves the entity so the center of its local -Z face (definition space)
-    # lands on the given point. Used to place components flush against a surface.
-    def self.move_bottom_to(entity, point)
-      db           = entity.definition.bounds
-      local_bottom = Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
-      world_bottom = entity.transformation * local_bottom
-      translation  = Geom::Transformation.translation(point - world_bottom)
-      entity.transform!(translation)
+    # Moves the entity so the resolved insertion point lands on the target.
+    #   'origin' — local coordinate origin (transformation.origin)
+    #   'center' — bounding-box centre (default)
+    #   'base'   — centre of the bottom face in definition space
+    def self.move_insertion_to(entity, point, tool_key)
+      entity_ref = case resolved_insertion_point(tool_key)
+                   when 'origin'
+                     entity.transformation.origin
+                   when 'base'
+                     db           = entity.definition.bounds
+                     local_bottom = Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+                     entity.transformation * local_bottom
+                   else # 'center'
+                     entity.bounds.center
+                   end
+      entity.transform!(Geom::Transformation.translation(point - entity_ref))
     end
 
     # Returns the centroid of a face as the average position of its outer loop vertices.
@@ -285,7 +277,7 @@ module ASM_Extensions
 
     ### MAIN TOOLS ### ------------------------------------------------------------
 
-    def self.oeaxis
+    def self.oeedgevertex
       model     = Sketchup.active_model
       selection = model.selection
       method_id = __method__
@@ -303,7 +295,7 @@ module ASM_Extensions
       Debug.separator
       Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
 
-      op_name = "Orienter Express: Local Origin"
+      op_name = "Orienter Express: Edge Vertex"
       model.start_operation(op_name, true)
       Debug.log(self, method_id, "Process START")
 
@@ -313,7 +305,7 @@ module ASM_Extensions
           entity_copy = create_entity_copy(entity_def, entity_t)
           orient_z(entity_copy, edge)
           orient_x(entity_copy)
-          move_to_edge_start(entity_copy, edge)
+          move_insertion_to(entity_copy, edge.start.position, :oeedgevertex)
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -359,7 +351,8 @@ module ASM_Extensions
           entity_copy = create_entity_copy(entity_def, entity_t)
           orient_z(entity_copy, edge)
           orient_x(entity_copy)
-          move_center2center(entity_copy, edge)
+          midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+          move_insertion_to(entity_copy, midpoint, :oecenter)
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -406,7 +399,8 @@ module ASM_Extensions
           z_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
           orient_x(entity_copy)
-          move_center2center(entity_copy, edge)
+          midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+          entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -453,7 +447,8 @@ module ASM_Extensions
           uniform_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
           orient_x(entity_copy)
-          move_center2center(entity_copy, edge)
+          midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+          entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -498,7 +493,7 @@ module ASM_Extensions
 
         vertices.each do |vertex|
           entity_copy = create_entity_copy(entity_def, entity_t)
-          move_to_vertex(entity_copy, vertex)
+          move_insertion_to(entity_copy, vertex, :oevertex)
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -553,7 +548,7 @@ module ASM_Extensions
           t           = entity_copy.transformation
           align_axis(entity_copy, t.origin, t.zaxis, direction)
           orient_x(entity_copy)
-          move_to_vertex(entity_copy, vertex.position)
+          move_insertion_to(entity_copy, vertex.position, :oeflow)
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -603,7 +598,7 @@ module ASM_Extensions
           t           = entity_copy.transformation
           align_axis(entity_copy, t.origin, t.zaxis, normal)
           orient_x(entity_copy)
-          move_bottom_to(entity_copy, centroid)
+          move_insertion_to(entity_copy, centroid, :oeface)
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -664,6 +659,8 @@ module ASM_Extensions
 
     private_class_method :orient_ground
     private_class_method :face_centroid
+    private_class_method :resolved_insertion_point
+    private_class_method :move_insertion_to
     private_class_method :vertex_flow_direction
     private_class_method :all_vertex_flow_directions
 

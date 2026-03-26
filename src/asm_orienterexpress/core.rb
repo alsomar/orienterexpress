@@ -23,13 +23,13 @@ module ASM_Extensions
       end
 
       # Commands
-      cmd = UI::Command.new(Lang.commands.oeaxis.label.to_s) { self.oeaxis_tool }
-      cmd.small_icon = self.icon("oeaxis_24")
-      cmd.large_icon = self.icon("oeaxis_24")
-      cmd.status_bar_text = Lang.commands.oeaxis.status
-      cmd.tooltip = Lang.commands.oeaxis.tooltip
-      cmd_oeaxis = cmd
-      @commands[:oeaxis] = cmd
+      cmd = UI::Command.new(Lang.commands.oeedgevertex.label.to_s) { self.oeedgevertex_tool }
+      cmd.small_icon = self.icon("oeedgevertex_24")
+      cmd.large_icon = self.icon("oeedgevertex_24")
+      cmd.status_bar_text = Lang.commands.oeedgevertex.status
+      cmd.tooltip = Lang.commands.oeedgevertex.tooltip
+      cmd_oeedgevertex = cmd
+      @commands[:oeedgevertex] = cmd
 
       cmd = UI::Command.new(Lang.commands.oecenter.label.to_s) { self.oecenter_tool }
       cmd.small_icon = self.icon("oecenter_24")
@@ -93,7 +93,7 @@ module ASM_Extensions
 
       # Menu
       menu = UI.menu('Extensions').add_submenu(EXT_NAME)
-      menu.add_item(cmd_oeaxis)
+      menu.add_item(cmd_oeedgevertex)
       menu.add_item(cmd_oecenter)
       menu.add_item(cmd_oezscale)
       menu.add_item(cmd_oeuscale)
@@ -109,7 +109,7 @@ module ASM_Extensions
       UI.add_context_menu_handler do |context_menu|
         next unless CONFIG[:context_menu]
         menu = context_menu.add_submenu(EXT_NAME)
-        menu.add_item(cmd_oeaxis)
+        menu.add_item(cmd_oeedgevertex)
         menu.add_item(cmd_oecenter)
         menu.add_item(cmd_oezscale)
         menu.add_item(cmd_oeuscale)
@@ -124,7 +124,7 @@ module ASM_Extensions
 
       # Toolbar
       toolbar = UI::Toolbar.new(EXT_NAME)
-      toolbar.add_item(cmd_oeaxis)
+      toolbar.add_item(cmd_oeedgevertex)
       toolbar.add_item(cmd_oecenter)
       toolbar.add_item(cmd_oezscale)
       toolbar.add_item(cmd_oeuscale)
@@ -144,8 +144,8 @@ module ASM_Extensions
 
       ## TOOL METHODS ## ---------------------------------------------------------
 
-      def self.oeaxis_tool
-        ASM_Extensions::OrienterExpress.oeaxis
+      def self.oeedgevertex_tool
+        ASM_Extensions::OrienterExpress.oeedgevertex
       end
 
       def self.oecenter_tool

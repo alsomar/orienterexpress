@@ -9,7 +9,12 @@
       "Bash(bundle exec:*)",
       "Read(//d/Code/Projects/savepal/**)",
       "Bash(rubocop --version)",
-      "Bash(rubocop)"
+      "Bash(rubocop)",
+      "Bash(cp oeaxis_16.pdf oeedgevertex_16.pdf)",
+      "Bash(cp oeaxis_16.svg oeedgevertex_16.svg)",
+      "Bash(cp oeaxis_24.pdf oeedgevertex_24.pdf)",
+      "Bash(cp oeaxis_24.svg oeedgevertex_24.svg)",
+      "Bash(rm oeaxis_16.pdf oeaxis_16.svg oeaxis_24.pdf oeaxis_24.svg)"
     ],
     "additionalDirectories": [
       "D:\\Code\\Projects\\TestExt\\src\\asm_testext\\dialogs",

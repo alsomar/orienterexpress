@@ -149,6 +149,48 @@
                 </div>
               </div>
 
+              <!-- Entities -->
+              <div class="card">
+                <div class="card-header" id="accordionTab2" role="button"
+                  data-toggle="collapse" data-target="#collapseTab2"
+                  aria-expanded="false" aria-controls="collapseTab2">
+                  <h6 class="mb-0">{{ t('html.settings.entities') }}</h6>
+                </div>
+                <div class="collapse" id="collapseTab2"
+                  aria-labelledby="accordionTab2" data-parent="#accordionSettings">
+                  <div class="card-body card-custom">
+
+                    <!-- Insertion Point -->
+                    <div class="mb-2">
+                      <label for="settingsInsertionPoint">{{ t('html.settings.insertion_point') }}</label>
+                      <select class="custom-select form-control" v-model="settingsInsertionPoint" id="settingsInsertionPoint">
+                        <option value="origin">{{ t('html.settings.insertion_origin') }}</option>
+                        <option value="center">{{ t('html.settings.insertion_center') }}</option>
+                        <option value="base">{{ t('html.settings.insertion_base') }}</option>
+                        <option value="custom">{{ t('html.settings.insertion_custom') }}</option>
+                      </select>
+                    </div>
+
+                    <!-- Per-tool custom insertion points -->
+                    <transition name="asav-reveal">
+                      <div v-if="settingsInsertionPoint === 'custom'">
+                        <div v-for="tool in customTools" :key="tool" class="mb-2">
+                          <div class="form-label">{{ t('commands.' + tool + '.label') }}</div>
+                          <div class="btn-group btn-group-sm w-100" role="group">
+                            <button v-for="mode in insertionModes" :key="mode" type="button"
+                              :class="['btn', settingsInsertionPointCustom[tool] === mode ? 'btn-primary' : 'btn-outline-secondary']"
+                              @click="setCustomPoint(tool, mode)">
+                              {{ t('html.settings.insertion_' + mode + '_short') }}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </transition>
+
+                  </div>
+                </div>
+              </div>
+
             </div>
 
           </div>
@@ -249,6 +291,18 @@
           settingsLanguage:    'auto',
           settingsContextMenu: false,
 
+          // Entity Options
+          settingsInsertionPoint: 'center',
+          settingsInsertionPointCustom: {
+            oeedgevertex: 'origin',
+            oecenter:     'center',
+            oevertex:     'center',
+            oeflow:       'center',
+            oeface:       'base'
+          },
+          customTools:    ['oeedgevertex', 'oecenter', 'oevertex', 'oeflow', 'oeface'],
+          insertionModes: ['base', 'center', 'origin'],
+
           // Dark mode
           darkMode: false,
 
@@ -304,9 +358,11 @@
         },
         currentSettings() {
           return {
-            language:     this.settingsLanguage,
-            context_menu: this.settingsContextMenu,
-            dark_mode:    this.darkMode
+            language:               this.settingsLanguage,
+            context_menu:           this.settingsContextMenu,
+            insertion_point:        this.settingsInsertionPoint,
+            insertion_point_custom: this.settingsInsertionPointCustom,
+            dark_mode:              this.darkMode
           };
         },
         saveNow() {
@@ -323,13 +379,18 @@
           $('#resetConfirmModal').modal('hide');
           this._hydrating = true;
 
-          this.settingsLanguage    = 'auto';
-          this.settingsContextMenu = false;
-          this.darkMode            = false;
-          this.showReset           = false;
+          this.settingsLanguage             = 'auto';
+          this.settingsContextMenu          = false;
+          this.settingsInsertionPoint       = 'center';
+          this.settingsInsertionPointCustom = { oeedgevertex: 'origin', oecenter: 'center', oevertex: 'center', oeflow: 'center', oeface: 'base' };
+          this.darkMode                     = false;
+          this.showReset                    = false;
 
           this._hydrating = false;
           this.$nextTick(() => this.saveNow());
+        },
+        setCustomPoint(tool, mode) {
+          this.settingsInsertionPointCustom = Object.assign({}, this.settingsInsertionPointCustom, { [tool]: mode });
         },
         openUrl(url) {
           window.open(url);

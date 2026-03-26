@@ -6,10 +6,10 @@ module ASM_Extensions
       def self.locale_es_es
         {
           commands: {
-            oeaxis: {
-              label:   "Colocación en origen",
-              tooltip: "Colocación en origen",
-              status:  "Coloca copias en el punto de inicio de las aristas."
+            oeedgevertex: {
+              label:   "Colocación en vértice de arista",
+              tooltip: "Colocación en vértice de arista",
+              status:  "Coloca copias orientadas en el vértice de inicio de cada arista."
             },
             oecenter: {
               label:   "Colocación centrada",
@@ -68,7 +68,16 @@ module ASM_Extensions
               reset_settings:     "Restablecer ajustes",
               reset_confirm_body: "Esto restablecerá todos los ajustes a sus valores predeterminados. ¿Estás seguro?",
               reset_confirm_yes:  "Sí, restablecer",
-              reset_confirm_no:   "Cancelar"
+              reset_confirm_no:   "Cancelar",
+              entities:              "Entidades",
+              insertion_point:       "Punto de inserción",
+              insertion_origin:      "Origen de coordenadas local",
+              insertion_center:      "Centro del componente",
+              insertion_base:        "Base del componente",
+              insertion_custom:      "Personalizado (por herramienta)",
+              insertion_base_short:  "base",
+              insertion_center_short:"centro",
+              insertion_origin_short:"origen"
             },
             about: {
               title:       "Info",

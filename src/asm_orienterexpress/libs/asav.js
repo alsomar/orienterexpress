@@ -45,10 +45,18 @@ function settingsJSON(config) {
     if (window.app) {
       window._settingsLoading = true;
 
-      window.app.settingsLanguage    = config.language;
-      window.app.settingsContextMenu = config.context_menu;
-      window.app.darkMode            = config.dark_mode   || false;
-      window.app.debugMode           = config.debug_mode  || false;
+      window.app.settingsLanguage       = config.language;
+      window.app.settingsContextMenu    = config.context_menu;
+      window.app.settingsInsertionPoint       = config.insertion_point || 'center';
+      window.app.settingsInsertionPointCustom = config.insertion_point_custom || {
+        oeedgevertex: 'origin',
+        oecenter:     'center',
+        oevertex:     'center',
+        oeflow:       'center',
+        oeface:       'base'
+      };
+      window.app.darkMode               = config.dark_mode  || false;
+      window.app.debugMode              = config.debug_mode || false;
 
       window.app.$nextTick(() => {
         window._settingsLoading = false;

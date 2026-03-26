@@ -9,6 +9,16 @@ module ASM_Extensions
       language: "auto",
       context_menu: false,
 
+      # Entity Options
+      insertion_point: "center",
+      insertion_point_custom: {
+        oeedgevertex: "origin",
+        oecenter:     "center",
+        oevertex:     "center",
+        oeflow:       "center",
+        oeface:       "base"
+      },
+
       # Inner Options
       dark_mode: false,
       debug_mode: false
