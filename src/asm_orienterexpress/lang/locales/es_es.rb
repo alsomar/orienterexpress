@@ -7,13 +7,13 @@ module ASM_Extensions
         {
           commands: {
             oeedgevertex: {
-              label:   "Colocación en vértice de arista",
-              tooltip: "Colocación en vértice de arista",
-              status:  "Coloca copias orientadas en el vértice de inicio de cada arista."
+              label:   "Colocación en vértices de arista",
+              tooltip: "Colocación en vértices de arista",
+              status:  "Coloca copias orientadas en ambos vértices de cada arista."
             },
             oecenter: {
-              label:   "Colocación centrada",
-              tooltip: "Colocación centrada",
+              label:   "Colocación centrada en arista",
+              tooltip: "Colocación centrada en arista",
               status:  "Coloca copias centradas sobre las aristas."
             },
             oezscale: {
@@ -26,14 +26,9 @@ module ASM_Extensions
               tooltip: "Escalado uniforme",
               status:  "Escala uniformemente y coloca copias a lo largo de las aristas."
             },
-            oevertex: {
-              label:   "Colocación en vértices",
-              tooltip: "Colocación en vértices",
-              status:  "Coloca copias en los vértices de las aristas."
-            },
             oeflow: {
-              label:   "Colocación en flujo",
-              tooltip: "Colocación en flujo",
+              label:   "Colocación según flujo de vértices",
+              tooltip: "Colocación según flujo de vértices",
               status:  "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes."
             },
             oeface: {

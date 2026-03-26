@@ -55,14 +55,6 @@ module ASM_Extensions
       cmd_oeuscale = cmd
       @commands[:oeuscale] = cmd
 
-      cmd = UI::Command.new(Lang.commands.oevertex.label.to_s) { self.oevertex_tool }
-      cmd.small_icon = self.icon("oevertex_24")
-      cmd.large_icon = self.icon("oevertex_24")
-      cmd.status_bar_text = Lang.commands.oevertex.status
-      cmd.tooltip = Lang.commands.oevertex.tooltip
-      cmd_oevertex = cmd
-      @commands[:oevertex] = cmd
-
       cmd = UI::Command.new(Lang.commands.oeflow.label.to_s) { self.oeflow_tool }
       cmd.status_bar_text = Lang.commands.oeflow.status
       cmd.tooltip = Lang.commands.oeflow.tooltip
@@ -97,7 +89,7 @@ module ASM_Extensions
       menu.add_item(cmd_oecenter)
       menu.add_item(cmd_oezscale)
       menu.add_item(cmd_oeuscale)
-      menu.add_item(cmd_oevertex)
+
       menu.add_item(cmd_oeflow)
       menu.add_item(cmd_oeface)
       menu.add_separator
@@ -113,7 +105,7 @@ module ASM_Extensions
         menu.add_item(cmd_oecenter)
         menu.add_item(cmd_oezscale)
         menu.add_item(cmd_oeuscale)
-        menu.add_item(cmd_oevertex)
+  
         menu.add_item(cmd_oeflow)
         menu.add_item(cmd_oeface)
         menu.add_separator
@@ -128,7 +120,7 @@ module ASM_Extensions
       toolbar.add_item(cmd_oecenter)
       toolbar.add_item(cmd_oezscale)
       toolbar.add_item(cmd_oeuscale)
-      toolbar.add_item(cmd_oevertex)
+
       toolbar.add_item(cmd_oeflow)
       toolbar.add_item(cmd_oeface)
       toolbar.add_separator
@@ -158,10 +150,6 @@ module ASM_Extensions
 
       def self.oeuscale_tool
         ASM_Extensions::OrienterExpress.oeuscale
-      end
-
-      def self.oevertex_tool
-        ASM_Extensions::OrienterExpress.oevertex
       end
 
       def self.oeflow_tool

@@ -302,10 +302,18 @@ module ASM_Extensions
       begin
         edges.each do |edge|
           next if edge.length.zero?
-          entity_copy = create_entity_copy(entity_def, entity_t)
-          orient_z(entity_copy, edge)
-          orient_x(entity_copy)
-          move_insertion_to(entity_copy, edge.start.position, :oeedgevertex)
+          edge_dir = (edge.end.position - edge.start.position).normalize
+
+          [
+            [edge.start.position, edge_dir],
+            [edge.end.position,   edge_dir.reverse]
+          ].each do |target_point, direction|
+            entity_copy = create_entity_copy(entity_def, entity_t)
+            t = entity_copy.transformation
+            align_axis(entity_copy, t.origin, t.zaxis, direction)
+            orient_x(entity_copy)
+            move_insertion_to(entity_copy, target_point, :oeedgevertex)
+          end
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")
@@ -449,51 +457,6 @@ module ASM_Extensions
           orient_x(entity_copy)
           midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
           entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
-        end
-        model.commit_operation
-        Debug.log(self, method_id, "Process DONE!")
-      rescue => e
-        model.abort_operation
-        UI.messagebox("Error: #{e.message}")
-        Debug.log(self, method_id, "ERROR #{e.class}: #{e.message}")
-        Debug.log(self, method_id, e.backtrace.join("\n"))
-      ensure
-        model.active_view.refresh
-        if Debug.enabled
-          elapsed = Time.now - start_time
-          Debug.log(self, method_id, "Process DONE! Elapsed #{format('%.3f', elapsed)} sec.")
-        end
-      end
-    end
-
-    def self.oevertex
-      model     = Sketchup.active_model
-      selection = model.selection
-      method_id = __method__
-
-      edges   = edges(selection)
-      targets = instances(selection)
-
-      return unless check_selection(edges, targets)
-
-      entity     = targets.first
-      entity_def = entity.definition
-      entity_t   = entity.transformation
-
-      start_time = Time.now if Debug.enabled
-      Debug.separator
-      Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
-
-      op_name = "Orienter Express: Vertex Placing"
-      model.start_operation(op_name, true)
-      Debug.log(self, method_id, "Process START")
-
-      begin
-        vertices = edges.flat_map { |edge| [edge.start.position, edge.end.position] }.uniq { |v| v.to_a }
-
-        vertices.each do |vertex|
-          entity_copy = create_entity_copy(entity_def, entity_t)
-          move_insertion_to(entity_copy, vertex, :oevertex)
         end
         model.commit_operation
         Debug.log(self, method_id, "Process DONE!")

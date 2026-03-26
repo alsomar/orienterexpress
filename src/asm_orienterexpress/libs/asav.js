@@ -51,7 +51,6 @@ function settingsJSON(config) {
       window.app.settingsInsertionPointCustom = config.insertion_point_custom || {
         oeedgevertex: 'origin',
         oecenter:     'center',
-        oevertex:     'center',
         oeflow:       'center',
         oeface:       'base'
       };

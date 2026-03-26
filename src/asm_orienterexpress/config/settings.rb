@@ -14,7 +14,6 @@ module ASM_Extensions
       insertion_point_custom: {
         oeedgevertex: "origin",
         oecenter:     "center",
-        oevertex:     "center",
         oeflow:       "center",
         oeface:       "base"
       },

@@ -9,11 +9,11 @@ module ASM_Extensions
             oeedgevertex: {
               label:   "Edge Vertex Placement",
               tooltip: "Edge Vertex Placement",
-              status:  "Place oriented copies at each edge's start vertex."
+              status:  "Place oriented copies at both vertices of each edge."
             },
             oecenter: {
-              label:   "Center Placement",
-              tooltip: "Center Placement",
+              label:   "Edge Center Placement",
+              tooltip: "Edge Center Placement",
               status:  "Place copies centered on edges."
             },
             oezscale: {
@@ -26,14 +26,9 @@ module ASM_Extensions
               tooltip: "Uniform Scaling",
               status:  "Scale uniformly and place copies along edges."
             },
-            oevertex: {
-              label:   "Vertex Placement",
-              tooltip: "Vertex Placement",
-              status:  "Place copies at edge vertices."
-            },
             oeflow: {
-              label:   "Flow Placement",
-              tooltip: "Flow Placement",
+              label:   "Vertex Flow Placement",
+              tooltip: "Vertex Flow Placement",
               status:  "Place oriented copies at vertices, aligned to the incoming edge flow."
             },
             oeface: {
