@@ -117,6 +117,73 @@ module ASM_Extensions
       entity.transform!(rotation)
     end
 
+    # Rotates the entity around its local Z axis so that the local Y axis
+    # aligns to the average flow direction of the edge's vertices, projected
+    # onto the plane perpendicular to Z. Falls back to orient_x if degenerate.
+    def self.orient_to_flow(entity, edge, flow_map)
+      method_id  = :orient_to_flow
+      z_axis     = entity.transformation.zaxis
+      flow_start = flow_map[edge.start]
+      flow_end   = flow_map[edge.end]
+      candidates = [flow_start, flow_end].compact
+
+      Debug.log(self, method_id,
+        "edge #{edge.start.position.to_a.map { |v| v.round(2) }} → " \
+        "#{edge.end.position.to_a.map { |v| v.round(2) }} | " \
+        "flow_start=#{flow_start&.to_a&.map { |v| v.round(3) } || 'nil'} " \
+        "flow_end=#{flow_end&.to_a&.map { |v| v.round(3) } || 'nil'}")
+
+      if candidates.empty?
+        Debug.log(self, method_id, "  → fallback: no flow data")
+        orient_x(entity)
+        return
+      end
+
+      avg = candidates.reduce(Geom::Vector3d.new(0, 0, 0)) { |s, v| s + v }
+      if avg.length < 1e-6
+        Debug.log(self, method_id, "  → fallback: avg cancelled out")
+        orient_x(entity)
+        return
+      end
+      avg.normalize!
+
+      # Project onto plane perpendicular to local Z
+      dot       = z_axis.dot(avg)
+      proj_z    = Geom::Vector3d.new(z_axis.x * dot, z_axis.y * dot, z_axis.z * dot)
+      projected = avg - proj_z
+
+      Debug.log(self, method_id,
+        "  z_axis=#{z_axis.to_a.map { |v| v.round(3) }} avg=#{avg.to_a.map { |v| v.round(3) }} " \
+        "dot=#{dot.round(3)} projected=#{projected.to_a.map { |v| v.round(3) }} len=#{projected.length.round(4)}")
+
+      if projected.length < 1e-6
+        Debug.log(self, method_id, "  → fallback: flow parallel to edge")
+        orient_x(entity)
+        return
+      end
+
+      target   = projected.normalize
+      y_before = entity.transformation.yaxis.normalize
+
+      # Signed angle from y to target around z_axis (right-hand rule).
+      # angle_between always returns a positive value, so we compute
+      # the sign from the cross product projected onto z_axis.
+      dot     = y_before.dot(target)
+      cross   = y_before.cross(target)
+      sin_val = cross.dot(z_axis.normalize)
+      angle   = Math.atan2(sin_val, dot)
+
+      unless angle.abs < 1e-6
+        center = entity.bounds.center
+        entity.transform!(Geom::Transformation.rotation(center, z_axis, angle))
+      end
+
+      Debug.log(self, method_id,
+        "  → aligned: y_before=#{y_before.to_a.map { |v| v.round(3) }} " \
+        "target=#{target.to_a.map { |v| v.round(3) }} " \
+        "y_after=#{entity.transformation.yaxis.to_a.map { |v| v.round(3) }}")
+    end
+
     def self.orient_z(instance, edge)
       start_point = edge.start.position
       end_point   = edge.end.position
@@ -393,6 +460,21 @@ module ASM_Extensions
       Debug.separator
       Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
 
+      use_flow = CONFIG[:rotation_mode] == 'flow'
+      flow_map = {}
+      if use_flow
+        vertex_edges = {}
+        edges.each do |edge|
+          [edge.start, edge.end].each do |v|
+            vertex_edges[v] ||= []
+            vertex_edges[v] << edge
+          end
+        end
+        flow_map = all_vertex_flow_directions(vertex_edges)
+        Debug.log(self, method_id,
+          "flow_map: #{flow_map.size} vertices with flow / #{vertex_edges.size} total vertices")
+      end
+
       op_name = "Orienter Express: Z-Scaling"
       model.start_operation(op_name, true)
       Debug.log(self, method_id, "Process START")
@@ -403,7 +485,7 @@ module ASM_Extensions
           entity_copy = create_entity_copy(entity_def, entity_t)
           z_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
-          orient_x(entity_copy)
+          use_flow ? orient_to_flow(entity_copy, edge, flow_map) : orient_x(entity_copy)
           midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
           entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
         end
@@ -441,6 +523,19 @@ module ASM_Extensions
       Debug.separator
       Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
 
+      use_flow = CONFIG[:rotation_mode] == 'flow'
+      flow_map = {}
+      if use_flow
+        vertex_edges = {}
+        edges.each do |edge|
+          [edge.start, edge.end].each do |v|
+            vertex_edges[v] ||= []
+            vertex_edges[v] << edge
+          end
+        end
+        flow_map = all_vertex_flow_directions(vertex_edges)
+      end
+
       op_name = "Orienter Express: Uniform Scaling"
       model.start_operation(op_name, true)
       Debug.log(self, method_id, "Process START")
@@ -451,7 +546,7 @@ module ASM_Extensions
           entity_copy = create_entity_copy(entity_def, entity_t)
           uniform_scale(entity_copy, edge)
           orient_z(entity_copy, edge)
-          orient_x(entity_copy)
+          use_flow ? orient_to_flow(entity_copy, edge, flow_map) : orient_x(entity_copy)
           midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
           entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
         end
@@ -618,6 +713,7 @@ module ASM_Extensions
     end
 
     private_class_method :orient_ground
+    private_class_method :orient_to_flow
     private_class_method :face_centroid
     private_class_method :resolved_insertion_point
     private_class_method :move_insertion_to

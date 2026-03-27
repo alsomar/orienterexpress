@@ -127,6 +127,27 @@
                 </div>
               </div>
 
+              <!-- Rotation Mode -->
+              <div class="card">
+                <div class="card-header" id="accordionTab3" role="button"
+                  data-toggle="collapse" data-target="#collapseTab3"
+                  aria-expanded="false" aria-controls="collapseTab3">
+                  <h6 class="mb-0">{{ t('html.settings.rotation_mode') }}</h6>
+                </div>
+                <div class="collapse" id="collapseTab3"
+                  aria-labelledby="accordionTab3" data-parent="#accordionSettings">
+                  <div class="card-body card-custom">
+                    <div class="btn-group w-100" role="group">
+                      <button v-for="mode in rotationModes" :key="mode" type="button"
+                        :class="['btn', rotationMode === mode ? 'btn-primary' : 'btn-outline-secondary']"
+                        @click="rotationMode = mode">
+                        {{ t('html.settings.rotation_' + mode) }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- General Options -->
               <div class="card">
                 <div class="card-header" id="accordionTab1" role="button"
@@ -277,6 +298,8 @@
           settingsContextMenu: false,
 
           // Entity Options
+          rotationMode:  'ground',
+          rotationModes: ['ground', 'flow'],
           settingsInsertionPointCustom: {
             oeedgevertex: 'origin',
             oecenter:     'center',
@@ -343,6 +366,7 @@
           return {
             language:               this.settingsLanguage,
             context_menu:           this.settingsContextMenu,
+            rotation_mode:          this.rotationMode,
             insertion_point_custom: this.settingsInsertionPointCustom,
             dark_mode:              this.darkMode
           };
@@ -363,6 +387,7 @@
 
           this.settingsLanguage             = 'auto';
           this.settingsContextMenu          = false;
+          this.rotationMode                 = 'ground';
           this.settingsInsertionPointCustom = { oeedgevertex: 'origin', oecenter: 'center', oeflow: 'center', oeface: 'base' };
           this.darkMode                     = false;
           this.showReset                    = false;
