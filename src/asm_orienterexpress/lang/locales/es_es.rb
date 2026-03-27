@@ -64,15 +64,10 @@ module ASM_Extensions
               reset_confirm_body: "Esto restablecerá todos los ajustes a sus valores predeterminados. ¿Estás seguro?",
               reset_confirm_yes:  "Sí, restablecer",
               reset_confirm_no:   "Cancelar",
-              entities:              "Entidades",
-              insertion_point:       "Punto de inserción",
-              insertion_origin:      "Origen de coordenadas local",
-              insertion_center:      "Centro del componente",
-              insertion_base:        "Base del componente",
-              insertion_custom:      "Personalizado (por herramienta)",
-              insertion_base_short:  "base",
-              insertion_center_short:"centro",
-              insertion_origin_short:"origen"
+              insertion_point:        "Punto de inserción",
+              insertion_base_short:   "base",
+              insertion_center_short: "centro",
+              insertion_origin_short: "origen"
             },
             about: {
               title:       "Info",

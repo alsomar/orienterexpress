@@ -47,7 +47,6 @@ function settingsJSON(config) {
 
       window.app.settingsLanguage       = config.language;
       window.app.settingsContextMenu    = config.context_menu;
-      window.app.settingsInsertionPoint       = config.insertion_point || 'center';
       window.app.settingsInsertionPointCustom = config.insertion_point_custom || {
         oeedgevertex: 'origin',
         oecenter:     'center',

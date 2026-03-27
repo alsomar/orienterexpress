@@ -133,11 +133,8 @@ module ASM_Extensions
       align_axis(instance, origin, z_axis_world, normal_vector)
     end
 
-    # Returns the effective insertion mode for a tool, respecting the global
-    # setting and per-tool overrides when the global mode is 'custom'.
+    # Returns the effective insertion mode for a tool from per-tool config.
     def self.resolved_insertion_point(tool_key)
-      global = CONFIG[:insertion_point]
-      return global unless global == 'custom'
       custom = CONFIG[:insertion_point_custom]
       (custom.is_a?(Hash) && custom[tool_key]) || 'center'
     end

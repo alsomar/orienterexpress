@@ -10,7 +10,6 @@ module ASM_Extensions
       context_menu: false,
 
       # Entity Options
-      insertion_point: "center",
       insertion_point_custom: {
         oeedgevertex: "origin",
         oecenter:     "center",

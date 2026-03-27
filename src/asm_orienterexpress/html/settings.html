@@ -100,6 +100,33 @@
             <!-- Accordion -->
             <div class="accordion" id="accordionSettings">
 
+              <!-- Insertion Point -->
+              <div class="card">
+                <div class="card-header" id="accordionTab2" role="button"
+                  data-toggle="collapse" data-target="#collapseTab2"
+                  aria-expanded="false" aria-controls="collapseTab2">
+                  <h6 class="mb-0">{{ t('html.settings.insertion_point') }}</h6>
+                </div>
+                <div class="collapse" id="collapseTab2"
+                  aria-labelledby="accordionTab2" data-parent="#accordionSettings">
+                  <div class="card-body card-custom">
+
+                    <!-- Per-tool insertion points -->
+                    <div v-for="tool in customTools" :key="tool" class="mb-2">
+                      <div class="form-label mb-1">{{ t('commands.' + tool + '.label') }}</div>
+                      <div class="btn-group w-100" role="group">
+                        <button v-for="mode in insertionModes" :key="mode" type="button"
+                          :class="['btn', settingsInsertionPointCustom[tool] === mode ? 'btn-primary' : 'btn-outline-secondary']"
+                          @click="setCustomPoint(tool, mode)">
+                          {{ t('html.settings.insertion_' + mode + '_short') }}
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
               <!-- General Options -->
               <div class="card">
                 <div class="card-header" id="accordionTab1" role="button"
@@ -142,48 +169,6 @@
                         <button type="button" class="btn btn-danger" data-toggle="modal" data-target="#resetConfirmModal">
                           {{ t('html.settings.reset_settings') }}
                         </button>
-                      </div>
-                    </transition>
-
-                  </div>
-                </div>
-              </div>
-
-              <!-- Entities -->
-              <div class="card">
-                <div class="card-header" id="accordionTab2" role="button"
-                  data-toggle="collapse" data-target="#collapseTab2"
-                  aria-expanded="false" aria-controls="collapseTab2">
-                  <h6 class="mb-0">{{ t('html.settings.entities') }}</h6>
-                </div>
-                <div class="collapse" id="collapseTab2"
-                  aria-labelledby="accordionTab2" data-parent="#accordionSettings">
-                  <div class="card-body card-custom">
-
-                    <!-- Insertion Point -->
-                    <div class="mb-2">
-                      <label for="settingsInsertionPoint">{{ t('html.settings.insertion_point') }}</label>
-                      <select class="custom-select form-control" v-model="settingsInsertionPoint" id="settingsInsertionPoint">
-                        <option value="origin">{{ t('html.settings.insertion_origin') }}</option>
-                        <option value="center">{{ t('html.settings.insertion_center') }}</option>
-                        <option value="base">{{ t('html.settings.insertion_base') }}</option>
-                        <option value="custom">{{ t('html.settings.insertion_custom') }}</option>
-                      </select>
-                    </div>
-
-                    <!-- Per-tool custom insertion points -->
-                    <transition name="asav-reveal">
-                      <div v-if="settingsInsertionPoint === 'custom'">
-                        <div v-for="tool in customTools" :key="tool" class="mb-2">
-                          <div class="form-label">{{ t('commands.' + tool + '.label') }}</div>
-                          <div class="btn-group btn-group-sm w-100" role="group">
-                            <button v-for="mode in insertionModes" :key="mode" type="button"
-                              :class="['btn', settingsInsertionPointCustom[tool] === mode ? 'btn-primary' : 'btn-outline-secondary']"
-                              @click="setCustomPoint(tool, mode)">
-                              {{ t('html.settings.insertion_' + mode + '_short') }}
-                            </button>
-                          </div>
-                        </div>
                       </div>
                     </transition>
 
@@ -292,7 +277,6 @@
           settingsContextMenu: false,
 
           // Entity Options
-          settingsInsertionPoint: 'center',
           settingsInsertionPointCustom: {
             oeedgevertex: 'origin',
             oecenter:     'center',
@@ -359,7 +343,6 @@
           return {
             language:               this.settingsLanguage,
             context_menu:           this.settingsContextMenu,
-            insertion_point:        this.settingsInsertionPoint,
             insertion_point_custom: this.settingsInsertionPointCustom,
             dark_mode:              this.darkMode
           };
@@ -380,7 +363,6 @@
 
           this.settingsLanguage             = 'auto';
           this.settingsContextMenu          = false;
-          this.settingsInsertionPoint       = 'center';
           this.settingsInsertionPointCustom = { oeedgevertex: 'origin', oecenter: 'center', oeflow: 'center', oeface: 'base' };
           this.darkMode                     = false;
           this.showReset                    = false;
