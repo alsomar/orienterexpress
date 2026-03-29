@@ -21,6 +21,13 @@ module ASM_Extensions
               tooltip: "Escalado en Z",
               status:  "Escala y coloca copias a lo largo de las aristas (eje Z)."
             },
+            oezscale2: {
+              label:          "Escalado en Z 2",
+              tooltip:        "Escalado en Z 2",
+              status:         "Escala y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
+              offset_prompt:  "Desfase",
+              vcb_hint:       "Enter: actualizar  |  Tab: cambiar rotación  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar"
+            },
             oeuscale: {
               label:   "Escalado uniforme",
               tooltip: "Escalado uniforme",
@@ -35,6 +42,13 @@ module ASM_Extensions
               label:   "Colocación en cara",
               tooltip: "Colocación en cara",
               status:  "Coloca copias en el centroide de cada cara, orientadas según la normal."
+            },
+            oeface2: {
+              label:         "Colocación en cara 2",
+              tooltip:       "Colocación en cara 2",
+              status:        "Coloca copias en el centroide de cada cara con un desfase a lo largo de la normal.",
+              offset_prompt: "Desfase",
+              vcb_hint:      "Enter: actualizar  |  Tab: cambiar inserción  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar"
             },
             oereset: {
               label:   "Resetear rotaciones",
@@ -67,6 +81,7 @@ module ASM_Extensions
               rotation_mode:   "Rotación",
               rotation_ground: "Suelo",
               rotation_flow:   "Flujo",
+              rotation_normal: "Normal",
               insertion_point:        "Punto de inserción",
               insertion_base_short:   "base",
               insertion_center_short: "centro",

@@ -13,6 +13,7 @@ vendor/bundle/
 
 # SketchUp
 *.skb
+snapshots/
 
 # OS
 .DS_Store

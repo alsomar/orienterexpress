@@ -21,6 +21,13 @@ module ASM_Extensions
               tooltip: "Z-axis Scaling",
               status:  "Scale and place copies along edges (Z-axis)."
             },
+            oezscale2: {
+              label:          "Z-axis Scaling 2",
+              tooltip:        "Z-axis Scaling 2",
+              status:         "Scale and place copies along edges with an offset from each vertex.",
+              offset_prompt:  "Offset",
+              vcb_hint:       "Enter: update  |  Tab: toggle rotation  |  ←→: adjust offset  |  ↓: reset  |  Esc: cancel"
+            },
             oeuscale: {
               label:   "Uniform Scaling",
               tooltip: "Uniform Scaling",
@@ -35,6 +42,13 @@ module ASM_Extensions
               label:   "Face Placement",
               tooltip: "Face Placement",
               status:  "Place copies at face centroids, oriented along the face normal."
+            },
+            oeface2: {
+              label:         "Face Placement 2",
+              tooltip:       "Face Placement 2",
+              status:        "Place copies at face centroids with an offset along the face normal.",
+              offset_prompt: "Offset",
+              vcb_hint:      "Enter: update  |  Tab: toggle insertion  |  ←→: adjust offset  |  ↓: reset  |  Esc: cancel"
             },
             oereset: {
               label:   "Reset Rotations",
@@ -67,6 +81,7 @@ module ASM_Extensions
               rotation_mode:   "Rotation",
               rotation_ground: "Ground",
               rotation_flow:   "Flow",
+              rotation_normal: "Normal",
               insertion_point:        "Insertion Point",
               insertion_base_short:   "base",
               insertion_center_short: "center",

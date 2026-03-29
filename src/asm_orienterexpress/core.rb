@@ -47,6 +47,14 @@ module ASM_Extensions
       cmd_oezscale = cmd
       @commands[:oezscale] = cmd
 
+      cmd = UI::Command.new(Lang.commands.oezscale2.label.to_s) { self.oezscale2_tool }
+      cmd.small_icon = self.icon("oezscale_24")
+      cmd.large_icon = self.icon("oezscale_24")
+      cmd.status_bar_text = Lang.commands.oezscale2.status
+      cmd.tooltip = Lang.commands.oezscale2.tooltip
+      cmd_oezscale2 = cmd
+      @commands[:oezscale2] = cmd
+
       cmd = UI::Command.new(Lang.commands.oeuscale.label.to_s) { self.oeuscale_tool }
       cmd.small_icon = self.icon("oeuscale_24")
       cmd.large_icon = self.icon("oeuscale_24")
@@ -66,6 +74,12 @@ module ASM_Extensions
       cmd.tooltip = Lang.commands.oeface.tooltip
       cmd_oeface = cmd
       @commands[:oeface] = cmd
+
+      cmd = UI::Command.new(Lang.commands.oeface2.label.to_s) { self.oeface2_tool }
+      cmd.status_bar_text = Lang.commands.oeface2.status
+      cmd.tooltip = Lang.commands.oeface2.tooltip
+      cmd_oeface2 = cmd
+      @commands[:oeface2] = cmd
 
       cmd = UI::Command.new(Lang.commands.oereset.label.to_s) { self.oereset_tool }
       cmd.small_icon = self.icon("oereset_24")
@@ -88,10 +102,12 @@ module ASM_Extensions
       menu.add_item(cmd_oeedgevertex)
       menu.add_item(cmd_oecenter)
       menu.add_item(cmd_oezscale)
+      menu.add_item(cmd_oezscale2)
       menu.add_item(cmd_oeuscale)
 
       menu.add_item(cmd_oeflow)
       menu.add_item(cmd_oeface)
+      menu.add_item(cmd_oeface2)
       menu.add_separator
       menu.add_item(cmd_oereset)
       menu.add_separator
@@ -104,10 +120,12 @@ module ASM_Extensions
         menu.add_item(cmd_oeedgevertex)
         menu.add_item(cmd_oecenter)
         menu.add_item(cmd_oezscale)
+        menu.add_item(cmd_oezscale2)
         menu.add_item(cmd_oeuscale)
   
         menu.add_item(cmd_oeflow)
         menu.add_item(cmd_oeface)
+        menu.add_item(cmd_oeface2)
         menu.add_separator
         menu.add_item(cmd_oereset)
         menu.add_separator
@@ -119,10 +137,12 @@ module ASM_Extensions
       toolbar.add_item(cmd_oeedgevertex)
       toolbar.add_item(cmd_oecenter)
       toolbar.add_item(cmd_oezscale)
+      toolbar.add_item(cmd_oezscale2)
       toolbar.add_item(cmd_oeuscale)
 
       toolbar.add_item(cmd_oeflow)
       toolbar.add_item(cmd_oeface)
+      toolbar.add_item(cmd_oeface2)
       toolbar.add_separator
       toolbar.add_item(cmd_oereset)
       toolbar.add_separator
@@ -148,6 +168,10 @@ module ASM_Extensions
         ASM_Extensions::OrienterExpress.oezscale
       end
 
+      def self.oezscale2_tool
+        ASM_Extensions::OrienterExpress.oezscale2
+      end
+
       def self.oeuscale_tool
         ASM_Extensions::OrienterExpress.oeuscale
       end
@@ -158,6 +182,10 @@ module ASM_Extensions
 
       def self.oeface_tool
         ASM_Extensions::OrienterExpress.oeface
+      end
+
+      def self.oeface2_tool
+        ASM_Extensions::OrienterExpress.oeface2
       end
 
       def self.oereset_tool
