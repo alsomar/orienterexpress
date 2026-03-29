@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 16 16" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
+    <g transform="matrix(1,0,0,1,0,-30)">
+        <g id="axes_16" transform="matrix(0.666667,0,0,0.666667,0,30)">
+            <rect x="0" y="0" width="24" height="24" style="fill:none;"/>
+            <g transform="matrix(1.125,0,0,1.10526,-1.5,-0.710526)">
+                <path d="M12,2C8,2 4,2.5 4,6L4,15.5C4,17.43 5.57,19 7.5,19L6,20.5L6,21L8.23,21L10.23,19L14,19L16,21L18,21L18,20.5L16.5,19C18.43,19 20,17.43 20,15.5L20,6C20,2.5 16.42,2 12,2ZM7.5,17C6.67,17 6,16.33 6,15.5C6,14.67 6.67,14 7.5,14C8.33,14 9,14.67 9,15.5C9,16.33 8.33,17 7.5,17ZM11,10L6,10L6,6L11,6L11,10ZM13,10L13,6L18,6L18,10L13,10ZM16.5,17C15.67,17 15,16.33 15,15.5C15,14.67 15.67,14 16.5,14C17.33,14 18,14.67 18,15.5C18,16.33 17.33,17 16.5,17Z" style="fill:rgb(178,179,179);fill-rule:nonzero;"/>
+            </g>
+            <g id="tb_axes.svg" transform="matrix(1,0,0,1,12.75,12)">
+                <g transform="matrix(1,0,0,1,-12,-12)">
+                    <g transform="matrix(1,0,0,1,5,4)">
+                        <g id="Page-1">
+                            <g id="tb_axes">
+                                <g id="Group">
+                                    <path id="Path-5306" d="M5.922,5.436L7.033,5.423L5.498,0.647L4.015,5.458L5.172,5.445L5.172,7.719L5.922,7.719L5.922,5.436Z" style="fill:rgb(20,70,137);stroke:rgb(20,70,137);stroke-width:0.5px;"/>
+                                    <path id="Path-5308" d="M8.708,5.189L13.482,3.776L10.319,7.629L9.74,6.735L6.651,8.699L6.269,8.085L9.31,6.121L8.708,5.189Z" style="fill:rgb(52,153,44);"/>
+                                    <g id="Path-5308-Copy" transform="matrix(0.390731,0.920505,-0.920505,0.390731,16.9465,-1.88045)">
+                                        <path d="M8.727,10.813L13.5,9.4L10.337,13.253L9.758,12.359L6.669,14.323L6.287,13.709L9.329,11.745L8.727,10.813Z" style="fill:rgb(210,0,0);"/>
+                                    </g>
+                                    <circle id="Oval-5" cx="5.5" cy="8.891" r="1.359"/>
+                                    <g id="Rectangle-10---Rectangle-10-Copy---Rectangle-10-Copy-2" serif:id="Rectangle-10-+-Rectangle-10-Copy-+-Rectangle-10-Copy-2" transform="matrix(1,0,0,1,0.203125,5.32812)">
+                                        <g id="Rectangle-10" transform="matrix(0.559193,-0.829038,0.829038,0.559193,-0.412084,3.72812)">
+                                            <rect x="2.931" y="1.883" width="0.737" height="0.737" style="fill:rgb(210,0,0);"/>
+                                        </g>
+                                        <g id="Rectangle-10-Copy" transform="matrix(0.559193,-0.829038,0.829038,0.559193,-0.311806,2.22921)">
+                                            <rect x="1.572" y="1.039" width="0.737" height="0.737" style="fill:rgb(210,0,0);"/>
+                                        </g>
+                                        <g id="Rectangle-10-Copy-2" transform="matrix(0.559193,-0.829038,0.829038,0.559193,-0.193329,0.670785)">
+                                            <rect x="0.165" y="0.148" width="0.737" height="0.737" style="fill:rgb(210,0,0);"/>
+                                        </g>
+                                    </g>
+                                    <g id="Rectangle-10---Rectangle-10-Copy---Rectangle-10-Copy-2-Copy" serif:id="Rectangle-10-+-Rectangle-10-Copy-+-Rectangle-10-Copy-2-Copy" transform="matrix(-1,0,0,1,4.14062,9.64062)">
+                                        <g id="Rectangle-101" serif:id="Rectangle-10" transform="matrix(0.559193,-0.829038,0.829038,0.559193,-0.412084,3.72812)">
+                                            <rect x="2.931" y="1.883" width="0.737" height="0.737" style="fill:rgb(52,153,44);"/>
+                                        </g>
+                                        <g id="Rectangle-10-Copy1" serif:id="Rectangle-10-Copy" transform="matrix(0.559193,-0.829038,0.829038,0.559193,-0.272945,2.20855)">
+                                            <rect x="1.572" y="0.992" width="0.737" height="0.737" style="fill:rgb(52,153,44);"/>
+                                        </g>
+                                        <g id="Rectangle-10-Copy-21" serif:id="Rectangle-10-Copy-2" transform="matrix(0.559193,-0.829038,0.829038,0.559193,-0.193329,0.670785)">
+                                            <rect x="0.165" y="0.148" width="0.737" height="0.737" style="fill:rgb(52,153,44);"/>
+                                        </g>
+                                    </g>
+                                    <g id="Rectangle-10-Copy-3---Rectangle-10-Copy-4---Rectangle-10-Copy-5" serif:id="Rectangle-10-Copy-3-+-Rectangle-10-Copy-4-+-Rectangle-10-Copy-5" transform="matrix(1,0,0,1,5.125,11.2812)">
+                                        <rect id="Rectangle-10-Copy-3" x="0.006" y="0.008" width="0.737" height="0.737" style="fill:rgb(20,70,137);"/>
+                                        <rect id="Rectangle-10-Copy-4" x="0.006" y="1.602" width="0.737" height="0.737" style="fill:rgb(20,70,137);"/>
+                                        <rect id="Rectangle-10-Copy-5" x="0.006" y="3.195" width="0.737" height="0.737" style="fill:rgb(20,70,137);"/>
+                                    </g>
+                                </g>
+                            </g>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>
