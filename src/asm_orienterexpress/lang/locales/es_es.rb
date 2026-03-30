@@ -29,9 +29,11 @@ oezscale: {
               status:  "Escala uniformemente y coloca copias a lo largo de las aristas."
             },
             oeflow: {
-              label:   "Colocación según flujo de vértices",
-              tooltip: "Colocación según flujo de vértices",
-              status:  "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes."
+              label:          "Colocación según flujo de vértices",
+              tooltip:        "Colocación según flujo de vértices",
+              status:         "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes.",
+              offset_prompt:  "Desfase",
+              vcb_hint:       "Enter: actualizar  |  Tab: cambiar inserción  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar"
             },
             oeface: {
               label:         "Colocación en cara",

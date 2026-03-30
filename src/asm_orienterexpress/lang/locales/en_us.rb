@@ -29,9 +29,11 @@ oezscale: {
               status:  "Scale uniformly and place copies along edges."
             },
             oeflow: {
-              label:   "Vertex Flow Placement",
-              tooltip: "Vertex Flow Placement",
-              status:  "Place oriented copies at vertices, aligned to the incoming edge flow."
+              label:          "Vertex Flow Placement",
+              tooltip:        "Vertex Flow Placement",
+              status:         "Place oriented copies at vertices, aligned to the incoming edge flow.",
+              offset_prompt:  "Offset",
+              vcb_hint:       "Enter: update  |  Tab: toggle insertion  |  ←→: adjust offset  |  ↓: reset  |  Esc: cancel"
             },
             oeface: {
               label:         "Face Placement",

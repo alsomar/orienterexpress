@@ -1063,61 +1063,350 @@ module ASM_Extensions
       end
     end
 
-    def self.oeflow
-      model     = Sketchup.active_model
-      selection = model.selection
-      method_id = __method__
+    # Tool class for interactive Flow Placement.
+    # Places components at edge vertices aligned to the flow direction.
+    # The user adjusts an offset along the flow direction via the VCB or arrow keys.
+    class OEFlowTool
+      class SelectionWatcher < Sketchup::SelectionObserver
+        def initialize(&block)
+          @callback = block
+          @pending  = false
+        end
 
-      edges   = edges(selection)
-      targets = instances(selection)
+        def onSelectionAdded(_selection, _entity)   schedule end
+        def onSelectionRemoved(_selection, _entity) schedule end
+        def onSelectionBulkChange(_selection)       schedule end
+        def onSelectionCleared(_selection)          schedule end
 
-      return unless check_selection(edges, targets)
+        private
 
-      entity     = targets.first
-      entity_def = entity.definition
-      entity_t   = entity.transformation
-
-      start_time = Time.now if Debug.enabled
-      Debug.separator
-      Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
-
-      # Group selected edges by their Sketchup::Vertex objects
-      vertex_edges = {}
-      edges.each do |edge|
-        [edge.start, edge.end].each do |vertex|
-          vertex_edges[vertex] ||= []
-          vertex_edges[vertex] << edge
+        def schedule
+          return if @pending
+          @pending = true
+          UI.start_timer(0, false) { @pending = false; @callback.call }
         end
       end
 
-      op_name = "Orienter Express: Flow Placing"
-      model.start_operation(op_name, true)
-      Debug.log(self, method_id, "Process START")
+      def self.last_offset_str
+        @@last_offset_str ||= CONFIG[:oeflow_offset] || "0cm"
+      end
 
-      begin
-        all_vertex_flow_directions(vertex_edges).each do |vertex, direction|
-          entity_copy = create_entity_copy(entity_def, entity_t)
-          t           = entity_copy.transformation
-          align_axis(entity_copy, t.origin, t.zaxis, direction)
-          orient_x(entity_copy)
-          move_insertion_to(entity_copy, vertex.position, :oeflow)
-        end
-        model.commit_operation
-        Debug.log(self, method_id, "Process DONE!")
-      rescue => e
-        model.abort_operation
-        UI.messagebox("Error: #{e.message}")
-        Debug.log(self, method_id, "ERROR #{e.class}: #{e.message}")
-        Debug.log(self, method_id, e.backtrace.join("\n"))
+      def self.last_offset_str=(val)
+        @@last_offset_str = val
+        OrienterExpress.user_settings(oeflow_offset: val)
+      end
+
+      def initialize(edges, entity_def, entity_t)
+        @edges             = edges
+        @entity_def        = entity_def
+        @entity_t          = entity_t
+        @model             = Sketchup.active_model
+        @applied           = false
+        @first_apply       = true
+        @previous_entities = []
+        @entity_to_vertex  = {}
+        @insertion_point   = :base
+      end
+
+      def activate
+        @lbutton_down  = false
+        @drag_mode     = nil
+        @arrow_key_dir = nil
+        @watcher = SelectionWatcher.new { on_external_selection_change }
+        @model.selection.add_observer(@watcher)
+        update_vcb
+        UI.start_timer(0, false) { apply(OEFlowTool.last_offset_str); sync_selection }
+      end
+
+      def deactivate(_view)
+        @model.selection.remove_observer(@watcher) if @watcher
+        @watcher           = nil
+        @applied           = false
+        @previous_entities = []
+        @entity_to_vertex  = {}
+      end
+
+      def resume(view)
+        update_vcb
+        view.invalidate
+      end
+
+      def onLButtonDown(flags, x, y, view)
+        @lbutton_down = true
+        @syncing = true
+        saved = @edges.dup
+        handle_click(flags, x, y, view, :single)
+        @edges = saved if @edges.empty? && !saved.empty?
+        sync_selection
       ensure
-        model.active_view.refresh
-        if Debug.enabled
-          elapsed = Time.now - start_time
-          Debug.log(self, method_id, "Process DONE! Elapsed #{format('%.3f', elapsed)} sec.")
+        @syncing = false
+      end
+
+      def onLButtonDoubleClick(flags, x, y, view)
+        @syncing = true
+        saved = @edges.dup
+        handle_click(flags, x, y, view, :double)
+        @edges = saved if @edges.empty? && !saved.empty?
+        sync_selection
+        @model.close_active while @model.active_path && !@model.active_path.empty?
+      ensure
+        @syncing = false
+      end
+
+      def onLButtonUp(_flags, _x, _y, _view)
+        @lbutton_down = false
+        @drag_mode    = nil
+      end
+
+      def onMouseMove(flags, x, y, view)
+        if @lbutton_down && @drag_mode
+          ctrl  = flags & COPY_MODIFIER_MASK      != 0
+          shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+          if ctrl || shift
+            picked_edges = pick_edges(view, x, y)
+            modify_edges(@drag_mode, picked_edges) if picked_edges
+          end
+        end
+      end
+
+      def onUserText(text, _view)
+        return if text.strip.empty?
+        apply(text.strip)
+      end
+
+      def onKeyDown(key, _repeat, _flags, _view)
+        case key
+        when 27 # VK_ESCAPE
+          if @applied
+            @model.start_operation("Cancel Flow Placement", true)
+            @previous_entities.each { |e| e.erase! if e.valid? }
+            @previous_entities = []
+            @model.commit_operation
+            @applied = false
+          end
+          @model.select_tool(nil)
+        when 37, 39 # Left/Right arrow — adjust offset
+          dir = key == 39 ? +1 : -1
+          unless @arrow_key_dir == dir
+            scroll_offset(dir)
+            @arrow_key_dir  = dir
+            @key_repeat_gen = (@key_repeat_gen || 0) + 1
+            gen = @key_repeat_gen
+            UI.start_timer(0.7, false) { key_repeat(dir, gen) }
+          end
+        when 40 # Down arrow — reset offset to zero
+          apply(Sketchup.format_length(0))
+        when 9 # Tab — cycle insertion point
+          @insertion_point = { base: :center, center: :origin, origin: :base }[@insertion_point]
+          update_vcb
+          apply(OEFlowTool.last_offset_str)
+        end
+      end
+
+      def onKeyUp(key, _repeat, _flags, _view)
+        @arrow_key_dir = nil if key == 37 || key == 39
+      end
+
+      private
+
+      def pick_entity(view, x, y, aperture = 16)
+        ph    = view.pick_helper
+        count = ph.do_pick(x, y, aperture)
+        paths = count.times.map { |i| ph.path_at(i) }
+
+        placed = paths.find { |path| @entity_to_vertex.key?(path.first) }
+        return placed.first if placed
+
+        root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
+        return root_edge.first if root_edge
+
+        ph.best_picked
+      end
+
+      def pick_edges(view, x, y)
+        entity = pick_entity(view, x, y)
+        pick_edges_from(entity)
+      end
+
+      def pick_edges_from(entity)
+        case entity
+        when Sketchup::Edge then [entity]
+        when Sketchup::Face then entity.edges.to_a
+        end
+      end
+
+      def connected_geometry(entity)
+        start_edges = pick_edges_from(entity)
+        return nil unless start_edges
+
+        visited = {}
+        queue   = start_edges.dup
+        until queue.empty?
+          edge = queue.pop
+          next if visited[edge]
+          visited[edge] = true
+          [edge.start, edge.end].each do |v|
+            v.edges.each { |e| queue << e unless visited[e] }
+          end
+          edge.faces.each do |f|
+            f.edges.each { |e| queue << e unless visited[e] }
+          end
+        end
+        visited.keys
+      end
+
+      def handle_click(flags, x, y, view, click_type)
+        ctrl  = flags & COPY_MODIFIER_MASK      != 0
+        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+
+        best = pick_entity(view, x, y)
+
+        picked_edges = case click_type
+                       when :single then pick_edges_from(best)
+                       when :double then connected_geometry(best)
+                       end
+
+        mode = if ctrl && shift
+                 :remove
+               elsif ctrl
+                 :add
+               elsif shift
+                 picked_edges&.all? { |e| @edges.include?(e) } ? :remove : :add
+               else
+                 :replace
+               end
+
+        @drag_mode = mode unless mode == :replace
+        return unless picked_edges
+
+        modify_edges(mode, picked_edges)
+      end
+
+      def modify_edges(mode, picked_edges)
+        before = @edges.to_set
+        case mode
+        when :add     then @edges = (@edges + picked_edges).uniq
+        when :remove  then @edges = @edges - picked_edges
+        when :replace then @edges = picked_edges.uniq
+        end
+        return if @edges.to_set == before
+        apply(OEFlowTool.last_offset_str)
+        sync_selection
+      end
+
+      def key_repeat(dir, gen)
+        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
+        scroll_offset(dir)
+        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
+      end
+
+      def scroll_offset(direction)
+        current = Sketchup.parse_length(OEFlowTool.last_offset_str) rescue nil
+        return unless current
+        step    = Sketchup.parse_length("1cm")
+        apply(Sketchup.format_length(current + direction * step))
+      end
+
+      def on_external_selection_change
+        return if @syncing
+        return if @model.selection.empty?
+        new_edges = (@model.selection.grep(Sketchup::Edge) +
+                     @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
+        return if new_edges.to_set == @edges.to_set
+        @edges = new_edges
+        @syncing = true
+        apply(OEFlowTool.last_offset_str)
+        sync_selection
+      ensure
+        @syncing = false
+      end
+
+      def sync_selection
+        valid_edges    = @edges.select(&:valid?)
+        valid_entities = @previous_entities.select(&:valid?)
+        target  = (valid_edges + valid_entities).to_set
+        current = @model.selection.to_a.to_set
+        to_remove = (current - target).to_a
+        to_add    = (target - current).to_a
+        @model.selection.remove(to_remove) unless to_remove.empty?
+        @model.selection.add(to_add)       unless to_add.empty?
+      end
+
+      def update_vcb
+        ip_key = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip = Lang.t(:html, :settings, ip_key)
+        Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
+        Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
+        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{ip}", 0)
+      end
+
+      def apply(text)
+        offset = Sketchup.parse_length(text) rescue nil
+        return unless offset
+
+        vertex_edges = {}
+        @edges.select(&:valid?).each do |edge|
+          [edge.start, edge.end].each do |v|
+            vertex_edges[v] ||= []
+            vertex_edges[v] << edge
+          end
+        end
+        flow_map = OrienterExpress.send(:all_vertex_flow_directions, vertex_edges)
+
+        transparent = !@first_apply
+        @model.start_operation("Orienter Express: Flow Placement", true, false, transparent)
+
+        begin
+          @previous_entities.each { |e| e.erase! if e.valid? }
+          @previous_entities = []
+          @entity_to_vertex  = {}
+
+          flow_map.each do |vertex, direction|
+            target      = vertex.position.offset(direction.normalize, offset)
+            entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
+            t           = entity_copy.transformation
+            OrienterExpress.send(:align_axis, entity_copy, t.origin, t.zaxis, direction)
+            OrienterExpress.orient_x(entity_copy)
+            entity_ref = case @insertion_point
+                         when :origin
+                           entity_copy.transformation.origin
+                         when :base
+                           db = entity_copy.definition.bounds
+                           entity_copy.transformation * Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+                         else # :center
+                           entity_copy.bounds.center
+                         end
+            entity_copy.transform!(Geom::Transformation.translation(target - entity_ref))
+            @previous_entities << entity_copy
+            @entity_to_vertex[entity_copy] = vertex
+          end
+
+          @model.commit_operation
+          @first_apply = false
+          @applied     = true
+          formatted = Sketchup.format_length(offset)
+          OEFlowTool.last_offset_str = formatted
+          Sketchup.set_status_text(formatted, 2)
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
         end
       end
     end
 
+    def self.oeflow
+      model   = Sketchup.active_model
+      edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
+      targets = instances(model.selection)
+
+      return unless check_targets(targets)
+
+      entity = targets.first
+      model.select_tool(
+        OEFlowTool.new(edges, entity.definition, entity.transformation)
+      )
+    end
 
     # Tool class for interactive Face Placement.
     # Equivalent to OEZScaleTool but for faces: the user adjusts an offset

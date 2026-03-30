@@ -22,7 +22,8 @@ module ASM_Extensions
       dark_mode: false,
       debug_mode: false,
       oezscale_offset: "10cm",
-      oeface_offset:   "0cm"
+      oeface_offset:   "0cm",
+      oeflow_offset:   "0cm"
     }.freeze
 
     MESSAGES = {
