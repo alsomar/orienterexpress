@@ -565,7 +565,7 @@ module ASM_Extensions
           ext  = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
           filename = variant == :default ? "oe_zscale_32" : "oe_zscale_#{variant}_32"
           path = File.join(PATH_CURSORS, "#{filename}.#{ext}")
-          UI.create_cursor(path, 0, 0)
+          UI.create_cursor(path, 5, 5)
         end
       end
 
@@ -636,11 +636,24 @@ module ASM_Extensions
 
       def onLButtonDown(flags, x, y, view)
         @lbutton_down = true
+        @syncing = true
+        saved = @edges.dup
         handle_click(flags, x, y, view, :single)
+        @edges = saved if @edges.empty? && !saved.empty?
+        sync_selection
+      ensure
+        @syncing = false
       end
 
       def onLButtonDoubleClick(flags, x, y, view)
+        @syncing = true
+        saved = @edges.dup
         handle_click(flags, x, y, view, :double)
+        @edges = saved if @edges.empty? && !saved.empty?
+        sync_selection
+        @model.close_active while @model.active_path && !@model.active_path.empty?
+      ensure
+        @syncing = false
       end
 
       def onLButtonUp(_flags, _x, _y, _view)
@@ -740,15 +753,22 @@ module ASM_Extensions
         UI.set_cursor(OEZScale2Tool.cursor_id(variant))
       end
 
-      def pick_entity(view, x, y)
+      def pick_entity(view, x, y, aperture = 16)
         ph    = view.pick_helper
-        count = ph.do_pick(x, y, 5)
-        count.times { |i| e = ph.leaf_at(i); return e if e.is_a?(Sketchup::Edge) }
+        count = ph.do_pick(x, y, aperture)
+        paths = count.times.map { |i| ph.path_at(i) }
+
+        placed = paths.find { |path| @entity_to_edge.key?(path.first) }
+        return placed.first if placed
+
+        root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
+        return root_edge.first if root_edge
+
         ph.best_picked
       end
 
       def pick_edges(view, x, y)
-        entity = pick_entity(view, x, y)
+        entity = pick_entity(view, x, y, 16)
         entity = @entity_to_edge[entity] if entity && @entity_to_edge.key?(entity)
         pick_edges_from(entity)
       end
@@ -817,19 +837,16 @@ module ASM_Extensions
       end
 
       def modify_edges(mode, picked_edges)
-        before = @edges.dup
+        before = @edges.to_set
         case mode
         when :add     then @edges = (@edges + picked_edges).uniq
         when :remove  then @edges = @edges - picked_edges
         when :replace then @edges = picked_edges.uniq
         end
-        return if @edges == before
+        return if @edges.to_set == before
         rebuild_flow_map if @rotation_mode == :flow
-        @syncing = true
         apply(OEZScale2Tool.last_offset_str)
         sync_selection
-      ensure
-        @syncing = false
       end
 
       def key_repeat(dir, gen)
@@ -848,13 +865,17 @@ module ASM_Extensions
 
       def on_external_selection_change
         return if @syncing
+        return if @model.selection.empty?
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
         return if new_edges.to_set == @edges.to_set
         @edges = new_edges
         rebuild_flow_map if @rotation_mode == :flow
+        @syncing = true
         apply(OEZScale2Tool.last_offset_str)
         sync_selection
+      ensure
+        @syncing = false
       end
 
       def sync_selection
@@ -1228,11 +1249,24 @@ module ASM_Extensions
 
       def onLButtonDown(flags, x, y, view)
         @lbutton_down = true
+        @syncing = true
+        saved = @faces.dup
         handle_click(flags, x, y, view, :single)
+        @faces = saved if @faces.empty? && !saved.empty?
+        sync_selection
+      ensure
+        @syncing = false
       end
 
       def onLButtonDoubleClick(flags, x, y, view)
+        @syncing = true
+        saved = @faces.dup
         handle_click(flags, x, y, view, :double)
+        @faces = saved if @faces.empty? && !saved.empty?
+        sync_selection
+        @model.close_active while @model.active_path && !@model.active_path.empty?
+      ensure
+        @syncing = false
       end
 
       def onLButtonUp(_flags, _x, _y, _view)
@@ -1358,18 +1392,15 @@ module ASM_Extensions
       end
 
       def modify_faces(mode, picked_faces)
-        before = @faces.dup
+        before = @faces.to_set
         case mode
         when :add     then @faces = (@faces + picked_faces).uniq
         when :remove  then @faces = @faces - picked_faces
         when :replace then @faces = picked_faces.uniq
         end
-        return if @faces == before
-        @syncing = true
+        return if @faces.to_set == before
         apply(OEFace2Tool.last_offset_str)
         sync_selection
-      ensure
-        @syncing = false
       end
 
       def key_repeat(dir, gen)
@@ -1387,12 +1418,16 @@ module ASM_Extensions
 
       def on_external_selection_change
         return if @syncing
+        return if @model.selection.empty?
         new_faces = (@model.selection.grep(Sketchup::Face) +
                      @model.selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
         return if new_faces.to_set == @faces.to_set
         @faces = new_faces
+        @syncing = true
         apply(OEFace2Tool.last_offset_str)
         sync_selection
+      ensure
+        @syncing = false
       end
 
       def sync_selection
