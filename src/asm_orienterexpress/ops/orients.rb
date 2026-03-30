@@ -1744,43 +1744,98 @@ module ASM_Extensions
 
     ### EXTRA TOOLS ### -----------------------------------------------------------
 
-    def self.oereset
-      model     = Sketchup.active_model
-      selection = model.selection
-      method_id = __method__
+    # Tool class for interactive Reset Rotations.
+    # Tab cycles the pivot point; the reset is re-applied live on each change.
+    class OEResetTool
+      def initialize(targets)
+        @targets        = targets
+        @original_ts    = targets.map(&:transformation)
+        @model          = Sketchup.active_model
+        @applied         = false
+        @first_apply     = true
+        custom = CONFIG[:insertion_point_custom]
+        @insertion_point = (custom.is_a?(Hash) && custom[:oereset] ? custom[:oereset].to_sym : :base)
+      end
 
-      targets = instances(selection)
+      def activate
+        update_vcb
+        UI.start_timer(0, false) { apply }
+      end
 
-      return unless check_targets(targets)
+      def deactivate(_view)
+        @applied = false
+      end
 
-      start_time = Time.now if Debug.enabled
-      Debug.separator
-      Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
+      def resume(_view)
+        update_vcb
+      end
 
-      op_name = "Orienter Express: Reset Rotations"
-      model.start_operation(op_name, true)
-      Debug.log(self, method_id, "Process START")
-
-      begin
-        targets.each do |entity|
-          center = entity.bounds.center
-          align_axis(entity, center, entity.transformation.zaxis, Z_AXIS)
-          align_axis(entity, center, entity.transformation.xaxis, X_AXIS)
-        end
-        model.commit_operation
-        Debug.log(self, method_id, "Process DONE!")
-      rescue => e
-        model.abort_operation
-        UI.messagebox("Error: #{e.message}")
-        Debug.log(self, method_id, "ERROR #{e.class}: #{e.message}")
-        Debug.log(self, method_id, e.backtrace.join("\n"))
-      ensure
-        model.active_view.refresh
-        if Debug.enabled
-          elapsed = Time.now - start_time
-          Debug.log(self, method_id, "Process DONE! Elapsed #{format('%.3f', elapsed)} sec.")
+      def onKeyDown(key, _repeat, _flags, _view)
+        case key
+        when 27 # Esc — undo and exit
+          if @applied
+            @model.start_operation("Cancel Reset Rotations", true)
+            @targets.each_with_index { |e, i| e.transformation = @original_ts[i] if e.valid? }
+            @model.commit_operation
+            @applied = false
+          end
+          @model.select_tool(nil)
+        when 9 # Tab — cycle pivot
+          @insertion_point = { center: :origin, origin: :base, base: :center }[@insertion_point]
+          custom = CONFIG[:insertion_point_custom] || {}
+          OrienterExpress.user_settings(insertion_point_custom: custom.merge(oereset: @insertion_point.to_s))
+          update_vcb
+          apply
         end
       end
+
+      private
+
+      def pivot_for(entity)
+        case @insertion_point
+        when :origin
+          entity.transformation.origin
+        when :base
+          db = entity.definition.bounds
+          entity.transformation * Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+        else # :center
+          entity.bounds.center
+        end
+      end
+
+      def update_vcb
+        ip_key = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip = Lang.t(:html, :settings, ip_key)
+        Sketchup.set_status_text("#{Lang.commands.oereset.vcb_hint}  |  #{ip}", 0)
+      end
+
+      def apply
+        transparent = !@first_apply
+        @model.start_operation("Orienter Express: Reset Rotations", true, false, transparent)
+        begin
+          @targets.each_with_index do |entity, i|
+            next unless entity.valid?
+            entity.transformation = @original_ts[i]
+            pivot = pivot_for(entity)
+            OrienterExpress.send(:align_axis, entity, pivot, entity.transformation.zaxis, Z_AXIS)
+            OrienterExpress.send(:align_axis, entity, pivot, entity.transformation.xaxis, X_AXIS)
+          end
+          @model.commit_operation
+          @first_apply = false
+          @applied     = true
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
+        end
+      end
+    end
+
+    def self.oereset
+      model   = Sketchup.active_model
+      targets = instances(model.selection)
+      return unless check_targets(targets)
+      model.select_tool(OEResetTool.new(targets))
     end
 
     private_class_method :orient_ground

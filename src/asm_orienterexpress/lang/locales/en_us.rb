@@ -43,9 +43,10 @@ oezscale: {
               vcb_hint:      "Enter: update  |  Tab: toggle insertion  |  ←→: adjust offset  |  ↓: reset  |  Esc: cancel"
             },
             oereset: {
-              label:   "Reset Rotations",
-              tooltip: "Reset Rotations",
-              status:  "Reset rotation of selected entities to global axes."
+              label:    "Reset Rotations",
+              tooltip:  "Reset Rotations",
+              status:   "Reset rotation of selected entities to global axes.",
+              vcb_hint: "Tab: toggle pivot  |  Esc: cancel"
             },
             settings: {
               label:   "#{EXT_NAME} Settings",

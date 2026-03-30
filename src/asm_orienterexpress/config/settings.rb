@@ -15,7 +15,8 @@ module ASM_Extensions
         oeedgevertex: "origin",
         oecenter:     "center",
         oeflow:       "center",
-        oeface:       "base"
+        oeface:       "base",
+        oereset:      "base"
       },
 
       # Inner Options
