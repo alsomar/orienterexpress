@@ -611,6 +611,8 @@ module ASM_Extensions
       end
 
       def draw(view)
+        draw_sample_bounds(view)
+
         return if @skipped_edges.nil? || @skipped_edges.empty?
 
         view.invalidate
@@ -622,6 +624,24 @@ module ASM_Extensions
           p1 = edge.start.position.offset((eye - edge.start.position).normalize, 0.1)
           p2 = edge.end.position.offset((eye - edge.end.position).normalize, 0.1)
           view.draw(GL_LINES, [p1, p2])
+        end
+      end
+
+      def draw_sample_bounds(view)
+        bounds = @entity_def.bounds
+        return if bounds.empty?
+
+        eye     = view.camera.eye
+        corners = 8.times.map do |i|
+          pt = @entity_t * bounds.corner(i)
+          pt.offset((eye - pt).normalize, 0.1)
+        end
+        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
+
+        view.line_width = 2
+        view.drawing_color = Sketchup::Color.new(255, 140, 0)
+        pairs.each do |a, b|
+          view.draw(GL_LINES, [corners[a], corners[b]])
         end
       end
 
