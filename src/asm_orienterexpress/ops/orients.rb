@@ -594,8 +594,8 @@ module ASM_Extensions
       def activate
         @skipped_edges = []
         @lbutton_down  = false
-        @drag_mode = nil
-        @mod_alt   = false
+        @drag_mode     = nil
+        @mod_alt       = false
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -710,14 +710,9 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, flags, view)
         case key
-        when 17
-          @mod_ctrl = true
-          deactivate_alt_mode
-        when 16
-          @mod_shift = true
-          deactivate_alt_mode
-        when 18
-          @mod_alt ? deactivate_alt_mode : (@mod_alt = true)
+        when 17 then @mod_ctrl = true;  @mod_alt = false
+        when 16 then @mod_shift = true; @mod_alt = false
+        when 18 then @mod_alt   = true
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -759,8 +754,7 @@ module ASM_Extensions
         case key
         when 17 then @mod_ctrl  = false
         when 16 then @mod_shift = false
-        when 18
-          # toggle mode: key-up does nothing, state managed by onKeyDown
+        when 18 then @mod_alt   = false
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -966,14 +960,10 @@ module ASM_Extensions
         @model.commit_operation
         @entity_to_edge = {}
         @first_apply    = true
-        deactivate_alt_mode
+        @mod_alt        = false
+        update_cursor
         apply(OEZScale2Tool.last_offset_str)
         sync_selection
-      end
-
-      def deactivate_alt_mode
-        @mod_alt = false
-        update_cursor
       end
 
       def apply(text)
