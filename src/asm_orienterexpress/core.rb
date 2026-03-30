@@ -39,15 +39,7 @@ module ASM_Extensions
       cmd_oecenter = cmd
       @commands[:oecenter] = cmd
 
-      cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
-      cmd.small_icon = self.icon("oezscale_24")
-      cmd.large_icon = self.icon("oezscale_24")
-      cmd.status_bar_text = Lang.commands.oezscale.status
-      cmd.tooltip = Lang.commands.oezscale.tooltip
-      cmd_oezscale = cmd
-      @commands[:oezscale] = cmd
-
-      cmd = UI::Command.new(Lang.commands.oezscale2.label.to_s) { self.oezscale2_tool }
+cmd = UI::Command.new(Lang.commands.oezscale2.label.to_s) { self.oezscale2_tool }
       cmd.small_icon = self.icon("oezscale_24")
       cmd.large_icon = self.icon("oezscale_24")
       cmd.status_bar_text = Lang.commands.oezscale2.status
@@ -101,7 +93,6 @@ module ASM_Extensions
       menu = UI.menu('Extensions').add_submenu(EXT_NAME)
       menu.add_item(cmd_oeedgevertex)
       menu.add_item(cmd_oecenter)
-      menu.add_item(cmd_oezscale)
       menu.add_item(cmd_oezscale2)
       menu.add_item(cmd_oeuscale)
 
@@ -119,7 +110,6 @@ module ASM_Extensions
         menu = context_menu.add_submenu(EXT_NAME)
         menu.add_item(cmd_oeedgevertex)
         menu.add_item(cmd_oecenter)
-        menu.add_item(cmd_oezscale)
         menu.add_item(cmd_oezscale2)
         menu.add_item(cmd_oeuscale)
   
@@ -136,7 +126,6 @@ module ASM_Extensions
       toolbar = UI::Toolbar.new(EXT_NAME)
       toolbar.add_item(cmd_oeedgevertex)
       toolbar.add_item(cmd_oecenter)
-      toolbar.add_item(cmd_oezscale)
       toolbar.add_item(cmd_oezscale2)
       toolbar.add_item(cmd_oeuscale)
 
@@ -164,11 +153,7 @@ module ASM_Extensions
         ASM_Extensions::OrienterExpress.oecenter
       end
 
-      def self.oezscale_tool
-        ASM_Extensions::OrienterExpress.oezscale
-      end
-
-      def self.oezscale2_tool
+def self.oezscale2_tool
         ASM_Extensions::OrienterExpress.oezscale2
       end
 

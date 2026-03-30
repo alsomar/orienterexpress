@@ -16,12 +16,7 @@ module ASM_Extensions
               tooltip: "Edge Center Placement",
               status:  "Place copies centered on edges."
             },
-            oezscale: {
-              label:   "Z-axis Scaling",
-              tooltip: "Z-axis Scaling",
-              status:  "Scale and place copies along edges (Z-axis)."
-            },
-            oezscale2: {
+oezscale2: {
               label:          "Z-axis Scaling 2",
               tooltip:        "Z-axis Scaling 2",
               status:         "Scale and place copies along edges with an offset from each vertex.",

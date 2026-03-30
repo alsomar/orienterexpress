@@ -16,12 +16,7 @@ module ASM_Extensions
               tooltip: "Colocación centrada en arista",
               status:  "Coloca copias centradas sobre las aristas."
             },
-            oezscale: {
-              label:   "Escalado en Z",
-              tooltip: "Escalado en Z",
-              status:  "Escala y coloca copias a lo largo de las aristas (eje Z)."
-            },
-            oezscale2: {
+oezscale2: {
               label:          "Escalado en Z 2",
               tooltip:        "Escalado en Z 2",
               status:         "Escala y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
