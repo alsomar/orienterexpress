@@ -34,11 +34,6 @@ oezscale: {
               status:  "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes."
             },
             oeface: {
-              label:   "Colocación en cara",
-              tooltip: "Colocación en cara",
-              status:  "Coloca copias en el centroide de cada cara, orientadas según la normal."
-            },
-            oeface: {
               label:         "Colocación en cara",
               tooltip:       "Colocación en cara",
               status:        "Coloca copias en el centroide de cada cara con un desfase a lo largo de la normal.",

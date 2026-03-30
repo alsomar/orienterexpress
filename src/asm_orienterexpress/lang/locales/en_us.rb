@@ -34,11 +34,6 @@ oezscale: {
               status:  "Place oriented copies at vertices, aligned to the incoming edge flow."
             },
             oeface: {
-              label:   "Face Placement",
-              tooltip: "Face Placement",
-              status:  "Place copies at face centroids, oriented along the face normal."
-            },
-            oeface: {
               label:         "Face Placement",
               tooltip:       "Face Placement",
               status:        "Place copies at face centroids with an offset along the face normal.",
