@@ -594,7 +594,8 @@ module ASM_Extensions
       def activate
         @skipped_edges = []
         @lbutton_down  = false
-        @drag_mode     = nil
+        @drag_mode = nil
+        @mod_alt   = false
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -638,7 +639,7 @@ module ASM_Extensions
         end
         pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
 
-        view.line_width = 2
+        view.line_width = 3
         view.drawing_color = Sketchup::Color.new(255, 140, 0)
         pairs.each do |a, b|
           view.draw(GL_LINES, [corners[a], corners[b]])
@@ -655,6 +656,10 @@ module ASM_Extensions
       end
 
       def onLButtonDown(flags, x, y, view)
+        if @mod_alt
+          pick_new_sample(view, x, y)
+          return
+        end
         @lbutton_down = true
         @syncing = true
         saved = @edges.dup
@@ -705,8 +710,14 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, flags, view)
         case key
-        when 17 then @mod_ctrl  = true
-        when 16 then @mod_shift = true
+        when 17
+          @mod_ctrl = true
+          deactivate_alt_mode
+        when 16
+          @mod_shift = true
+          deactivate_alt_mode
+        when 18
+          @mod_alt ? deactivate_alt_mode : (@mod_alt = true)
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -748,6 +759,8 @@ module ASM_Extensions
         case key
         when 17 then @mod_ctrl  = false
         when 16 then @mod_shift = false
+        when 18
+          # toggle mode: key-up does nothing, state managed by onKeyDown
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -761,7 +774,9 @@ module ASM_Extensions
 
       # SB_PROMPT=0, SB_VCB_LABEL=1, SB_VCB_VALUE=2
       def update_cursor
-        variant = if @mod_ctrl && @mod_shift
+        variant = if @mod_alt
+                    :pick
+                  elsif @mod_ctrl && @mod_shift
                     :minus
                   elsif @mod_ctrl
                     :plus
@@ -933,6 +948,32 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oezscale2.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScale2Tool.last_offset_str, 2)
         Sketchup.set_status_text("#{Lang.commands.oezscale2.vcb_hint}  |  #{mode}", 0)
+      end
+
+      def pick_new_sample(view, x, y)
+        ph    = view.pick_helper
+        count = ph.do_pick(x, y, 16)
+        paths = count.times.map { |i| ph.path_at(i) }
+        instance = paths.map(&:first).find { |e|
+          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
+        }
+        return unless instance
+        @entity_def = instance.definition
+        @entity_t   = instance.transformation
+        @model.start_operation("Orienter Express: Change Sample", true, false, false)
+        @previous_entities.each { |e| e.erase! if e.valid? }
+        @previous_entities = []
+        @model.commit_operation
+        @entity_to_edge = {}
+        @first_apply    = true
+        deactivate_alt_mode
+        apply(OEZScale2Tool.last_offset_str)
+        sync_selection
+      end
+
+      def deactivate_alt_mode
+        @mod_alt = false
+        update_cursor
       end
 
       def apply(text)

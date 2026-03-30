@@ -24,7 +24,8 @@
       "WebFetch(domain:ruby.sketchup.com)",
       "Bash(mv oe_zscale_add_32.svg oe_zscale_plus_32.svg)",
       "Bash(mv oe_zscale_rem_32.svg oe_zscale_minus_32.svg)",
-      "Bash(mv oe_zscale_addrem_32.svg oe_zscale_toggle_32.svg)"
+      "Bash(mv oe_zscale_addrem_32.svg oe_zscale_toggle_32.svg)",
+      "Bash(find src:*)"
     ],
     "additionalDirectories": [
       "D:\\Code\\Projects\\TestExt\\src\\asm_testext\\dialogs",
