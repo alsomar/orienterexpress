@@ -471,11 +471,11 @@ module ASM_Extensions
     end
 
 
-    # Tool class for interactive Z-Scaling 2.
+    # Tool class for interactive Z-Scaling.
     # The user adjusts the offset via the VCB; each Enter re-applies the
     # operation so the result updates in real time.
     # Escape undoes the last preview and exits. Switching tools commits.
-    class OEZScale2Tool
+    class OEZScaleTool
 
       class SelectionWatcher < Sketchup::SelectionObserver
         def initialize(&block)
@@ -508,12 +508,12 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oezscale2_offset] || "10cm"
+        @@last_offset_str ||= CONFIG[:oezscale_offset] || "10cm"
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oezscale2_offset: val)
+        OrienterExpress.user_settings(oezscale_offset: val)
       end
 
       def initialize(edges, entity_def, entity_t, flow_map, rotation_mode)
@@ -537,7 +537,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEZScale2Tool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OEZScaleTool.last_offset_str); sync_selection }
       end
 
       def deactivate(_view)
@@ -660,7 +660,7 @@ module ASM_Extensions
         case key
         when 27 # VK_ESCAPE
           if @applied
-            @model.start_operation("Cancel Z-Scaling 2", true)
+            @model.start_operation("Cancel Z-Scaling", true)
             @previous_entities.each { |e| e.erase! if e.valid? }
             @previous_entities = []
             @model.commit_operation
@@ -681,10 +681,10 @@ module ASM_Extensions
         when 9 # Tab — cycle rotation mode
           before = @rotation_mode
           @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-          puts "[OEZScale2Tool.tab] #{before.inspect} → #{@rotation_mode.inspect}"
+          puts "[OEZScaleTool.tab] #{before.inspect} → #{@rotation_mode.inspect}"
           rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
           update_vcb
-          apply(OEZScale2Tool.last_offset_str)
+          apply(OEZScaleTool.last_offset_str)
         end
       end
 
@@ -717,7 +717,7 @@ module ASM_Extensions
                   else
                     :default
                   end
-        UI.set_cursor(OEZScale2Tool.cursor_id(variant))
+        UI.set_cursor(OEZScaleTool.cursor_id(variant))
       end
 
       def pick_entity(view, x, y, aperture = 16)
@@ -812,7 +812,7 @@ module ASM_Extensions
         end
         return if @edges.to_set == before
         rebuild_flow_map if @rotation_mode == :flow
-        apply(OEZScale2Tool.last_offset_str)
+        apply(OEZScaleTool.last_offset_str)
         sync_selection
       end
 
@@ -823,7 +823,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OEZScale2Tool.last_offset_str) rescue nil
+        current = Sketchup.parse_length(OEZScaleTool.last_offset_str) rescue nil
         return unless current
         step    = Sketchup.parse_length("1cm")
         new_val = current + direction * step
@@ -839,7 +839,7 @@ module ASM_Extensions
         @edges = new_edges
         rebuild_flow_map if @rotation_mode == :flow
         @syncing = true
-        apply(OEZScale2Tool.last_offset_str)
+        apply(OEZScaleTool.last_offset_str)
         sync_selection
       ensure
         @syncing = false
@@ -877,9 +877,9 @@ module ASM_Extensions
       def update_vcb
         mode_key = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode = Lang.t(:html, :settings, mode_key)
-        Sketchup.set_status_text(Lang.commands.oezscale2.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEZScale2Tool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oezscale2.vcb_hint}  |  #{mode}", 0)
+        Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
+        Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
+        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode}", 0)
       end
 
       def pick_new_sample(view, x, y)
@@ -900,26 +900,26 @@ module ASM_Extensions
         @first_apply    = true
         @mod_alt        = false
         update_cursor
-        apply(OEZScale2Tool.last_offset_str)
+        apply(OEZScaleTool.last_offset_str)
         sync_selection
       end
 
       def apply(text)
-        puts "[OEZScale2Tool.apply] called with text=#{text.inspect} first=#{@first_apply} edges=#{@edges.size}"
+        puts "[OEZScaleTool.apply] called with text=#{text.inspect} first=#{@first_apply} edges=#{@edges.size}"
         offset = begin
           Sketchup.parse_length(text)
         rescue => e
-          puts "[OEZScale2Tool.apply] parse_length failed: #{e.message}"
+          puts "[OEZScaleTool.apply] parse_length failed: #{e.message}"
           nil
         end
         if offset.nil?
-          puts "[OEZScale2Tool.apply] offset nil, returning"
+          puts "[OEZScaleTool.apply] offset nil, returning"
           return
         end
-        puts "[OEZScale2Tool.apply] offset=#{offset} transparent=#{!@first_apply}"
+        puts "[OEZScaleTool.apply] offset=#{offset} transparent=#{!@first_apply}"
 
         transparent = !@first_apply
-        @model.start_operation("Orienter Express: Z-Scaling 2", true, false, transparent)
+        @model.start_operation("Orienter Express: Z-Scaling", true, false, transparent)
 
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
@@ -932,7 +932,7 @@ module ASM_Extensions
             next if edge.length.zero?
             effective_length = edge.length - 2 * offset
             if effective_length <= 1e-6
-              puts "[OEZScale2Tool.apply]   edge len=#{edge.length.round(3)} eff=#{effective_length.round(3)} SKIPPED"
+              puts "[OEZScaleTool.apply]   edge len=#{edge.length.round(3)} eff=#{effective_length.round(3)} SKIPPED"
               skipped << edge
               next
             end
@@ -950,7 +950,7 @@ module ASM_Extensions
             midpoint     = Geom::Point3d.linear_combination(
               0.5, edge.start.position, 0.5, edge.end.position)
             world_center = entity_copy.transformation * entity_copy.definition.bounds.center
-            puts "[OEZScale2Tool.apply]   midpoint=#{midpoint.to_a.map{|v|v.round(2)}} world_center=#{world_center.to_a.map{|v|v.round(2)}}"
+            puts "[OEZScaleTool.apply]   midpoint=#{midpoint.to_a.map{|v|v.round(2)}} world_center=#{world_center.to_a.map{|v|v.round(2)}}"
             entity_copy.transform!(
               Geom::Transformation.translation(midpoint - world_center))
             @previous_entities << entity_copy
@@ -962,19 +962,19 @@ module ASM_Extensions
           @applied          = true
           @skipped_edges    = skipped
           formatted = Sketchup.format_length(offset)
-          OEZScale2Tool.last_offset_str = formatted
+          OEZScaleTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
-          puts "[OEZScale2Tool.apply] DONE created=#{created}"
+          puts "[OEZScaleTool.apply] DONE created=#{created}"
         rescue => e
           @model.abort_operation
-          puts "[OEZScale2Tool.apply] ERROR #{e.class}: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
+          puts "[OEZScaleTool.apply] ERROR #{e.class}: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
           UI.messagebox("Error: #{e.message}")
         end
       end
     end
 
-    def self.oezscale2
+    def self.oezscale
       model   = Sketchup.active_model
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
@@ -997,7 +997,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEZScale2Tool.new(edges, entity.definition, entity.transformation,
+        OEZScaleTool.new(edges, entity.definition, entity.transformation,
                           flow_map, rotation_mode)
       )
     end
@@ -1169,7 +1169,7 @@ module ASM_Extensions
     end
 
     # Tool class for interactive Face Placement 2.
-    # Equivalent to OEZScale2Tool but for faces: the user adjusts an offset
+    # Equivalent to OEZScaleTool but for faces: the user adjusts an offset
     # along the face normal via the VCB or arrow keys.
     class OEFace2Tool
       class SelectionWatcher < Sketchup::SelectionObserver

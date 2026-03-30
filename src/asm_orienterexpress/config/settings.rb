@@ -21,7 +21,7 @@ module ASM_Extensions
       # Inner Options
       dark_mode: false,
       debug_mode: false,
-      oezscale2_offset: "10cm",
+      oezscale_offset: "10cm",
       oeface2_offset:   "0cm"
     }.freeze
 
