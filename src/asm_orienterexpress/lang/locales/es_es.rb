@@ -38,9 +38,9 @@ oezscale: {
               tooltip: "Colocación en cara",
               status:  "Coloca copias en el centroide de cada cara, orientadas según la normal."
             },
-            oeface2: {
-              label:         "Colocación en cara 2",
-              tooltip:       "Colocación en cara 2",
+            oeface: {
+              label:         "Colocación en cara",
+              tooltip:       "Colocación en cara",
               status:        "Coloca copias en el centroide de cada cara con un desfase a lo largo de la normal.",
               offset_prompt: "Desfase",
               vcb_hint:      "Enter: actualizar  |  Tab: cambiar inserción  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar"

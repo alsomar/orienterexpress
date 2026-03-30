@@ -1118,60 +1118,11 @@ module ASM_Extensions
       end
     end
 
-    def self.oeface
-      model     = Sketchup.active_model
-      selection = model.selection
-      method_id = __method__
 
-      faces   = faces(selection)
-      targets = instances(selection)
-
-      return unless check_face_selection(faces, targets)
-
-      entity     = targets.first
-      entity_def = entity.definition
-      entity_t   = entity.transformation
-
-      start_time = Time.now if Debug.enabled
-      Debug.separator
-      Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
-
-      op_name = "Orienter Express: Face Placement"
-      model.start_operation(op_name, true)
-      Debug.log(self, method_id, "Process START")
-
-      begin
-        faces.each do |face|
-          normal = face.normal
-          next if normal.length < 1e-6
-
-          centroid    = face_centroid(face)
-          entity_copy = create_entity_copy(entity_def, entity_t)
-          t           = entity_copy.transformation
-          align_axis(entity_copy, t.origin, t.zaxis, normal)
-          orient_x(entity_copy)
-          move_insertion_to(entity_copy, centroid, :oeface)
-        end
-        model.commit_operation
-        Debug.log(self, method_id, "Process DONE!")
-      rescue => e
-        model.abort_operation
-        UI.messagebox("Error: #{e.message}")
-        Debug.log(self, method_id, "ERROR #{e.class}: #{e.message}")
-        Debug.log(self, method_id, e.backtrace.join("\n"))
-      ensure
-        model.active_view.refresh
-        if Debug.enabled
-          elapsed = Time.now - start_time
-          Debug.log(self, method_id, "Process DONE! Elapsed #{format('%.3f', elapsed)} sec.")
-        end
-      end
-    end
-
-    # Tool class for interactive Face Placement 2.
+    # Tool class for interactive Face Placement.
     # Equivalent to OEZScaleTool but for faces: the user adjusts an offset
     # along the face normal via the VCB or arrow keys.
-    class OEFace2Tool
+    class OEFaceTool
       class SelectionWatcher < Sketchup::SelectionObserver
         def initialize(&block)
           @callback = block
@@ -1193,12 +1144,12 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oeface2_offset] || "0cm"
+        @@last_offset_str ||= CONFIG[:oeface_offset] || "0cm"
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oeface2_offset: val)
+        OrienterExpress.user_settings(oeface_offset: val)
       end
 
       def initialize(faces, entity_def, entity_t)
@@ -1220,7 +1171,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEFace2Tool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OEFaceTool.last_offset_str); sync_selection }
       end
 
       def deactivate(_view)
@@ -1283,7 +1234,7 @@ module ASM_Extensions
         case key
         when 27 # VK_ESCAPE
           if @applied
-            @model.start_operation("Cancel Face Placement 2", true)
+            @model.start_operation("Cancel Face Placement", true)
             @previous_entities.each { |e| e.erase! if e.valid? }
             @previous_entities = []
             @model.commit_operation
@@ -1293,7 +1244,7 @@ module ASM_Extensions
         when 9 # Tab — cycle insertion point
           @insertion_point = { base: :center, center: :origin, origin: :base }[@insertion_point]
           update_vcb
-          apply(OEFace2Tool.last_offset_str)
+          apply(OEFaceTool.last_offset_str)
         when 37, 39 # Left/Right arrow — adjust offset
           dir = key == 39 ? +1 : -1
           unless @arrow_key_dir == dir
@@ -1388,7 +1339,7 @@ module ASM_Extensions
         when :replace then @faces = picked_faces.uniq
         end
         return if @faces.to_set == before
-        apply(OEFace2Tool.last_offset_str)
+        apply(OEFaceTool.last_offset_str)
         sync_selection
       end
 
@@ -1399,7 +1350,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OEFace2Tool.last_offset_str) rescue nil
+        current = Sketchup.parse_length(OEFaceTool.last_offset_str) rescue nil
         return unless current
         step    = Sketchup.parse_length("1cm")
         apply(Sketchup.format_length(current + direction * step))
@@ -1413,7 +1364,7 @@ module ASM_Extensions
         return if new_faces.to_set == @faces.to_set
         @faces = new_faces
         @syncing = true
-        apply(OEFace2Tool.last_offset_str)
+        apply(OEFaceTool.last_offset_str)
         sync_selection
       ensure
         @syncing = false
@@ -1435,9 +1386,9 @@ module ASM_Extensions
       def update_vcb
         ip_key = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip = Lang.t(:html, :settings, ip_key)
-        Sketchup.set_status_text(Lang.commands.oeface2.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEFace2Tool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeface2.vcb_hint}  |  #{ip}", 0)
+        Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
+        Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
+        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{ip}", 0)
       end
 
       def apply(text)
@@ -1445,7 +1396,7 @@ module ASM_Extensions
         return unless offset
 
         transparent = !@first_apply
-        @model.start_operation("Orienter Express: Face Placement 2", true, false, transparent)
+        @model.start_operation("Orienter Express: Face Placement", true, false, transparent)
 
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
@@ -1479,7 +1430,7 @@ module ASM_Extensions
           @first_apply = false
           @applied     = true
           formatted = Sketchup.format_length(offset)
-          OEFace2Tool.last_offset_str = formatted
+          OEFaceTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
@@ -1489,7 +1440,7 @@ module ASM_Extensions
       end
     end
 
-    def self.oeface2
+    def self.oeface
       model   = Sketchup.active_model
       faces   = (faces(model.selection) + edges(model.selection).flat_map(&:faces)).uniq
       targets = instances(model.selection)
@@ -1498,7 +1449,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEFace2Tool.new(faces, entity.definition, entity.transformation)
+        OEFaceTool.new(faces, entity.definition, entity.transformation)
       )
     end
 

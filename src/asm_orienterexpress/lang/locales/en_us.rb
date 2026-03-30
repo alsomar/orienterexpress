@@ -38,9 +38,9 @@ oezscale: {
               tooltip: "Face Placement",
               status:  "Place copies at face centroids, oriented along the face normal."
             },
-            oeface2: {
-              label:         "Face Placement 2",
-              tooltip:       "Face Placement 2",
+            oeface: {
+              label:         "Face Placement",
+              tooltip:       "Face Placement",
               status:        "Place copies at face centroids with an offset along the face normal.",
               offset_prompt: "Offset",
               vcb_hint:      "Enter: update  |  Tab: toggle insertion  |  ←→: adjust offset  |  ↓: reset  |  Esc: cancel"
