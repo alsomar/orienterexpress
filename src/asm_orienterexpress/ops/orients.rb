@@ -212,6 +212,47 @@ module ASM_Extensions
       end
     end
 
+    # Returns [along, perp]: the longest edge direction and its perpendicular,
+    # both lying in the face plane. Returns nil if the face is degenerate.
+    def self.face_longest_edge_axes(face)
+      longest = face.edges.max_by(&:length)
+      return nil unless longest
+
+      dir = longest.end.position - longest.start.position
+      return nil if dir.length < 1e-6
+
+      along = dir.normalize
+      perp  = face.normal.normalize.cross(along).normalize
+      return nil if perp.length < 1e-6
+
+      [along, perp]
+    end
+
+    # Rotates entity around its local Z axis so that its X axis aligns to
+    # the longest edge direction (axis_idx=0) or its perpendicular (axis_idx=1).
+    # Falls back to orient_x if the face is degenerate.
+    def self.orient_to_face_edge(entity, face, axis_idx)
+      axes = face_longest_edge_axes(face)
+      return orient_x(entity) unless axes
+
+      target = axes[axis_idx % 2]
+      z_axis = entity.transformation.zaxis.normalize
+      x_axis = entity.transformation.xaxis.normalize
+
+      dot       = z_axis.dot(target)
+      projected = target - Geom::Vector3d.new(z_axis.x * dot, z_axis.y * dot, z_axis.z * dot)
+      return orient_x(entity) if projected.length < 1e-6
+
+      target_n = projected.normalize
+      cross    = x_axis.cross(target_n)
+      sin_val  = cross.dot(z_axis)
+      angle    = Math.atan2(sin_val, x_axis.dot(target_n))
+
+      unless angle.abs < 1e-6
+        entity.transform!(Geom::Transformation.rotation(entity.bounds.center, z_axis, angle))
+      end
+    end
+
     def self.orient_z(instance, edge)
       start_point = edge.start.position
       end_point   = edge.end.position
@@ -533,7 +574,7 @@ module ASM_Extensions
         @skipped_edges = []
         @lbutton_down  = false
         @drag_mode     = nil
-        @mod_alt       = false
+        @sample_mode   = false
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -594,7 +635,7 @@ module ASM_Extensions
       end
 
       def onLButtonDown(flags, x, y, view)
-        if @mod_alt
+        if @sample_mode
           pick_new_sample(view, x, y)
           return
         end
@@ -628,6 +669,7 @@ module ASM_Extensions
         ctrl  = flags & COPY_MODIFIER_MASK      != 0
         shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         if ctrl != @mod_ctrl || shift != @mod_shift
+          puts "[OEZScale.mouseMove] flags=0x#{flags.to_s(16)}  ctrl:#{@mod_ctrl}→#{ctrl}  shift:#{@mod_shift}→#{shift}  sample:#{@sample_mode}"
           @mod_ctrl  = ctrl
           @mod_shift = shift
           update_cursor
@@ -647,14 +689,19 @@ module ASM_Extensions
 
 
       def onKeyDown(key, _repeat, flags, view)
+        before_sample = @sample_mode
+        before_ctrl   = @mod_ctrl
+        before_shift  = @mod_shift
         case key
-        when 17 then @mod_ctrl = true;  @mod_alt = false
-        when 16 then @mod_shift = true; @mod_alt = false
-        when 18 then @mod_alt   = true
+        when 17 then @mod_ctrl = true;  @sample_mode = false
+        when 16 then @mod_shift = true; @sample_mode = false
+        when 38 then @sample_mode = !@sample_mode
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
+        key_name = { 16 => "Shift", 17 => "Ctrl", 27 => "Esc", 9 => "Tab", 37 => "Left", 38 => "Up", 39 => "Right", 40 => "Down" }[key] || "key#{key}"
+        puts "[OEZScale.keyDown] #{key_name} flags=0x#{flags.to_s(16)}  ctrl:#{before_ctrl}→#{@mod_ctrl}  shift:#{before_shift}→#{@mod_shift}  sample:#{before_sample}→#{@sample_mode}"
         update_cursor
         view.invalidate
         case key
@@ -689,14 +736,17 @@ module ASM_Extensions
       end
 
       def onKeyUp(key, _repeat, flags, view)
+        before_ctrl  = @mod_ctrl
+        before_shift = @mod_shift
         case key
         when 17 then @mod_ctrl  = false
         when 16 then @mod_shift = false
-        when 18 then @mod_alt   = false
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
+        key_name = { 16 => "Shift", 17 => "Ctrl", 27 => "Esc", 9 => "Tab", 37 => "Left", 38 => "Up", 39 => "Right", 40 => "Down" }[key] || "key#{key}"
+        puts "[OEZScale.keyUp  ] #{key_name} flags=0x#{flags.to_s(16)}  ctrl:#{before_ctrl}→#{@mod_ctrl}  shift:#{before_shift}→#{@mod_shift}  sample:#{@sample_mode}"
         @arrow_key_dir = nil if key == 37 || key == 39
         update_cursor
         view.invalidate
@@ -706,7 +756,7 @@ module ASM_Extensions
 
       # SB_PROMPT=0, SB_VCB_LABEL=1, SB_VCB_VALUE=2
       def update_cursor
-        variant = if @mod_alt
+        variant = if @sample_mode
                     :pick
                   elsif @mod_ctrl && @mod_shift
                     :minus
@@ -898,7 +948,7 @@ module ASM_Extensions
         @model.commit_operation
         @entity_to_edge = {}
         @first_apply    = true
-        @mod_alt        = false
+        @sample_mode    = false
         update_cursor
         apply(OEZScaleTool.last_offset_str)
         sync_selection
@@ -1451,6 +1501,8 @@ module ASM_Extensions
         @previous_entities = []
         @entity_to_face    = {}
         @insertion_point   = :base
+        @axis_idx          = 0
+        @sample_mode       = false
       end
 
       def activate
@@ -1476,7 +1528,16 @@ module ASM_Extensions
         view.invalidate
       end
 
+      def draw(view)
+        draw_bounds(view, @entity_def.bounds, @entity_t,
+                    Sketchup::Color.new(255, 140, 0), 3)
+      end
+
       def onLButtonDown(flags, x, y, view)
+        if @sample_mode
+          pick_new_sample(view, x, y)
+          return
+        end
         @lbutton_down = true
         @syncing = true
         saved = @faces.dup
@@ -1543,6 +1604,14 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
+        when 38 # Up arrow — toggle sample mode
+          @sample_mode = !@sample_mode
+          update_vcb
+          view.invalidate
+        when 36 # Home — cycle face orientation mode
+          @axis_idx = (@axis_idx + 1) % 3
+          update_vcb
+          apply(OEFaceTool.last_offset_str)
         when 40 # Down arrow — reset offset to zero
           apply(Sketchup.format_length(0))
         end
@@ -1650,6 +1719,7 @@ module ASM_Extensions
         return if @model.selection.empty?
         new_faces = (@model.selection.grep(Sketchup::Face) +
                      @model.selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
+        return if new_faces.empty?
         return if new_faces.to_set == @faces.to_set
         @faces = new_faces
         @syncing = true
@@ -1660,9 +1730,10 @@ module ASM_Extensions
       end
 
       def sync_selection
-        valid_faces = @faces.select(&:valid?)
+        valid_faces  = @faces.select(&:valid?)
+        valid_placed = @previous_entities.select(&:valid?)
 
-        target  = valid_faces.to_set
+        target  = (valid_faces + valid_placed).to_set
         current = @model.selection.to_a.to_set
 
         to_remove = (current - target).to_a
@@ -1677,7 +1748,9 @@ module ASM_Extensions
         ip = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{ip}", 0)
+        axis_label   = ["→ arista", "⊥ arista", "suelo"][@axis_idx]
+        sample_label = @sample_mode ? "  [SAMPLE]" : ""
+        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{ip}  |  #{axis_label}  [Home]#{sample_label}", 0)
       end
 
       def apply(text)
@@ -1701,7 +1774,11 @@ module ASM_Extensions
             entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
             t           = entity_copy.transformation
             OrienterExpress.align_axis(entity_copy, t.origin, t.zaxis, normal)
-            OrienterExpress.orient_x(entity_copy)
+            if @axis_idx == 2
+              OrienterExpress.orient_x(entity_copy)
+            else
+              OrienterExpress.orient_to_face_edge(entity_copy, face, @axis_idx)
+            end
             entity_ref = case @insertion_point
                          when :origin
                            entity_copy.transformation.origin
@@ -1726,6 +1803,41 @@ module ASM_Extensions
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")
         end
+      end
+
+      def draw_bounds(view, bounds, transformation, color, line_width)
+        return if bounds.empty?
+        eye     = view.camera.eye
+        corners = 8.times.map do |i|
+          pt = transformation * bounds.corner(i)
+          pt.offset((eye - pt).normalize, 0.1)
+        end
+        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
+        view.line_width    = line_width
+        view.drawing_color = color
+        pairs.each { |a, b| view.draw(GL_LINES, [corners[a], corners[b]]) }
+      end
+
+      def pick_new_sample(view, x, y)
+        ph    = view.pick_helper
+        count = ph.do_pick(x, y, 16)
+        paths = count.times.map { |i| ph.path_at(i) }
+        instance = paths.map(&:first).find { |e|
+          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
+        }
+        return unless instance
+        @entity_def = instance.definition
+        @entity_t   = instance.transformation
+        @model.start_operation("Orienter Express: Change Sample", true, false, false)
+        @previous_entities.each { |e| e.erase! if e.valid? }
+        @previous_entities = []
+        @model.commit_operation
+        @entity_to_face = {}
+        @first_apply    = true
+        @sample_mode    = false
+        update_vcb
+        apply(OEFaceTool.last_offset_str)
+        sync_selection
       end
     end
 
