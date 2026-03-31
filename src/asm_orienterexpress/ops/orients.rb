@@ -1673,6 +1673,15 @@ module ASM_Extensions
                        when :single then pick_faces_from(best)
                        when :double then connected_geometry(best)
                        end
+
+        if ctrl && shift
+          @drag_mode = :remove
+        elsif ctrl
+          @drag_mode = :add
+        elsif shift
+          @drag_mode = :add
+        end
+
         return unless picked_faces
 
         mode = if ctrl && shift
