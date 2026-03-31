@@ -40,7 +40,10 @@ oezscale: {
               tooltip:       "Colocación en cara",
               status:        "Coloca copias en el centroide de cada cara con un desfase a lo largo de la normal.",
               offset_prompt: "Desfase",
-              vcb_hint:      "Enter: actualizar  |  Tab: cambiar inserción  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar"
+              vcb_hint:      "Enter: actualizar  |  Tab: cambiar inserción  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar",
+              axis_parallel: "paralelo a arista dominante",
+              axis_perp:     "perpendicular a arista dominante",
+              axis_ground:   "horizontal"
             },
             oereset: {
               label:    "Resetear rotaciones",

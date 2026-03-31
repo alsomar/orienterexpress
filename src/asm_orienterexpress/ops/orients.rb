@@ -1491,6 +1491,16 @@ module ASM_Extensions
         OrienterExpress.user_settings(oeface_offset: val)
       end
 
+      def self.cursor_id(variant = :default)
+        @@cursor_ids ||= {}
+        @@cursor_ids[variant] ||= begin
+          ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
+          filename = variant == :default ? "oeface_32" : "oeface_#{variant}_32"
+          path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
+          UI.create_cursor(path, 5, 5)
+        end
+      end
+
       def initialize(faces, entity_def, entity_t)
         @faces             = faces
         @entity_def        = entity_def
@@ -1503,6 +1513,8 @@ module ASM_Extensions
         @insertion_point   = :base
         @axis_idx          = 0
         @sample_mode       = false
+        @mod_ctrl          = false
+        @mod_shift         = false
       end
 
       def activate
@@ -1565,13 +1577,16 @@ module ASM_Extensions
       end
 
       def onMouseMove(flags, x, y, view)
-        if @lbutton_down && @drag_mode
-          ctrl  = flags & COPY_MODIFIER_MASK      != 0
-          shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-          if ctrl || shift
-            picked_faces = pick_faces(view, x, y)
-            modify_faces(@drag_mode, picked_faces) if picked_faces
-          end
+        ctrl  = flags & COPY_MODIFIER_MASK      != 0
+        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+        if ctrl != @mod_ctrl || shift != @mod_shift
+          @mod_ctrl  = ctrl
+          @mod_shift = shift
+          update_cursor
+        end
+        if @lbutton_down && @drag_mode && (ctrl || shift)
+          picked_faces = pick_faces(view, x, y)
+          modify_faces(@drag_mode, picked_faces) if picked_faces
         end
       end
 
@@ -1580,7 +1595,11 @@ module ASM_Extensions
         apply(text.strip)
       end
 
-      def onKeyDown(key, _repeat, _flags, _view)
+      def onKeyDown(key, _repeat, _flags, view)
+        case key
+        when 17 then @mod_ctrl = true;  @sample_mode = false; update_cursor; view.invalidate; return
+        when 16 then @mod_shift = true; @sample_mode = false; update_cursor; view.invalidate; return
+        end
         case key
         when 27 # VK_ESCAPE
           if @applied
@@ -1607,6 +1626,7 @@ module ASM_Extensions
         when 38 # Up arrow — toggle sample mode
           @sample_mode = !@sample_mode
           update_vcb
+          update_cursor
           view.invalidate
         when 36 # Home — cycle face orientation mode
           @axis_idx = (@axis_idx + 1) % 3
@@ -1617,11 +1637,34 @@ module ASM_Extensions
         end
       end
 
-      def onKeyUp(key, _repeat, _flags, _view)
+      def onKeyUp(key, _repeat, _flags, view)
+        case key
+        when 17 then @mod_ctrl  = false; update_cursor; view.invalidate
+        when 16 then @mod_shift = false; update_cursor; view.invalidate
+        end
         @arrow_key_dir = nil if key == 37 || key == 39
       end
 
+      def onSetCursor
+        update_cursor
+      end
+
       private
+
+      def update_cursor
+        variant = if @sample_mode
+                    :pick
+                  elsif @mod_ctrl && @mod_shift
+                    :minus
+                  elsif @mod_ctrl
+                    :plus
+                  elsif @mod_shift
+                    :toggle
+                  else
+                    :default
+                  end
+        UI.set_cursor(OEFaceTool.cursor_id(variant))
+      end
 
       def pick_faces(view, x, y)
         ph = view.pick_helper
@@ -1757,7 +1800,11 @@ module ASM_Extensions
         ip = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
-        axis_label   = ["→ arista", "⊥ arista", "suelo"][@axis_idx]
+        axis_label   = [
+          Lang.commands.oeface.axis_parallel,
+          Lang.commands.oeface.axis_perp,
+          Lang.commands.oeface.axis_ground
+        ][@axis_idx]
         sample_label = @sample_mode ? "  [SAMPLE]" : ""
         Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{ip}  |  #{axis_label}  [Home]#{sample_label}", 0)
       end

@@ -40,7 +40,10 @@ oezscale: {
               tooltip:       "Face Placement",
               status:        "Place copies at face centroids with an offset along the face normal.",
               offset_prompt: "Offset",
-              vcb_hint:      "Enter: update  |  Tab: toggle insertion  |  ←→: adjust offset  |  ↓: reset  |  Esc: cancel"
+              vcb_hint:      "Enter: update  |  Tab: toggle insertion  |  ←→: adjust offset  |  ↓: reset  |  Esc: cancel",
+              axis_parallel: "parallel to dominant edge",
+              axis_perp:     "perpendicular to dominant edge",
+              axis_ground:   "horizontal"
             },
             oereset: {
               label:    "Reset Rotations",
