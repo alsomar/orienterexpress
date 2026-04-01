@@ -45,6 +45,24 @@ oezscale: {
               axis_perp:     "perpendicular to dominant edge",
               axis_ground:   "horizontal"
             },
+            oealignx: {
+              label:    "Align X to Dominant Edge",
+              tooltip:  "Align X to Dominant Edge",
+              status:   "Rotates the component to align its local X axis with the longest edge of its geometry.",
+              vcb_hint: "Click: align  |  Esc: exit"
+            },
+            oealignpca: {
+              label:    "Align Axes to Geometry (PCA)",
+              tooltip:  "Align Axes to Geometry (PCA)",
+              status:   "Reorients the component axes to minimize the bounding box using principal component analysis.",
+              vcb_hint: "Click: align  |  Esc: exit"
+            },
+            oealignoptimal: {
+              label:    "Optimal Axis Alignment",
+              tooltip:  "Optimal Axis Alignment",
+              status:   "Aligns local X to the dominant edge, then minimizes the bounding box in 3D.",
+              vcb_hint: "Click: align  |  Esc: exit"
+            },
             oereset: {
               label:    "Reset Rotations",
               tooltip:  "Reset Rotations",

@@ -71,6 +71,24 @@ cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
       cmd_oeface = cmd
       @commands[:oeface] = cmd
 
+      cmd = UI::Command.new(Lang.commands.oealignx.label.to_s) { self.oealignx_tool }
+      cmd.status_bar_text = Lang.commands.oealignx.status
+      cmd.tooltip = Lang.commands.oealignx.tooltip
+      cmd_oealignx = cmd
+      @commands[:oealignx] = cmd
+
+      cmd = UI::Command.new(Lang.commands.oealignpca.label.to_s) { self.oealignpca_tool }
+      cmd.status_bar_text = Lang.commands.oealignpca.status
+      cmd.tooltip = Lang.commands.oealignpca.tooltip
+      cmd_oealignpca = cmd
+      @commands[:oealignpca] = cmd
+
+      cmd = UI::Command.new(Lang.commands.oealignoptimal.label.to_s) { self.oealignoptimal_tool }
+      cmd.status_bar_text = Lang.commands.oealignoptimal.status
+      cmd.tooltip = Lang.commands.oealignoptimal.tooltip
+      cmd_oealignoptimal = cmd
+      @commands[:oealignoptimal] = cmd
+
       cmd = UI::Command.new(Lang.commands.oereset.label.to_s) { self.oereset_tool }
       cmd.small_icon = self.icon("oereset_24")
       cmd.large_icon = self.icon("oereset_24")
@@ -96,6 +114,9 @@ cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
       menu.add_item(cmd_oezscale)
       menu.add_item(cmd_oeuscale)
       menu.add_separator
+      menu.add_item(cmd_oealignx)
+      menu.add_item(cmd_oealignpca)
+      menu.add_item(cmd_oealignoptimal)
       menu.add_item(cmd_oereset)
       menu.add_separator
       menu.add_item(cmd_settings)
@@ -111,6 +132,9 @@ cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
         menu.add_item(cmd_oezscale)
         menu.add_item(cmd_oeuscale)
         menu.add_separator
+        menu.add_item(cmd_oealignx)
+        menu.add_item(cmd_oealignpca)
+        menu.add_item(cmd_oealignoptimal)
         menu.add_item(cmd_oereset)
         menu.add_separator
         menu.add_item(cmd_settings)
@@ -125,6 +149,9 @@ cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
       toolbar.add_item(cmd_oezscale)
       toolbar.add_item(cmd_oeuscale)
       toolbar.add_separator
+      toolbar.add_item(cmd_oealignx)
+      toolbar.add_item(cmd_oealignpca)
+      toolbar.add_item(cmd_oealignoptimal)
       toolbar.add_item(cmd_oereset)
       toolbar.add_separator
       toolbar.add_item(cmd_settings)
@@ -159,6 +186,18 @@ cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
 
       def self.oeface_tool
         ASM_Extensions::OrienterExpress.oeface
+      end
+
+      def self.oealignx_tool
+        ASM_Extensions::OrienterExpress.oealignx
+      end
+
+      def self.oealignpca_tool
+        ASM_Extensions::OrienterExpress.oealignpca
+      end
+
+      def self.oealignoptimal_tool
+        ASM_Extensions::OrienterExpress.oealignoptimal
       end
 
       def self.oereset_tool

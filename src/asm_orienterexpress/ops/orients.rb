@@ -1146,6 +1146,16 @@ module ASM_Extensions
         OrienterExpress.user_settings(oeflow_offset: val)
       end
 
+      def self.cursor_id(variant = :default)
+        @@cursor_ids ||= {}
+        @@cursor_ids[variant] ||= begin
+          ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
+          filename = variant == :default ? "oeflow_32" : "oeflow_#{variant}_32"
+          path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
+          UI.create_cursor(path, 5, 5)
+        end
+      end
+
       def initialize(edges, entity_def, entity_t)
         @edges             = edges
         @entity_def        = entity_def
@@ -1156,6 +1166,9 @@ module ASM_Extensions
         @previous_entities = []
         @entity_to_vertex  = {}
         @insertion_point   = :base
+        @sample_mode       = false
+        @mod_ctrl          = false
+        @mod_shift         = false
       end
 
       def activate
@@ -1181,7 +1194,25 @@ module ASM_Extensions
         view.invalidate
       end
 
+      def draw(view)
+        bounds  = @entity_def.bounds
+        return if bounds.empty?
+        eye     = view.camera.eye
+        corners = 8.times.map do |i|
+          pt = @entity_t * bounds.corner(i)
+          pt.offset((eye - pt).normalize, 0.1)
+        end
+        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
+        view.line_width    = 3
+        view.drawing_color = Sketchup::Color.new(255, 140, 0)
+        pairs.each { |a, b| view.draw(GL_LINES, [corners[a], corners[b]]) }
+      end
+
       def onLButtonDown(flags, x, y, view)
+        if @sample_mode
+          pick_new_sample(view, x, y)
+          return
+        end
         @lbutton_down = true
         @syncing = true
         saved = @edges.dup
@@ -1209,13 +1240,20 @@ module ASM_Extensions
       end
 
       def onMouseMove(flags, x, y, view)
-        if @lbutton_down && @drag_mode
-          ctrl  = flags & COPY_MODIFIER_MASK      != 0
-          shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+        ctrl  = flags & COPY_MODIFIER_MASK      != 0
+        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+        if ctrl != @mod_ctrl || shift != @mod_shift
+          @mod_ctrl  = ctrl
+          @mod_shift = shift
           if ctrl || shift
-            picked_edges = pick_edges(view, x, y)
-            modify_edges(@drag_mode, picked_edges) if picked_edges
+            @sample_mode = false
           end
+          update_cursor
+          view.invalidate
+        end
+        if @lbutton_down && @drag_mode && (ctrl || shift)
+          picked_edges = pick_edges(view, x, y)
+          modify_edges(@drag_mode, picked_edges) if picked_edges
         end
       end
 
@@ -1224,7 +1262,11 @@ module ASM_Extensions
         apply(text.strip)
       end
 
-      def onKeyDown(key, _repeat, _flags, _view)
+      def onKeyDown(key, _repeat, _flags, view)
+        case key
+        when 17 then @mod_ctrl = true;  @sample_mode = false; update_cursor; view.invalidate; return
+        when 16 then @mod_shift = true; @sample_mode = false; update_cursor; view.invalidate; return
+        end
         case key
         when 27 # VK_ESCAPE
           if @applied
@@ -1235,6 +1277,11 @@ module ASM_Extensions
             @applied = false
           end
           @model.select_tool(nil)
+        when 38 # Up arrow — toggle sample mode
+          @sample_mode = !@sample_mode
+          update_vcb
+          update_cursor
+          view.invalidate
         when 37, 39 # Left/Right arrow — adjust offset
           dir = key == 39 ? +1 : -1
           unless @arrow_key_dir == dir
@@ -1253,11 +1300,34 @@ module ASM_Extensions
         end
       end
 
-      def onKeyUp(key, _repeat, _flags, _view)
+      def onKeyUp(key, _repeat, _flags, view)
+        case key
+        when 17 then @mod_ctrl  = false; update_cursor; view.invalidate
+        when 16 then @mod_shift = false; update_cursor; view.invalidate
+        end
         @arrow_key_dir = nil if key == 37 || key == 39
       end
 
+      def onSetCursor
+        update_cursor
+      end
+
       private
+
+      def update_cursor
+        variant = if @sample_mode
+                    :pick
+                  elsif @mod_ctrl && @mod_shift
+                    :minus
+                  elsif @mod_ctrl
+                    :plus
+                  elsif @mod_shift
+                    :toggle
+                  else
+                    :default
+                  end
+        UI.set_cursor(OEFlowTool.cursor_id(variant))
+      end
 
       def pick_entity(view, x, y, aperture = 16)
         ph    = view.pick_helper
@@ -1362,6 +1432,7 @@ module ASM_Extensions
         return if @model.selection.empty?
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
+        return if new_edges.empty?
         return if new_edges.to_set == @edges.to_set
         @edges = new_edges
         @syncing = true
@@ -1369,6 +1440,28 @@ module ASM_Extensions
         sync_selection
       ensure
         @syncing = false
+      end
+
+      def pick_new_sample(view, x, y)
+        ph    = view.pick_helper
+        count = ph.do_pick(x, y, 16)
+        paths = count.times.map { |i| ph.path_at(i) }
+        instance = paths.map(&:first).find { |e|
+          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
+        }
+        return unless instance
+        @entity_def = instance.definition
+        @entity_t   = instance.transformation
+        @model.start_operation("Orienter Express: Change Sample", true, false, false)
+        @previous_entities.each { |e| e.erase! if e.valid? }
+        @previous_entities = []
+        @model.commit_operation
+        @entity_to_vertex = {}
+        @first_apply      = true
+        @sample_mode      = false
+        update_vcb
+        apply(OEFlowTool.last_offset_str)
+        sync_selection
       end
 
       def sync_selection
@@ -1387,7 +1480,8 @@ module ASM_Extensions
         ip = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{ip}", 0)
+        sample_label = @sample_mode ? "  [SAMPLE]" : ""
+        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{ip}#{sample_label}", 0)
       end
 
       def apply(text)
@@ -2006,6 +2100,453 @@ module ASM_Extensions
       model.select_tool(OEResetTool.new(targets))
     end
 
+    # Recursively collects all vertex positions transformed by t.
+    def self.collect_vertices(entities, t)
+      pts = []
+      entities.each do |e|
+        case e
+        when Sketchup::Edge
+          pts << t * e.start.position
+          pts << t * e.end.position
+        when Sketchup::ComponentInstance, Sketchup::Group
+          pts.concat(collect_vertices(e.definition.entities, t * e.transformation))
+        end
+      end
+      pts
+    end
+
+    # BB volume of pts after XY rotation by angle around [0,0,1] through origin.
+    def self.bb_vol_at_angle(pts, angle)
+      cos_a = Math.cos(angle)
+      sin_a = Math.sin(angle)
+      xs, ys, zs = [], [], []
+      pts.each do |p|
+        xs << p.x * cos_a - p.y * sin_a
+        ys << p.x * sin_a + p.y * cos_a
+        zs << p.z
+      end
+      return Float::INFINITY if xs.empty?
+      (xs.max - xs.min) * (ys.max - ys.min) * (zs.max - zs.min)
+    end
+
+    # Redefines the local axes so that local X aligns with the dominant edge,
+    # chosen by minimum bounding box volume. Geometry stays in world position.
+    #
+    # Strategy:
+    #   1. Extract rotation part of t → r_reset (maps def-local to world-aligned frame)
+    #   2. Virtually apply r_reset to all vertices → world-aligned frame where local Z = world Z
+    #   3. Find best XY rotation angle in that frame using edge candidates + BB volume
+    #   4. Compose: r_combined = r_best * r_reset (applied to geometry)
+    #   5. Compensate all instances: T_new = T_old * r_combined_inv
+    #      → world positions preserved, local X now points along dominant edge
+    def self.align_x_to_dominant_edge(instance)
+      t = instance.transformation
+      a  = t.to_a
+      sx = Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
+      sy = Math.sqrt(a[4]**2 + a[5]**2 + a[6]**2)
+      sz = Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2)
+
+      # r_reset = rotation part of t (maps def-local → world-aligned, no translation)
+      r_reset = Geom::Transformation.new([
+        a[0]/sx, a[1]/sx, a[2]/sx, 0,
+        a[4]/sy, a[5]/sy, a[6]/sy, 0,
+        a[8]/sz, a[9]/sz, a[10]/sz, 0,
+        0, 0, 0, 1
+      ])
+      r_reset_inv = r_reset.inverse
+
+      # Vertices in world-aligned frame
+      pts_reset = collect_vertices(instance.definition.entities, r_reset)
+      puts "[OEAlignX] instance=#{instance.definition.name} pts=#{pts_reset.size}"
+      return if pts_reset.empty?
+
+      # bb_vol_at_angle has period 90° (swapping X/Y extents preserves product),
+      # so we only need to search [0°, 90°).
+      # Phase 1: coarse sweep every 2° over [0°, 88°]
+      deg2rad = Math::PI / 180.0
+      coarse_best_angle = 0.0
+      coarse_best_vol   = bb_vol_at_angle(pts_reset, 0.0)
+      puts "[OEAlignX] current vol=#{coarse_best_vol.round(4)}"
+      (2...90).step(2) do |deg|
+        a2  = deg * deg2rad
+        vol = bb_vol_at_angle(pts_reset, a2)
+        if vol < coarse_best_vol
+          coarse_best_vol   = vol
+          coarse_best_angle = a2
+        end
+      end
+      puts "[OEAlignX] coarse best=#{(coarse_best_angle/deg2rad).round(1)}° vol=#{coarse_best_vol.round(4)}"
+
+      # Phase 2: fine sweep ±2° around coarse minimum in 0.1° steps
+      best_angle = nil
+      best_vol   = bb_vol_at_angle(pts_reset, 0.0)
+      lo = coarse_best_angle - 2.0 * deg2rad
+      hi = coarse_best_angle + 2.0 * deg2rad
+      (lo..hi).step(0.1 * deg2rad) do |a2|
+        vol = bb_vol_at_angle(pts_reset, a2)
+        if vol < best_vol - 1e-4
+          best_vol   = vol
+          best_angle = a2
+        end
+      end
+
+      if best_angle.nil?
+        puts "[OEAlignX] already optimal"
+        return
+      end
+      puts "[OEAlignX] best=#{(best_angle/deg2rad).round(2)}° vol=#{best_vol.round(4)}"
+
+      local_origin = Geom::Point3d.new(0, 0, 0)
+      world_z      = Geom::Vector3d.new(0, 0, 1)
+      r_best     = Geom::Transformation.rotation(local_origin, world_z,  best_angle)
+      r_best_inv = Geom::Transformation.rotation(local_origin, world_z, -best_angle)
+
+      # r_combined = r_best * r_reset  (applied to geometry)
+      # r_combined_inv = r_reset_inv * r_best_inv  (post-multiplied to instances)
+      r_combined     = r_best     * r_reset
+      r_combined_inv = r_reset_inv * r_best_inv
+
+      instance.definition.entities.transform_entities(r_combined, instance.definition.entities.to_a)
+      instance.definition.instances.each do |inst|
+        before = inst.transformation.origin
+        inst.transformation = inst.transformation * r_combined_inv
+        after  = inst.transformation.origin
+        puts "[OEAlignX]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
+      end
+      puts "[OEAlignX] done"
+    end
+
+    # Tool class for aligning a component/group's local X axis to its
+    # dominant (longest) edge. Recurrent: stays active for repeated clicks.
+    class OEAlignXTool
+      def initialize(instances)
+        @model     = Sketchup.active_model
+        @instances = instances
+      end
+
+      def activate
+        update_vcb
+        UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
+      end
+
+      def deactivate(_view); end
+
+      def resume(_view)
+        update_vcb
+      end
+
+      def onLButtonDown(_flags, x, y, view)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        entity = ph.best_picked
+        return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
+        apply([entity])
+      end
+
+      def onKeyDown(key, _repeat, _flags, _view)
+        @model.select_tool(nil) if key == 27 # Escape
+      end
+
+      private
+
+      def apply(instances)
+        puts "[OEAlignXTool.apply] #{instances.size} instances"
+        return if instances.empty?
+        @model.start_operation("Orienter Express: Align X to Dominant Edge", true)
+        instances.each do |inst|
+          next unless inst.valid?
+          OrienterExpress.send(:align_x_to_dominant_edge, inst)
+        end
+        @model.commit_operation
+        @model.active_view.invalidate
+      end
+
+      def update_vcb
+        Sketchup.set_status_text(Lang.commands.oealignx.vcb_hint.to_s, 0)
+      end
+    end
+
+    def self.oealignx
+      model   = Sketchup.active_model
+      targets = instances(model.selection)
+      return unless check_targets(targets)
+      model.select_tool(OEAlignXTool.new(targets))
+    end
+
+    # BB volume of pts rotated by a row-major 3×3 matrix (no allocation in inner loop).
+    def self.bb_vol_3d(pts, r00, r01, r02, r10, r11, r12, r20, r21, r22)
+      p0 = pts[0]
+      qx = r00*p0.x + r01*p0.y + r02*p0.z
+      qy = r10*p0.x + r11*p0.y + r12*p0.z
+      qz = r20*p0.x + r21*p0.y + r22*p0.z
+      xmin = xmax = qx; ymin = ymax = qy; zmin = zmax = qz
+      pts.each do |p|
+        qx = r00*p.x + r01*p.y + r02*p.z
+        qy = r10*p.x + r11*p.y + r12*p.z
+        qz = r20*p.x + r21*p.y + r22*p.z
+        xmin = qx if qx < xmin; xmax = qx if qx > xmax
+        ymin = qy if qy < ymin; ymax = qy if qy > ymax
+        zmin = qz if qz < zmin; zmax = qz if qz > zmax
+      end
+      (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
+    end
+
+    # Redefines the local axes to minimize the bounding box volume via a two-phase
+    # ZYZ Euler angle sweep (yaw × pitch × roll), covering all of SO(3).
+    # Geometry stays in world position.
+    def self.align_to_min_bb(instance)
+      # Work in definition space (identity frame). This makes the algorithm
+      # idempotent: after applying, the next call sees already-rotated pts
+      # and the sweep returns identity → no further change.
+      id = Geom::Transformation.new
+      pts = collect_vertices(instance.definition.entities, id)
+      puts "[OEAlignPCA] instance=#{instance.definition.name} pts=#{pts.size}"
+      return if pts.empty?
+
+      pts = pts.each_slice((pts.size / 80.0).ceil).map(&:first) if pts.size > 80
+
+      # ZYZ Euler angles: R = Rz(α) * Ry(β) * Rz(γ)
+      # Matrix rows:
+      #   [ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb]
+      #   [sa*cb*cg + ca*sg,  -sa*cb*sg + ca*cg,  sa*sb]
+      #   [-sb*cg,             sb*sg,              cb   ]
+      # BB has 90° period in α and γ → search [0°,90°) × [-90°,90°) × [0°,90°)
+      deg2rad = Math::PI / 180.0
+
+      eval_zyz = lambda do |al, be, ga|
+        ca = Math.cos(al); sa = Math.sin(al)
+        cb = Math.cos(be); sb = Math.sin(be)
+        cg = Math.cos(ga); sg = Math.sin(ga)
+        bb_vol_3d(pts,
+          ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb,
+          sa*cb*cg + ca*sg,  -sa*cb*sg + ca*cg,  sa*sb,
+          -sb*cg,             sb*sg,              cb)
+      end
+
+      # Phase 1: coarse grid 10° → 9×18×9 = 1,458 evals to find basin
+      best_al = 0.0; best_be = 0.0; best_ga = 0.0
+      best_vol = Float::INFINITY
+      (0...90).step(10) do |ad|
+        (-90...90).step(10) do |bd|
+          (0...90).step(10) do |gd|
+            vol = eval_zyz.call(ad*deg2rad, bd*deg2rad, gd*deg2rad)
+            if vol < best_vol
+              best_vol = vol; best_al = ad*deg2rad; best_be = bd*deg2rad; best_ga = gd*deg2rad
+            end
+          end
+        end
+      end
+      puts "[OEAlignPCA] coarse best=α#{(best_al/deg2rad).round(1)}° β#{(best_be/deg2rad).round(1)}° γ#{(best_ga/deg2rad).round(1)}° vol=#{best_vol.round(4)}"
+
+      # Phase 2: Nelder-Mead simplex from coarse best → converges to exact minimum
+      # Simplex: 4 vertices in (α,β,γ) space, initial edge = 8°
+      s = 8.0 * deg2rad
+      simplex = [
+        [best_al,       best_be,       best_ga      ],
+        [best_al + s,   best_be,       best_ga      ],
+        [best_al,       best_be + s,   best_ga      ],
+        [best_al,       best_be,       best_ga + s  ],
+      ]
+      fval = simplex.map { |v| eval_zyz.call(*v) }
+
+      200.times do
+        # Sort by function value
+        order = fval.each_with_index.sort_by { |f, _| f }.map(&:last)
+        simplex = order.map { |i| simplex[i] }
+        fval    = order.map { |i| fval[i] }
+
+        break if (fval.last - fval.first).abs < 1e-6
+
+        # Centroid of all but worst
+        c = [0.0, 0.0, 0.0]
+        3.times { |i| 3.times { |d| c[d] += simplex[i][d] / 3.0 } }
+
+        worst = simplex[3]; fw = fval[3]
+
+        # Reflection
+        xr  = c.each_with_index.map { |ci, d| 2*ci - worst[d] }
+        fxr = eval_zyz.call(*xr)
+
+        if fxr < fval[0]
+          # Expansion
+          xe  = c.each_with_index.map { |ci, d| 3*ci - 2*worst[d] }
+          fxe = eval_zyz.call(*xe)
+          if fxe < fxr
+            simplex[3] = xe; fval[3] = fxe
+          else
+            simplex[3] = xr; fval[3] = fxr
+          end
+        elsif fxr < fval[2]
+          simplex[3] = xr; fval[3] = fxr
+        else
+          # Contraction
+          xc  = c.each_with_index.map { |ci, d| 0.5*(ci + worst[d]) }
+          fxc = eval_zyz.call(*xc)
+          if fxc < fw
+            simplex[3] = xc; fval[3] = fxc
+          else
+            # Shrink
+            best = simplex[0]
+            1.upto(3) do |i|
+              simplex[i] = simplex[i].each_with_index.map { |v, d| 0.5*(v + best[d]) }
+              fval[i]    = eval_zyz.call(*simplex[i])
+            end
+          end
+        end
+      end
+
+      fine_al, fine_be, fine_ga = simplex[0]
+      fine_vol = fval[0]
+      puts "[OEAlignPCA] nelder-mead best=α#{(fine_al/deg2rad).round(3)}° β#{(fine_be/deg2rad).round(3)}° γ#{(fine_ga/deg2rad).round(3)}° vol=#{fine_vol.round(4)}"
+
+      current_vol = bb_vol_3d(pts, 1,0,0, 0,1,0, 0,0,1)
+      if fine_vol >= current_vol * 0.99
+        puts "[OEAlignPCA] already optimal (improvement < 1%)"
+        return
+      end
+
+      al = fine_al; be = fine_be; ga = fine_ga
+      ca = Math.cos(al); sa = Math.sin(al)
+      cb = Math.cos(be); sb = Math.sin(be)
+      cg = Math.cos(ga); sg = Math.sin(ga)
+
+      # Best rotation in definition space (column-major for SketchUp)
+      r_best = Geom::Transformation.new([
+        ca*cb*cg - sa*sg,   sa*cb*cg + ca*sg,  -sb*cg,  0,
+        -ca*cb*sg - sa*cg,  -sa*cb*sg + ca*cg,  sb*sg,  0,
+        ca*sb,               sa*sb,              cb,     0,
+        0, 0, 0, 1
+      ])
+      r_best_inv = r_best.inverse
+
+      instance.definition.entities.transform_entities(r_best, instance.definition.entities.to_a)
+      instance.definition.instances.each do |inst|
+        before = inst.transformation.origin
+        inst.transformation = inst.transformation * r_best_inv
+        after  = inst.transformation.origin
+        puts "[OEAlignPCA]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
+      end
+      puts "[OEAlignPCA] done"
+    end
+
+    # Tool class for PCA-based axis alignment. Recurrent: stays active for
+    # repeated clicks.
+    class OEAlignPCATool
+      def initialize(instances)
+        @model     = Sketchup.active_model
+        @instances = instances
+      end
+
+      def activate
+        update_vcb
+        UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
+      end
+
+      def deactivate(_view); end
+
+      def resume(_view)
+        update_vcb
+      end
+
+      def onLButtonDown(_flags, x, y, view)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        entity = ph.best_picked
+        return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
+        apply([entity])
+      end
+
+      def onKeyDown(key, _repeat, _flags, _view)
+        @model.select_tool(nil) if key == 27 # Escape
+      end
+
+      private
+
+      def apply(instances)
+        puts "[OEAlignPCATool.apply] #{instances.size} instances"
+        return if instances.empty?
+        @model.start_operation("Orienter Express: Align to PCA Axes", true)
+        instances.each do |inst|
+          next unless inst.valid?
+          OrienterExpress.send(:align_to_min_bb, inst)
+        end
+        @model.commit_operation
+        @model.active_view.invalidate
+      end
+
+      def update_vcb
+        Sketchup.set_status_text(Lang.commands.oealignpca.vcb_hint.to_s, 0)
+      end
+    end
+
+    def self.oealignpca
+      model   = Sketchup.active_model
+      targets = instances(model.selection)
+      return unless check_targets(targets)
+      model.select_tool(OEAlignPCATool.new(targets))
+    end
+
+    # Tool class that runs align_x_to_dominant_edge then align_to_min_bb in one
+    # operation. Recurrent: stays active for repeated clicks.
+    class OEAlignOptimalTool
+      def initialize(instances)
+        @model     = Sketchup.active_model
+        @instances = instances
+      end
+
+      def activate
+        update_vcb
+        UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
+      end
+
+      def deactivate(_view); end
+
+      def resume(_view)
+        update_vcb
+      end
+
+      def onLButtonDown(_flags, x, y, view)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        entity = ph.best_picked
+        return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
+        apply([entity])
+      end
+
+      def onKeyDown(key, _repeat, _flags, _view)
+        @model.select_tool(nil) if key == 27 # Escape
+      end
+
+      private
+
+      def apply(instances)
+        return if instances.empty?
+        @model.start_operation("Orienter Express: Optimal Axis Alignment", true)
+        instances.each do |inst|
+          next unless inst.valid?
+          OrienterExpress.send(:align_x_to_dominant_edge, inst)
+          OrienterExpress.send(:align_to_min_bb, inst)
+        end
+        @model.commit_operation
+        @model.active_view.invalidate
+      end
+
+      def update_vcb
+        Sketchup.set_status_text(Lang.commands.oealignoptimal.vcb_hint.to_s, 0)
+      end
+    end
+
+    def self.oealignoptimal
+      model   = Sketchup.active_model
+      targets = instances(model.selection)
+      return unless check_targets(targets)
+      model.select_tool(OEAlignOptimalTool.new(targets))
+    end
+
+    private_class_method :collect_vertices
+    private_class_method :bb_vol_3d
+    private_class_method :align_to_min_bb
+    private_class_method :align_x_to_dominant_edge
     private_class_method :orient_ground
     private_class_method :orient_to_flow
     private_class_method :face_centroid
