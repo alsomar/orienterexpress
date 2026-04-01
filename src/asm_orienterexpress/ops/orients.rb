@@ -2115,6 +2115,99 @@ module ASM_Extensions
       pts
     end
 
+    # Returns the subset of pts that form the 3D convex hull (QuickHull algorithm).
+    # Guarantees no extreme point is lost, which is required for exact BB computation.
+    def self.convex_hull_3d(pts)
+      return pts if pts.size <= 4
+
+      eps = 1e-8
+
+      # Signed distance from the plane of face [ia,ib,ic] to point p.
+      # Positive = p is on the outside (outward normal side).
+      sd = lambda do |ia, ib, ic, p|
+        a=pts[ia]; b=pts[ib]; c=pts[ic]
+        ux=b.x-a.x; uy=b.y-a.y; uz=b.z-a.z
+        vx=c.x-a.x; vy=c.y-a.y; vz=c.z-a.z
+        nx=uy*vz-uz*vy; ny=uz*vx-ux*vz; nz=ux*vy-uy*vx
+        nx*(p.x-a.x) + ny*(p.y-a.y) + nz*(p.z-a.z)
+      end
+
+      # Extreme point indices (min/max in each axis)
+      ext = [:x,:y,:z].flat_map { |ax|
+        [pts.each_with_index.min_by{|p,_| p.send(ax)}[1],
+         pts.each_with_index.max_by{|p,_| p.send(ax)}[1]]
+      }.uniq
+
+      # Initial tetrahedron: most distant pair, then farthest from line, farthest from plane
+      i0, i1 = ext.combination(2).max_by { |a,b|
+        pa=pts[a]; pb=pts[b]; (pa.x-pb.x)**2+(pa.y-pb.y)**2+(pa.z-pb.z)**2
+      }
+      la=pts[i0]; lb=pts[i1]; ddx=lb.x-la.x; ddy=lb.y-la.y; ddz=lb.z-la.z
+      i2 = (0...pts.size).reject{|i|i==i0||i==i1}.max_by { |i|
+        p=pts[i]; ex=p.x-la.x; ey=p.y-la.y; ez=p.z-la.z
+        cx=ddy*ez-ddz*ey; cy=ddz*ex-ddx*ez; cz=ddx*ey-ddy*ex; cx*cx+cy*cy+cz*cz
+      }
+      return pts unless i2
+      i3 = (0...pts.size).reject{|i|[i0,i1,i2].include?(i)}.max_by { |i|
+        sd.call(i0,i1,i2, pts[i]).abs
+      }
+      return pts if i3.nil? || sd.call(i0,i1,i2, pts[i3]).abs < eps
+
+      # Interior reference: centroid of tetrahedron (always inside the final hull)
+      ctr = Geom::Point3d.new(
+        (pts[i0].x+pts[i1].x+pts[i2].x+pts[i3].x)/4.0,
+        (pts[i0].y+pts[i1].y+pts[i2].y+pts[i3].y)/4.0,
+        (pts[i0].z+pts[i1].z+pts[i2].z+pts[i3].z)/4.0)
+
+      # Orient face [a,b,c] so that ctr is on the inside (negative side)
+      orient = lambda do |a, b, c|
+        aa=pts[a]; bb=pts[b]; cc=pts[c]
+        ux=bb.x-aa.x; uy=bb.y-aa.y; uz=bb.z-aa.z
+        vx=cc.x-aa.x; vy=cc.y-aa.y; vz=cc.z-aa.z
+        nx=uy*vz-uz*vy; ny=uz*vx-ux*vz; nz=ux*vy-uy*vx
+        (nx*(ctr.x-aa.x)+ny*(ctr.y-aa.y)+nz*(ctr.z-aa.z)) < 0 ? [a,b,c] : [a,c,b]
+      end
+
+      faces   = [orient.call(i0,i1,i2), orient.call(i0,i1,i3),
+                 orient.call(i0,i2,i3), orient.call(i1,i2,i3)]
+      seed    = [i0,i1,i2,i3].to_set
+      outside = Array.new(4) { [] }
+      (0...pts.size).each do |i|
+        next if seed.include?(i)
+        4.times { |fi| (outside[fi] << i; break) if sd.call(*faces[fi], pts[i]) > eps }
+      end
+
+      loop do
+        fi = outside.index { |s| s && !s.empty? }
+        break unless fi
+
+        apex    = outside[fi].max_by { |i| sd.call(*faces[fi], pts[i]) }
+        visible = (0...faces.size).select { |i| faces[i] && sd.call(*faces[i], pts[apex]) > eps }
+
+        # Horizon: edges [a,b] in visible faces whose reverse [b,a] is not in a visible face
+        vis_edges = {}
+        visible.each { |vi| f=faces[vi]; [[f[0],f[1]],[f[1],f[2]],[f[2],f[0]]].each{|e| vis_edges[e]=vi} }
+        horizon = vis_edges.keys.reject { |a,b| vis_edges.key?([b,a]) }
+
+        unassigned = visible.flat_map { |vi| outside[vi] }.uniq - [apex]
+        visible.each { |vi| faces[vi] = nil; outside[vi] = nil }
+
+        new_slots = []
+        horizon.each do |a, b|
+          nf   = orient.call(apex, a, b)
+          slot = faces.index(nil)
+          unless slot; faces << nil; outside << nil; slot = faces.size - 1; end
+          faces[slot] = nf; outside[slot] = []; new_slots << slot
+        end
+
+        unassigned.each do |i|
+          new_slots.each { |s| (outside[s] << i; break) if sd.call(*faces[s], pts[i]) > eps }
+        end
+      end
+
+      faces.compact.flatten.uniq.map { |i| pts[i] }
+    end
+
     # BB volume of pts after XY rotation by angle around [0,0,1] through origin.
     def self.bb_vol_at_angle(pts, angle)
       cos_a = Math.cos(angle)
@@ -2303,7 +2396,8 @@ module ASM_Extensions
       puts "[OEAlignPCA] instance=#{instance.definition.name} pts=#{pts.size}"
       return if pts.empty?
 
-      pts = pts.each_slice((pts.size / 80.0).ceil).map(&:first) if pts.size > 80
+      pts = convex_hull_3d(pts)
+      puts "[OEAlignPCA] hull pts=#{pts.size}"
 
       # ZYZ Euler angles: R = Rz(α) * Ry(β) * Rz(γ)
       # Matrix rows:
@@ -2544,6 +2638,7 @@ module ASM_Extensions
     end
 
     private_class_method :collect_vertices
+    private_class_method :convex_hull_3d
     private_class_method :bb_vol_3d
     private_class_method :align_to_min_bb
     private_class_method :align_x_to_dominant_edge
