@@ -2309,63 +2309,6 @@ module ASM_Extensions
       puts "[OEAlignX] done"
     end
 
-    # Tool class for aligning a component/group's local X axis to its
-    # dominant (longest) edge. Recurrent: stays active for repeated clicks.
-    class OEAlignXTool
-      def initialize(instances)
-        @model     = Sketchup.active_model
-        @instances = instances
-      end
-
-      def activate
-        update_vcb
-        UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
-      end
-
-      def deactivate(_view); end
-
-      def resume(_view)
-        update_vcb
-      end
-
-      def onLButtonDown(_flags, x, y, view)
-        ph = view.pick_helper
-        ph.do_pick(x, y)
-        entity = ph.best_picked
-        return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
-        apply([entity])
-      end
-
-      def onKeyDown(key, _repeat, _flags, _view)
-        @model.select_tool(nil) if key == 27 # Escape
-      end
-
-      private
-
-      def apply(instances)
-        puts "[OEAlignXTool.apply] #{instances.size} instances"
-        return if instances.empty?
-        @model.start_operation("Orienter Express: Align X to Dominant Edge", true)
-        instances.each do |inst|
-          next unless inst.valid?
-          OrienterExpress.send(:align_x_to_dominant_edge, inst)
-        end
-        @model.commit_operation
-        @model.active_view.invalidate
-      end
-
-      def update_vcb
-        Sketchup.set_status_text(Lang.commands.oealignx.vcb_hint.to_s, 0)
-      end
-    end
-
-    def self.oealignx
-      model   = Sketchup.active_model
-      targets = instances(model.selection)
-      return unless check_targets(targets)
-      model.select_tool(OEAlignXTool.new(targets))
-    end
-
     # BB volume of pts rotated by a row-major 3×3 matrix (no allocation in inner loop).
     def self.bb_vol_3d(pts, r00, r01, r02, r10, r11, r12, r20, r21, r22)
       p0 = pts[0]
@@ -2696,63 +2639,6 @@ module ASM_Extensions
       puts "[OEAlignPCA] done"
     end
 
-    # Tool class for PCA-based axis alignment. Recurrent: stays active for
-    # repeated clicks.
-    class OEAlignPCATool
-      def initialize(instances)
-        @model     = Sketchup.active_model
-        @instances = instances
-      end
-
-      def activate
-        update_vcb
-        UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
-      end
-
-      def deactivate(_view); end
-
-      def resume(_view)
-        update_vcb
-      end
-
-      def onLButtonDown(_flags, x, y, view)
-        ph = view.pick_helper
-        ph.do_pick(x, y)
-        entity = ph.best_picked
-        return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
-        apply([entity])
-      end
-
-      def onKeyDown(key, _repeat, _flags, _view)
-        @model.select_tool(nil) if key == 27 # Escape
-      end
-
-      private
-
-      def apply(instances)
-        puts "[OEAlignPCATool.apply] #{instances.size} instances"
-        return if instances.empty?
-        @model.start_operation("Orienter Express: Align to PCA Axes", true)
-        instances.each do |inst|
-          next unless inst.valid?
-          OrienterExpress.send(:align_to_min_bb, inst)
-        end
-        @model.commit_operation
-        @model.active_view.invalidate
-      end
-
-      def update_vcb
-        Sketchup.set_status_text(Lang.commands.oealignpca.vcb_hint.to_s, 0)
-      end
-    end
-
-    def self.oealignpca
-      model   = Sketchup.active_model
-      targets = instances(model.selection)
-      return unless check_targets(targets)
-      model.select_tool(OEAlignPCATool.new(targets))
-    end
-
     # Tool class that runs align_x_to_dominant_edge then align_to_min_bb in one
     # operation. Recurrent: stays active for repeated clicks.
     class OEAlignOptimalTool
@@ -2777,6 +2663,8 @@ module ASM_Extensions
         ph.do_pick(x, y)
         entity = ph.best_picked
         return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
+        @model.selection.clear
+        @model.selection.add(entity)
         apply([entity])
       end
 
@@ -2806,13 +2694,13 @@ module ASM_Extensions
     def self.oealignoptimal
       model   = Sketchup.active_model
       targets = instances(model.selection)
-      return unless check_targets(targets)
       model.select_tool(OEAlignOptimalTool.new(targets))
     end
 
     private_class_method :collect_vertices
     private_class_method :convex_hull_3d
     private_class_method :bb_vol_3d
+    private_class_method :planar_normal
     private_class_method :align_to_min_bb
     private_class_method :align_x_to_dominant_edge
     private_class_method :orient_ground

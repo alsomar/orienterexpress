@@ -45,23 +45,11 @@ oezscale: {
               axis_perp:     "perpendicular a arista dominante",
               axis_ground:   "horizontal"
             },
-            oealignx: {
-              label:    "Alinear X a arista dominante",
-              tooltip:  "Alinear X a arista dominante",
-              status:   "Rota el componente para alinear su eje X local con la arista más larga de su geometría.",
-              vcb_hint: "Click: alinear  |  Esc: salir"
-            },
-            oealignpca: {
-              label:    "Alinear ejes a geometría (PCA)",
-              tooltip:  "Alinear ejes a geometría (PCA)",
-              status:   "Reorienta los ejes del componente para minimizar el bounding box usando análisis de componentes principales.",
-              vcb_hint: "Click: alinear  |  Esc: salir"
-            },
             oealignoptimal: {
-              label:    "Alineación óptima de ejes",
-              tooltip:  "Alineación óptima de ejes",
-              status:   "Alinea el eje X local a la arista dominante y luego minimiza el bounding box en 3D.",
-              vcb_hint: "Click: alinear  |  Esc: salir"
+              label:    "Optimizar Bounding Box",
+              tooltip:  "Optimizar Bounding Box",
+              status:   "Reorienta los ejes del componente para minimizar el volumen del bounding box.",
+              vcb_hint: "Click: optimizar  |  Esc: salir"
             },
             oereset: {
               label:    "Resetear rotaciones",
