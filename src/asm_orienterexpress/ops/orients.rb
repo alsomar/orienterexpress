@@ -2384,8 +2384,50 @@ module ASM_Extensions
       (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
     end
 
-    # Redefines the local axes to minimize the bounding box volume via a two-phase
-    # ZYZ Euler angle sweep (yaw × pitch × roll), covering all of SO(3).
+    # Returns the unit plane normal [nx,ny,nz] if all pts are coplanar
+    # (max off-plane deviation < 1e-4 * max span), otherwise nil.
+    def self.planar_normal(pts)
+      return nil if pts.size < 3
+
+      ext = [:x,:y,:z].flat_map { |ax|
+        [pts.each_with_index.min_by{|p,_| p.send(ax)}[1],
+         pts.each_with_index.max_by{|p,_| p.send(ax)}[1]]
+      }.uniq
+
+      i0, i1 = ext.combination(2).max_by { |a,b|
+        pa=pts[a]; pb=pts[b]; (pa.x-pb.x)**2+(pa.y-pb.y)**2+(pa.z-pb.z)**2
+      }
+      span2 = (pts[i0].x-pts[i1].x)**2+(pts[i0].y-pts[i1].y)**2+(pts[i0].z-pts[i1].z)**2
+      return nil if span2 < 1e-12
+
+      la=pts[i0]; lb=pts[i1]; ddx=lb.x-la.x; ddy=lb.y-la.y; ddz=lb.z-la.z
+
+      i2 = (0...pts.size).reject{|i|i==i0||i==i1}.max_by { |i|
+        p=pts[i]; ex=p.x-la.x; ey=p.y-la.y; ez=p.z-la.z
+        cx=ddy*ez-ddz*ey; cy=ddz*ex-ddx*ez; cz=ddx*ey-ddy*ex; cx*cx+cy*cy+cz*cz
+      }
+      return nil unless i2
+
+      a=pts[i0]; b=pts[i1]; c=pts[i2]
+      ux=b.x-a.x; uy=b.y-a.y; uz=b.z-a.z
+      vx=c.x-a.x; vy=c.y-a.y; vz=c.z-a.z
+      nx=uy*vz-uz*vy; ny=uz*vx-ux*vz; nz=ux*vy-uy*vx
+      nl=Math.sqrt(nx*nx+ny*ny+nz*nz)
+      return nil if nl < 1e-12
+      nx/=nl; ny/=nl; nz/=nl
+
+      max_dev = 0.0
+      pts.each do |p|
+        d = (nx*(p.x-a.x) + ny*(p.y-a.y) + nz*(p.z-a.z)).abs
+        max_dev = d if d > max_dev
+      end
+
+      max_dev / Math.sqrt(span2) < 1e-4 ? [nx, ny, nz] : nil
+    end
+
+    # Redefines the local axes to minimize the bounding box volume (3D) or area
+    # (2D flat geometry). Uses a two-phase ZYZ Euler sweep + Nelder-Mead for 3D,
+    # or normal alignment + 1D sweep for flat/planar geometry.
     # Geometry stays in world position.
     def self.align_to_min_bb(instance)
       # Work in definition space (identity frame). This makes the algorithm
@@ -2399,6 +2441,137 @@ module ASM_Extensions
       pts = convex_hull_3d(pts)
       puts "[OEAlignPCA] hull pts=#{pts.size}"
 
+      deg2rad = Math::PI / 180.0
+
+      # ── 2D path: flat/planar geometry ──────────────────────────────────────
+      normal = planar_normal(pts)
+      if normal
+        nx, ny, nz = normal
+        puts "[OEAlignPCA] planar geometry, normal=[#{nx.round(4)},#{ny.round(4)},#{nz.round(4)}]"
+
+        # Nearest world axis to the normal (preserve sign so local Z matches normal)
+        axis_idx  = [[nx.abs, 0],[ny.abs, 1],[nz.abs, 2]].max_by{|v,_| v}[1]
+        axes      = [[1,0,0],[0,1,0],[0,0,1]]
+        ax, ay, az = axes[axis_idx]
+        # Flip target axis if normal points opposite to it
+        ax, ay, az = -ax, -ay, -az if (nx*ax + ny*ay + nz*az) < 0
+
+        # Rodrigues rotation: map normal → world axis
+        # rot_axis = normal × axis_vec,  angle = atan2(|cross|, dot)
+        rax = ny*az - nz*ay
+        ray = nz*ax - nx*az
+        raz = nx*ay - ny*ax
+        rl  = Math.sqrt(rax*rax + ray*ray + raz*raz)
+        cos_a = nx*ax + ny*ay + nz*az
+        orig  = Geom::Point3d.new(0,0,0)
+        if rl < 1e-8
+          # Normal already aligned (or anti-aligned) with world axis
+          if cos_a >= 0
+            r1 = Geom::Transformation.new
+          else
+            # 180° around any perpendicular axis
+            px = 1 - nx*nx; py = -nx*ny; pz = -nx*nz
+            if (px*px+py*py+pz*pz) < 0.5
+              px = -ny*nx; py = 1 - ny*ny; pz = -ny*nz
+            end
+            pl  = Math.sqrt(px*px+py*py+pz*pz)
+            r1  = Geom::Transformation.rotation(orig, Geom::Vector3d.new(px/pl,py/pl,pz/pl), Math::PI)
+          end
+        else
+          rot_vec = Geom::Vector3d.new(rax/rl, ray/rl, raz/rl)
+          r1 = Geom::Transformation.rotation(orig, rot_vec, Math.atan2(rl, cos_a))
+        end
+
+        # Transform pts into the axis-aligned frame
+        pts1 = pts.map { |p| r1 * p }
+
+        # Extract 2D coords by dropping the flat axis
+        pts2d = pts1.map { |p|
+          case axis_idx
+          when 2 then [p.x, p.y]
+          when 0 then [p.y, p.z]
+          when 1 then [p.x, p.z]
+          end
+        }
+
+        # 2D convex hull via Graham scan
+        i0 = pts2d.each_with_index.min_by { |p, _| [p[1], p[0]] }[1]
+        ox, oy = pts2d[i0]
+        sorted = pts2d.each_with_index
+                      .reject { |_, i| i == i0 }
+                      .sort_by { |p, _| [Math.atan2(p[1]-oy, p[0]-ox), (p[0]-ox)**2+(p[1]-oy)**2] }
+        hull2d = [[ox, oy]]
+        sorted.each do |p, _|
+          hull2d << p
+          while hull2d.size >= 3
+            a2 = hull2d[-3]; b2 = hull2d[-2]; c2 = hull2d[-1]
+            cross = (b2[0]-a2[0])*(c2[1]-a2[1]) - (b2[1]-a2[1])*(c2[0]-a2[0])
+            break if cross > 0
+            hull2d.delete_at(-2)
+          end
+        end
+
+        # Eval 2D bounding-box area after rotating by theta around axis_idx axis
+        area_at = lambda do |theta|
+          cos_t = Math.cos(theta); sin_t = Math.sin(theta)
+          case axis_idx
+          when 2  # flat=Z, sweep in XY
+            u = pts1.map { |p| p.x*cos_t - p.y*sin_t }
+            v = pts1.map { |p| p.x*sin_t + p.y*cos_t }
+          when 0  # flat=X, sweep in YZ
+            u = pts1.map { |p| p.y*cos_t - p.z*sin_t }
+            v = pts1.map { |p| p.y*sin_t + p.z*cos_t }
+          when 1  # flat=Y, sweep in XZ
+            u = pts1.map { |p| p.x*cos_t + p.z*sin_t }
+            v = pts1.map { |p|-p.x*sin_t + p.z*cos_t }
+          end
+          (u.max - u.min) * (v.max - v.min)
+        end
+
+        # Rotating calipers: the minimum-area BB of a convex polygon always has
+        # one side flush with an edge → only need to evaluate at edge angles.
+        # BB area has period π/2, so normalize angles to [0, π/2).
+        half_pi = Math::PI / 2.0
+        edge_angles = hull2d.each_with_index.map { |p, i|
+          q = hull2d[(i + 1) % hull2d.size]
+          (-Math.atan2(q[1]-p[1], q[0]-p[0])) % half_pi
+        }.uniq
+
+        fine_angle = 0.0
+        fine_area  = area_at.call(0.0)
+        edge_angles.each do |a|
+          area = area_at.call(a)
+          fine_angle = a; fine_area = area if area < fine_area
+        end
+        puts "[OEAlignPCA] 2D rotating-calipers best=#{(fine_angle/deg2rad).round(3)}° area=#{fine_area.round(4)} (#{edge_angles.size} edges)"
+
+        # Compose r1 (normal align) + r2 (in-plane rotation)
+        flat_axis_vec = Geom::Vector3d.new(*axes[axis_idx])
+        r2      = Geom::Transformation.rotation(orig, flat_axis_vec, fine_angle)
+        r_total = r2 * r1
+
+        # Skip if total rotation is negligible (< 0.006°)
+        m = r_total.to_a
+        trace = m[0] + m[5] + m[10]
+        total_angle = Math.acos([[(trace - 1.0) / 2.0, -1.0].max, 1.0].min)
+        if total_angle < 1e-4
+          puts "[OEAlignPCA] already optimal (2D)"
+          return
+        end
+
+        r_total_inv = r_total.inverse
+        instance.definition.entities.transform_entities(r_total, instance.definition.entities.to_a)
+        instance.definition.instances.each do |inst|
+          before = inst.transformation.origin
+          inst.transformation = inst.transformation * r_total_inv
+          after  = inst.transformation.origin
+          puts "[OEAlignPCA]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
+        end
+        puts "[OEAlignPCA] done (2D)"
+        return
+      end
+
+      # ── 3D path: ZYZ Euler sweep + Nelder-Mead ─────────────────────────────
       # ZYZ Euler angles: R = Rz(α) * Ry(β) * Rz(γ)
       # Matrix rows:
       #   [ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb]
