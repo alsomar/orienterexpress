@@ -2267,6 +2267,30 @@ module ASM_Extensions
       (xs.max - xs.min) * (ys.max - ys.min) * (zs.max - zs.min)
     end
 
+    # If the instance transformation contains non-uniform scale, bakes it into
+    # the definition geometry so all instances are left with pure rotation.
+    # This must run before any alignment so that r_reset extraction and
+    # definition-space vertex collection both see unscaled geometry.
+    def self.bake_scale(instance)
+      t  = instance.transformation
+      a  = t.to_a
+      sx = Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
+      sy = Math.sqrt(a[4]**2 + a[5]**2 + a[6]**2)
+      sz = Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2)
+      return if (sx - sy).abs < 1e-6 && (sx - sz).abs < 1e-6 && (sy - sz).abs < 1e-6
+
+      # Scale transform in definition space. diag(sx,sy,sz) is its own inverse
+      # only when uniform; for non-uniform we store the inverse explicitly.
+      r_scale     = Geom::Transformation.scaling(sx, sy, sz)
+      r_scale_inv = Geom::Transformation.scaling(1.0/sx, 1.0/sy, 1.0/sz)
+
+      instance.definition.entities.transform_entities(r_scale, instance.definition.entities.to_a)
+      instance.definition.instances.each do |inst|
+        inst.transformation = inst.transformation * r_scale_inv
+      end
+      puts "[OEAlignPCA] scale baked: (#{sx.round(4)}, #{sy.round(4)}, #{sz.round(4)})"
+    end
+
     # Redefines the local axes so that local X aligns with the dominant edge,
     # chosen by minimum bounding box volume. Geometry stays in world position.
     #
@@ -2278,6 +2302,7 @@ module ASM_Extensions
     #   5. Compensate all instances: T_new = T_old * r_combined_inv
     #      → world positions preserved, local X now points along dominant edge
     def self.align_x_to_dominant_edge(instance)
+      bake_scale(instance)
       t = instance.transformation
       a  = t.to_a
       sx = Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
@@ -2876,6 +2901,7 @@ module ASM_Extensions
     private_class_method :planar_normal
     private_class_method :permute_axes_by_extent
     private_class_method :align_to_min_bb
+    private_class_method :bake_scale
     private_class_method :align_x_to_dominant_edge
     private_class_method :orient_ground
     private_class_method :orient_to_flow
