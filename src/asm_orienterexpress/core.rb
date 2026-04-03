@@ -25,7 +25,7 @@ module ASM_Extensions
       # Commands
       cmd = UI::Command.new(Lang.commands.oeedgevertex.label.to_s) { self.oeedgevertex_tool }
       cmd.small_icon = self.icon("oevertex_24")
-      cmd.large_icon = self.icon("oevertex_24")
+      cmd.large_icon = self.icon("oevertex_32")
       cmd.status_bar_text = Lang.commands.oeedgevertex.status
       cmd.tooltip = Lang.commands.oeedgevertex.tooltip
       cmd_oeedgevertex = cmd
@@ -33,7 +33,7 @@ module ASM_Extensions
 
       cmd = UI::Command.new(Lang.commands.oecenter.label.to_s) { self.oecenter_tool }
       cmd.small_icon = self.icon("oecenter_24")
-      cmd.large_icon = self.icon("oecenter_24")
+      cmd.large_icon = self.icon("oecenter_32")
       cmd.status_bar_text = Lang.commands.oecenter.status
       cmd.tooltip = Lang.commands.oecenter.tooltip
       cmd_oecenter = cmd
@@ -56,7 +56,7 @@ module ASM_Extensions
       @commands[:oeuscale] = cmd
 
       cmd = UI::Command.new(Lang.commands.oeflow.label.to_s) { self.oeflow_tool }
-      cmd.small_icon = self.icon("oeflow_32")
+      cmd.small_icon = self.icon("oeflow_24")
       cmd.large_icon = self.icon("oeflow_32")
       cmd.status_bar_text = Lang.commands.oeflow.status
       cmd.tooltip = Lang.commands.oeflow.tooltip
@@ -64,7 +64,7 @@ module ASM_Extensions
       @commands[:oeflow] = cmd
 
       cmd = UI::Command.new(Lang.commands.oeface.label.to_s) { self.oeface_tool }
-      cmd.small_icon = self.icon("oeface_32")
+      cmd.small_icon = self.icon("oeface_24")
       cmd.large_icon = self.icon("oeface_32")
       cmd.status_bar_text = Lang.commands.oeface.status
       cmd.tooltip = Lang.commands.oeface.tooltip
@@ -72,6 +72,8 @@ module ASM_Extensions
       @commands[:oeface] = cmd
 
       cmd = UI::Command.new(Lang.commands.oealignoptimal.label.to_s) { self.oealignoptimal_tool }
+      cmd.small_icon = self.icon("oeoptimal_24")
+      cmd.large_icon = self.icon("oeoptimal_32")
       cmd.status_bar_text = Lang.commands.oealignoptimal.status
       cmd.tooltip = Lang.commands.oealignoptimal.tooltip
       cmd_oealignoptimal = cmd
@@ -79,7 +81,7 @@ module ASM_Extensions
 
       cmd = UI::Command.new(Lang.commands.oereset.label.to_s) { self.oereset_tool }
       cmd.small_icon = self.icon("oereset_24")
-      cmd.large_icon = self.icon("oereset_24")
+      cmd.large_icon = self.icon("oereset_32")
       cmd.status_bar_text = Lang.commands.oereset.status
       cmd.tooltip = Lang.commands.oereset.tooltip
       cmd_oereset = cmd
@@ -87,7 +89,7 @@ module ASM_Extensions
 
       cmd = UI::Command.new(Lang.commands.settings.label.to_s) { self.settings_tool }
       cmd.small_icon = self.icon("settings_24")
-      cmd.large_icon = self.icon("settings_24")
+      cmd.large_icon = self.icon("settings_32")
       cmd.status_bar_text = Lang.commands.settings.status
       cmd.tooltip = Lang.commands.settings.tooltip
       cmd_settings = cmd

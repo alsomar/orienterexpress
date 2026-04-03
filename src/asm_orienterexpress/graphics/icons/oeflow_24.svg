@@ -9,19 +9,15 @@
             <rect x="5" y="5" width="6" height="5" style="fill:white;"/>
             <rect x="13" y="5" width="6" height="5" style="fill:white;"/>
         </g>
-        <g id="scale">
-            <g transform="matrix(1.03309,-0.0919109,-0.0919109,1.03309,-61.2794,6.22053)">
-                <path d="M63.5,3.5L80.5,20.5" style="fill:none;stroke:rgb(255,216,74);stroke-width:2.13px;"/>
+        <g id="oeflow">
+            <path d="M3,8L12,12L16,21" style="fill:none;stroke:rgb(51,51,51);stroke-width:2px;"/>
+            <g transform="matrix(0.666667,0,0,0.666667,4,4)">
+                <circle cx="12" cy="12" r="3" style="fill:rgb(255,76,77);stroke:rgb(255,0,0);stroke-width:1.5px;stroke-linecap:butt;"/>
             </g>
-            <g transform="matrix(0.113135,0,0,0.113135,1.17163,1.17163)">
-                <path d="M25,7.322L42.678,25L25,42.678L7.322,25L25,7.322Z" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:8.84px;stroke-linecap:butt;"/>
+            <g transform="matrix(0.769625,0,0,0.769625,5.29861,0.230375)">
+                <path d="M21.701,8.796L23,1L15.204,2.299L21.701,8.796Z" style="fill:rgb(48,117,255);"/>
             </g>
-            <g transform="matrix(0.113135,0,0,0.113135,17.1716,17.1716)">
-                <path d="M25,7.322L42.678,25L25,42.678L7.322,25L25,7.322Z" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:8.84px;stroke-linecap:butt;"/>
-            </g>
-        </g>
-        <g transform="matrix(0.188573,0,0,0.188573,-0.571563,-0.571563)">
-            <path d="M45.455,50.758L82.576,50.758L50.758,82.576L87.879,82.576" style="fill:none;stroke:rgb(0,70,209);stroke-width:10.61px;stroke-linecap:butt;"/>
+            <path d="M19.436,4.564C16.922,7.078 14,10 14,10" style="fill:none;stroke:rgb(48,117,255);stroke-width:2px;"/>
         </g>
     </g>
 </svg>

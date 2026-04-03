@@ -8,10 +8,18 @@
         <rect x="29.167" y="29.167" width="33.333" height="29.167" style="fill:white;"/>
         <rect x="70.833" y="29.167" width="33.333" height="29.167" style="fill:white;"/>
     </g>
-    <g transform="matrix(0.239999,0,0,0.239999,8.5714e-05,8.5714e-05)">
-        <path d="M75,29.167L8.333,58.333L58.333,112.5L125,58.333L75,29.167Z" style="fill:rgb(198,198,198);stroke:rgb(51,51,51);stroke-width:6.25px;"/>
-        <g transform="matrix(0.707116,0,0,0.707116,19.5256,19.5256)">
-            <path d="M66.667,48.989L84.344,66.667L66.667,84.344L48.989,66.667L66.667,48.989Z" style="fill:rgb(48,117,255);stroke:rgb(0,70,209);stroke-width:5.89px;stroke-linecap:butt;"/>
+    <g transform="matrix(1.33333,0,0,1.33333,-5.33333,-5)">
+        <path d="M7,21L16,24.75L25,21L25,9L16,5.25L7,9L7,21Z" style="fill:rgb(204,204,204);stroke:rgb(0,70,209);stroke-width:1.5px;"/>
+    </g>
+    <g transform="matrix(1,0,0,1,0,1)">
+        <g transform="matrix(1.5,0,0,1.5,-8,-7)">
+            <path d="M11.333,10.667L16,8.667L20.667,10.667L20.667,17.333L16,19.333L11.333,17.333L11.333,10.667Z" style="fill:rgb(198,198,198);stroke:rgb(51,51,51);stroke-width:1.33px;"/>
+        </g>
+        <g transform="matrix(1.5,0,0,1.5,-8,-7)">
+            <path d="M11.333,10.667L16,12.667L20.667,10.667" style="fill:none;stroke:rgb(51,51,51);stroke-width:0.67px;"/>
+        </g>
+        <g transform="matrix(1.5,-2.33333e-05,-2.33333e-05,2.66667,-7.99954,-30.1663)">
+            <path d="M16,19.562L16,15.812" style="fill:none;stroke:rgb(51,51,51);stroke-width:0.46px;"/>
         </g>
     </g>
 </svg>
