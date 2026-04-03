@@ -2764,9 +2764,13 @@ module ASM_Extensions
     # Tool class that runs align_x_to_dominant_edge then align_to_min_bb in one
     # operation. Recurrent: stays active for repeated clicks.
     class OEAlignOptimalTool
+
+      BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
+
       def initialize(instances)
         @model     = Sketchup.active_model
         @instances = instances
+        @hovered   = nil
       end
 
       def activate
@@ -2774,10 +2778,57 @@ module ASM_Extensions
         UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
       end
 
-      def deactivate(_view); end
+      def deactivate(view)
+        @hovered = nil
+        view.invalidate
+      end
 
       def resume(_view)
         update_vcb
+      end
+
+      def suspend(view)
+        @hovered = nil
+        view.invalidate
+      end
+
+      def onMouseMove(_flags, x, y, view)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        entity = ph.best_picked
+        candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
+        if candidate != @hovered
+          @hovered = candidate
+          view.invalidate
+        end
+      end
+
+      def draw(view)
+        return unless @hovered&.valid?
+        t = @hovered.transformation
+        def_bb = @hovered.definition.bounds
+        corners = 8.times.map { |i| t * def_bb.corner(i) }
+        eye = view.camera.eye
+        view.line_width = 2
+        view.drawing_color = Sketchup::Color.new(255, 165, 0)
+        BB_EDGES.each do |a, b|
+          pa = corners[a].offset((eye - corners[a]).normalize, 0.1)
+          pb = corners[b].offset((eye - corners[b]).normalize, 0.1)
+          view.draw(GL_LINES, [pa, pb])
+        end
+      end
+
+      def getExtents
+        bb = Geom::BoundingBox.new
+        if @hovered&.valid?
+          t = @hovered.transformation
+          8.times { |i| bb.add(t * @hovered.definition.bounds.corner(i)) }
+        end
+        bb
+      end
+
+      def enableVCB?
+        true
       end
 
       def onLButtonDown(_flags, x, y, view)
