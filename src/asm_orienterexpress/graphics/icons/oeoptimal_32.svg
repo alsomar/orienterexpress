@@ -9,7 +9,7 @@
         <rect x="70.833" y="29.167" width="33.333" height="29.167" style="fill:white;"/>
     </g>
     <g transform="matrix(1.33333,0,0,1.33333,-5.33333,-5)">
-        <path d="M7,21L16,24.75L25,21L25,9L16,5.25L7,9L7,21Z" style="fill:rgb(204,204,204);stroke:rgb(0,70,209);stroke-width:1.5px;"/>
+        <path d="M7.75,20.25L16,24L24.25,20.25L24.25,9.75L16,6L7.75,9.75L7.75,20.25Z" style="fill:rgb(204,204,204);stroke:rgb(0,70,209);stroke-width:1.5px;"/>
     </g>
     <g transform="matrix(1,0,0,1,0,1)">
         <g transform="matrix(1.5,0,0,1.5,-8,-7)">

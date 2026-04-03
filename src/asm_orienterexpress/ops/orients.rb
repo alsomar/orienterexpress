@@ -2267,28 +2267,6 @@ module ASM_Extensions
       (xs.max - xs.min) * (ys.max - ys.min) * (zs.max - zs.min)
     end
 
-    # Translates definition geometry so that definition.bounds.min = [0,0,0].
-    # Compensates all instances so world positions are preserved.
-    # This ensures SketchUp's axis-aligned bounding box (e.bounds) matches the actual geometry
-    # after the definition has been rotated in local space.
-    def self.normalize_definition_origin(instance)
-      pts = collect_vertices(instance.definition.entities, Geom::Transformation.new)
-      return if pts.empty?
-
-      min_x = pts.map(&:x).min
-      min_y = pts.map(&:y).min
-      min_z = pts.map(&:z).min
-      return if min_x.abs < 1e-6 && min_y.abs < 1e-6 && min_z.abs < 1e-6
-
-      t_shift     = Geom::Transformation.translation(Geom::Vector3d.new(-min_x, -min_y, -min_z))
-      t_shift_inv = Geom::Transformation.translation(Geom::Vector3d.new( min_x,  min_y,  min_z))
-
-      instance.definition.entities.transform_entities(t_shift, instance.definition.entities.to_a)
-      instance.definition.instances.each do |inst|
-        inst.transformation = inst.transformation * t_shift_inv
-      end
-    end
-
     # If the instance transformation contains non-uniform scale, bakes it into
     # the definition geometry so all instances are left with pure rotation.
     # This must run before any alignment so that r_reset extraction and
@@ -2904,14 +2882,6 @@ module ASM_Extensions
           OrienterExpress.send(:align_to_min_bb, inst)
         end
         @model.commit_operation
-        # Normalize origin in a separate operation so SketchUp recalculates
-        # definition bounds after the alignment before we read them.
-        @model.start_operation("Orienter Express: Optimal Axis Alignment", true)
-        instances.each do |inst|
-          next unless inst.valid?
-          OrienterExpress.send(:normalize_definition_origin, inst)
-        end
-        @model.commit_operation
         @model.active_view.invalidate
       end
 
@@ -2932,7 +2902,6 @@ module ASM_Extensions
     private_class_method :planar_normal
     private_class_method :permute_axes_by_extent
     private_class_method :align_to_min_bb
-    private_class_method :normalize_definition_origin
     private_class_method :bake_scale
     private_class_method :align_x_to_dominant_edge
     private_class_method :orient_ground
