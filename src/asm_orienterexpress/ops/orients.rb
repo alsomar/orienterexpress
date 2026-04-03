@@ -581,13 +581,14 @@ module ASM_Extensions
         UI.start_timer(0, false) { apply(OEZScaleTool.last_offset_str); sync_selection }
       end
 
-      def deactivate(_view)
+      def deactivate(view)
         @model.selection.remove_observer(@watcher) if @watcher
         @watcher           = nil
         @applied           = false
         @previous_entities = []
         @skipped_edges     = []
         @entity_to_edge    = {}
+        view.invalidate
       end
 
       def draw(view)
@@ -628,6 +629,20 @@ module ASM_Extensions
       def resume(view)
         update_vcb
         view.invalidate
+      end
+
+      def suspend(view)
+        view.invalidate
+      end
+
+      def enableVCB?
+        true
+      end
+
+      def getExtents
+        bb = Geom::BoundingBox.new
+        @entity_def.bounds.corners.each { |c| bb.add(@entity_t * c) }
+        bb
       end
 
       def onSetCursor
@@ -1181,17 +1196,32 @@ module ASM_Extensions
         UI.start_timer(0, false) { apply(OEFlowTool.last_offset_str); sync_selection }
       end
 
-      def deactivate(_view)
+      def deactivate(view)
         @model.selection.remove_observer(@watcher) if @watcher
         @watcher           = nil
         @applied           = false
         @previous_entities = []
         @entity_to_vertex  = {}
+        view.invalidate
       end
 
       def resume(view)
         update_vcb
         view.invalidate
+      end
+
+      def suspend(view)
+        view.invalidate
+      end
+
+      def enableVCB?
+        true
+      end
+
+      def getExtents
+        bb = Geom::BoundingBox.new
+        @entity_def.bounds.corners.each { |c| bb.add(@entity_t * c) }
+        bb
       end
 
       def draw(view)
@@ -1621,17 +1651,32 @@ module ASM_Extensions
         UI.start_timer(0, false) { apply(OEFaceTool.last_offset_str); sync_selection }
       end
 
-      def deactivate(_view)
+      def deactivate(view)
         @model.selection.remove_observer(@watcher) if @watcher
         @watcher           = nil
         @applied           = false
         @previous_entities = []
         @entity_to_face    = {}
+        view.invalidate
       end
 
       def resume(view)
         update_vcb
         view.invalidate
+      end
+
+      def suspend(view)
+        view.invalidate
+      end
+
+      def enableVCB?
+        true
+      end
+
+      def getExtents
+        bb = Geom::BoundingBox.new
+        @entity_def.bounds.corners.each { |c| bb.add(@entity_t * c) }
+        bb
       end
 
       def draw(view)
@@ -2240,14 +2285,14 @@ module ASM_Extensions
       sz = Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2)
 
       # r_reset = rotation part of t (maps def-local → world-aligned, no translation).
-      # For LH instances det(r_reset) = -1; negate X column to get a proper rotation
+      # For LH instances det(r_reset) = -1; negate Y column to get a proper rotation
       # so that r_combined = r_best * r_reset has det=+1 and handedness is preserved.
       det_sign = (a[0]/sx * (a[5]/sy * a[10]/sz - a[6]/sy * a[9]/sz)) -
                  (a[1]/sx * (a[4]/sy * a[10]/sz - a[6]/sy * a[8]/sz)) +
                  (a[2]/sx * (a[4]/sy * a[9]/sz  - a[5]/sy * a[8]/sz)) >= 0 ? 1 : -1
       r_reset = Geom::Transformation.new([
-        a[0]/sx * det_sign, a[1]/sx * det_sign, a[2]/sx * det_sign, 0,
-        a[4]/sy,            a[5]/sy,            a[6]/sy,            0,
+        a[0]/sx,            a[1]/sx,            a[2]/sx,            0,
+        a[4]/sy * det_sign, a[5]/sy * det_sign, a[6]/sy * det_sign, 0,
         a[8]/sz,            a[9]/sz,            a[10]/sz,           0,
         0, 0, 0, 1
       ])
@@ -2390,8 +2435,13 @@ module ASM_Extensions
       tol      = [mean_ext * 5e-3, 1e-6].max
       buckets  = [dx, dy, dz].map { |e| (e / tol).round }
 
-      t    = instance.transformation
-      axes = [t.xaxis, t.yaxis, t.zaxis]
+      t        = instance.transformation
+      inst_det = t.xaxis.dot(t.yaxis.cross(t.zaxis)) >= 0 ? 1 : -1
+      # For LH instances negate X before scoring so the search sees the
+      # "equivalent RH" axes → same permutation+signs as the RH counterpart.
+      # Proper rotations (det=+1) are used regardless, so handedness is preserved.
+      ax = inst_det < 0 ? Geom::Vector3d.new(-t.xaxis.x, -t.xaxis.y, -t.xaxis.z) : t.xaxis
+      axes = [ax, t.yaxis, t.zaxis]
 
       best_score = -Float::INFINITY
       best_perm  = [0, 1, 2]

@@ -8,7 +8,9 @@ module ASM_Extensions
 
       EXPECTED_KEYS = %i[
         language context_menu
+        rotation_mode insertion_point_custom
         dark_mode debug_mode
+        oezscale_offset oeface_offset oeflow_offset
       ].freeze
 
       # Keys sent by the frontend's currentSettings() — debug_mode is excluded intentionally

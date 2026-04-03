@@ -98,7 +98,7 @@ module ASM_Extensions
 
       def test_t_returns_string
         Lang.configure("en-US")
-        result = Lang.t(:commands, :oeaxis, :label)
+        result = Lang.t(:commands, :oeedgevertex, :label)
         assert_instance_of String, result
         refute_empty result
       end

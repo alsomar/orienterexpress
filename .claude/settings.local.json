@@ -25,7 +25,10 @@
       "Bash(mv oe_zscale_add_32.svg oe_zscale_plus_32.svg)",
       "Bash(mv oe_zscale_rem_32.svg oe_zscale_minus_32.svg)",
       "Bash(mv oe_zscale_addrem_32.svg oe_zscale_toggle_32.svg)",
-      "Bash(find src:*)"
+      "Bash(find src:*)",
+      "Bash(wc -l /d/Code/Projects/orienterexpress/tests/OrienterExpress/*.rb)",
+      "Bash(rubocop src/asm_orienterexpress/ops/orients.rb tests/OrienterExpress/TC_orients.rb)",
+      "Bash(rubocop src/asm_orienterexpress/ops/orients.rb)"
     ],
     "additionalDirectories": [
       "D:\\Code\\Projects\\TestExt\\src\\asm_testext\\dialogs",
