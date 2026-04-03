@@ -2267,6 +2267,38 @@ module ASM_Extensions
       (xs.max - xs.min) * (ys.max - ys.min) * (zs.max - zs.min)
     end
 
+    # After alignment, snaps the local axes to best match the pre-operation orientation:
+    # 1. If local Z flipped relative to z_pre, apply diag(1,-1,-1) to restore Z direction.
+    # 2. Rotate in 90° steps around local Z to bring local X as close as possible to x_pre.
+    # World vertex positions are preserved throughout (definition + instance compensation).
+    def self.snap_axes_to_pre_orientation(instance, z_pre, x_pre)
+      orig = Geom::Point3d.new(0, 0, 0)
+
+      # Step 1: restore Z direction
+      if instance.transformation.zaxis.dot(z_pre) < 0
+        r_flip = Geom::Transformation.new([1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1])
+        instance.definition.entities.transform_entities(r_flip, instance.definition.entities.to_a)
+        instance.definition.instances.each { |i| i.transformation = i.transformation * r_flip }
+      end
+
+      # Step 2: rotate 0/90/180/270° around local Z to best align X with x_pre.
+      # Applying Rz(θ) to definition gives: xaxis_new = cosθ·x_cur - sinθ·y_cur
+      t     = instance.transformation
+      x_cur = t.xaxis
+      y_cur = t.yaxis
+      best_deg = { 0 => x_cur,
+                   90 => Geom::Vector3d.new(-y_cur.x, -y_cur.y, -y_cur.z),
+                  180 => Geom::Vector3d.new(-x_cur.x, -x_cur.y, -x_cur.z),
+                  270 => y_cur
+                 }.max_by { |_, v| v.dot(x_pre) }.first
+      return if best_deg == 0
+
+      angle = best_deg * Math::PI / 180.0
+      r_rot = Geom::Transformation.rotation(orig, Geom::Vector3d.new(0, 0, 1), angle)
+      instance.definition.entities.transform_entities(r_rot, instance.definition.entities.to_a)
+      instance.definition.instances.each { |i| i.transformation = i.transformation * r_rot.inverse }
+    end
+
     # If the instance transformation contains non-uniform scale, bakes it into
     # the definition geometry so all instances are left with pure rotation.
     # This must run before any alignment so that r_reset extraction and
@@ -2875,11 +2907,20 @@ module ASM_Extensions
 
       def apply(instances)
         return if instances.empty?
+        # Capture Z and X axes before any modification.
+        pre_axes = {}
+        instances.each do |inst|
+          next unless inst.valid?
+          pre_axes[inst.object_id] = [inst.transformation.zaxis, inst.transformation.xaxis]
+        end
+
         @model.start_operation("Orienter Express: Optimal Axis Alignment", true)
         instances.each do |inst|
           next unless inst.valid?
           OrienterExpress.send(:align_x_to_dominant_edge, inst)
           OrienterExpress.send(:align_to_min_bb, inst)
+          z_pre, x_pre = pre_axes[inst.object_id]
+          OrienterExpress.send(:snap_axes_to_pre_orientation, inst, z_pre, x_pre) if z_pre && x_pre
         end
         @model.commit_operation
         @model.active_view.invalidate
@@ -2902,6 +2943,7 @@ module ASM_Extensions
     private_class_method :planar_normal
     private_class_method :permute_axes_by_extent
     private_class_method :align_to_min_bb
+    private_class_method :snap_axes_to_pre_orientation
     private_class_method :bake_scale
     private_class_method :align_x_to_dominant_edge
     private_class_method :orient_ground
