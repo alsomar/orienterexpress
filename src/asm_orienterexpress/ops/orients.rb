@@ -2368,61 +2368,61 @@ module ASM_Extensions
       max_dev / Math.sqrt(span2) < 1e-4 ? [nx, ny, nz] : nil
     end
 
-    # Permutes the local axes so that X has the largest BB extent, Y the medium,
-    # and Z the smallest. For planar geometry the flat axis keeps its position
-    # (it has zero extent and will naturally sort to Z).
-    # Must be called after the geometry is already in definition space (id frame).
+    # Permutes and/or flips local axes so that:
+    # 1. X has the largest BB extent, Y medium, Z smallest (primary, weight ×100).
+    # 2. Among tied extents (within 0.5% relative), axes align as well as possible
+    #    with world axes (secondary, weight 1).
+    # Searches all 24 proper rotations of the cube (6 permutations × 4 right-handed
+    # sign combinations). Must be called after geometry is in definition space.
     def self.permute_axes_by_extent(instance)
       pts = collect_vertices(instance.definition.entities, Geom::Transformation.new)
       return if pts.empty?
 
       xs = pts.map(&:x); ys = pts.map(&:y); zs = pts.map(&:z)
       dx = xs.max - xs.min; dy = ys.max - ys.min; dz = zs.max - zs.min
-      order = [[dx, 0], [dy, 1], [dz, 2]].sort_by { |e, _| -e }.map(&:last)
 
-      unless order == [0, 1, 2]
-        # Build row-major permutation matrix: row i = e_{order[i]}, so (R*p)[i] = p[order[i]]
-        r = Array.new(3) { Array.new(3, 0.0) }
-        3.times { |i| r[i][order[i]] = 1.0 }
+      mean_ext = (dx + dy + dz) / 3.0
+      tol      = [mean_ext * 5e-3, 1e-6].max
+      buckets  = [dx, dy, dz].map { |e| (e / tol).round }
 
-        # If det = -1 (odd permutation), negate row 2 to keep right-handed frame
-        det = r[0][0]*(r[1][1]*r[2][2]-r[1][2]*r[2][1]) \
-            - r[0][1]*(r[1][0]*r[2][2]-r[1][2]*r[2][0]) \
-            + r[0][2]*(r[1][0]*r[2][1]-r[1][1]*r[2][0])
-        r[2].map! { |v| -v } if det < 0
+      t    = instance.transformation
+      axes = [t.xaxis, t.yaxis, t.zaxis]
 
-        # SketchUp Transformation.new takes column-major, so transpose R
-        r_perm = Geom::Transformation.new([
-          r[0][0], r[1][0], r[2][0], 0,
-          r[0][1], r[1][1], r[2][1], 0,
-          r[0][2], r[1][2], r[2][2], 0,
-          0, 0, 0, 1
-        ])
-        r_perm_inv = r_perm.inverse
+      best_score = -Float::INFINITY
+      best_perm  = [0, 1, 2]
+      best_signs = [1, 1, 1]
 
-        instance.definition.entities.transform_entities(r_perm, instance.definition.entities.to_a)
-        instance.definition.instances.each do |inst|
-          inst.transformation = inst.transformation * r_perm_inv
+      # perm_det: determinant of the permutation matrix (+1 even, -1 odd)
+      [[[0,1,2], 1],[[0,2,1],-1],[[1,0,2],-1],
+       [[1,2,0], 1],[[2,0,1], 1],[[2,1,0],-1]].each do |perm, pd|
+        # Sign combos whose product equals pd → total det = pd * product = +1
+        (pd > 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]]
+                : [[-1,1,1],[1,-1,1],[1,1,-1],[-1,-1,-1]]).each do |sx, sy, sz|
+          ext_score  = (buckets[perm[0]] >= buckets[perm[1]] ? 100 : -100)
+          ext_score += (buckets[perm[1]] >= buckets[perm[2]] ? 100 : -100)
+          align      = sx * axes[perm[0]].x + sy * axes[perm[1]].y + sz * axes[perm[2]].z
+          score      = ext_score + align
+          if score > best_score
+            best_score = score; best_perm = perm; best_signs = [sx, sy, sz]
+          end
         end
-        puts "[OEAlignPCA] axes permuted: order=#{order} (X=#{dx.round(2)},Y=#{dy.round(2)},Z=#{dz.round(2)})"
       end
 
-      # Flip Y and Z if local Y points generally away from world Y.
-      # Equivalent to a 180° rotation around local X: keeps X, negates Y and Z.
-      # diag(1,-1,-1) is its own inverse.
-      if instance.transformation.yaxis.y < 0
-        r_flip = Geom::Transformation.new([
-           1,  0,  0, 0,
-           0, -1,  0, 0,
-           0,  0, -1, 0,
-           0,  0,  0, 1
-        ])
-        instance.definition.entities.transform_entities(r_flip, instance.definition.entities.to_a)
-        instance.definition.instances.each do |inst|
-          inst.transformation = inst.transformation * r_flip
-        end
-        puts "[OEAlignPCA] axes flipped: Y·WorldY < 0, rotated 180° around local X"
+      return if best_perm == [0, 1, 2] && best_signs == [1, 1, 1]
+
+      # Build column-major SketchUp transform from permutation + signs.
+      # R[i,j] = signs[i] * delta(j, perm[i])  →  col j has one nonzero at row inv_perm[j].
+      inv_perm = [nil, nil, nil]; 3.times { |i| inv_perm[best_perm[i]] = i }
+      arr = Array.new(16, 0.0); arr[15] = 1.0
+      3.times { |col| row = inv_perm[col]; arr[col * 4 + row] = best_signs[row].to_f }
+      r_transform = Geom::Transformation.new(arr)
+      r_inv       = r_transform.inverse
+
+      instance.definition.entities.transform_entities(r_transform, instance.definition.entities.to_a)
+      instance.definition.instances.each do |inst|
+        inst.transformation = inst.transformation * r_inv
       end
+      puts "[OEAlignPCA] axes normalized: perm=#{best_perm} signs=(#{best_signs.join(',')})"
     end
 
     # Redefines the local axes to minimize the bounding box volume (3D) or area
