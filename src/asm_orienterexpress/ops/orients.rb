@@ -2239,11 +2239,16 @@ module ASM_Extensions
       sy = Math.sqrt(a[4]**2 + a[5]**2 + a[6]**2)
       sz = Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2)
 
-      # r_reset = rotation part of t (maps def-local → world-aligned, no translation)
+      # r_reset = rotation part of t (maps def-local → world-aligned, no translation).
+      # For LH instances det(r_reset) = -1; negate X column to get a proper rotation
+      # so that r_combined = r_best * r_reset has det=+1 and handedness is preserved.
+      det_sign = (a[0]/sx * (a[5]/sy * a[10]/sz - a[6]/sy * a[9]/sz)) -
+                 (a[1]/sx * (a[4]/sy * a[10]/sz - a[6]/sy * a[8]/sz)) +
+                 (a[2]/sx * (a[4]/sy * a[9]/sz  - a[5]/sy * a[8]/sz)) >= 0 ? 1 : -1
       r_reset = Geom::Transformation.new([
-        a[0]/sx, a[1]/sx, a[2]/sx, 0,
-        a[4]/sy, a[5]/sy, a[6]/sy, 0,
-        a[8]/sz, a[9]/sz, a[10]/sz, 0,
+        a[0]/sx * det_sign, a[1]/sx * det_sign, a[2]/sx * det_sign, 0,
+        a[4]/sy,            a[5]/sy,            a[6]/sy,            0,
+        a[8]/sz,            a[9]/sz,            a[10]/sz,           0,
         0, 0, 0, 1
       ])
       r_reset_inv = r_reset.inverse
@@ -2392,10 +2397,12 @@ module ASM_Extensions
       best_perm  = [0, 1, 2]
       best_signs = [1, 1, 1]
 
-      # perm_det: determinant of the permutation matrix (+1 even, -1 odd)
+      # perm_det: determinant of the permutation matrix (+1 even, -1 odd).
+      # We always use proper rotations (det(R_norm)=+1) so that handedness is
+      # preserved: LH instances stay LH, RH instances stay RH.
+      # det(R_norm) = perm_det * sign_product = +1  →  sign_product = perm_det
       [[[0,1,2], 1],[[0,2,1],-1],[[1,0,2],-1],
        [[1,2,0], 1],[[2,0,1], 1],[[2,1,0],-1]].each do |perm, pd|
-        # Sign combos whose product equals pd → total det = pd * product = +1
         (pd > 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]]
                 : [[-1,1,1],[1,-1,1],[1,1,-1],[-1,-1,-1]]).each do |sx, sy, sz|
           ext_score  = (buckets[perm[0]] >= buckets[perm[1]] ? 100 : -100)
@@ -2435,7 +2442,9 @@ module ASM_Extensions
       # and the sweep returns identity → no further change.
       id = Geom::Transformation.new
       pts = collect_vertices(instance.definition.entities, id)
-      puts "[OEAlignPCA] instance=#{instance.definition.name} pts=#{pts.size}"
+      t0  = instance.transformation
+      det0 = t0.xaxis.dot(t0.yaxis.cross(t0.zaxis)) >= 0 ? "RH" : "LH"
+      puts "[OEAlignPCA] instance=#{instance.definition.name} pts=#{pts.size} handedness=#{det0}"
       return if pts.empty?
 
       pts = convex_hull_3d(pts)
@@ -2568,7 +2577,9 @@ module ASM_Extensions
           puts "[OEAlignPCA]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
         end
         permute_axes_by_extent(instance)
-        puts "[OEAlignPCA] done (2D)"
+        t1 = instance.transformation
+        det1 = t1.xaxis.dot(t1.yaxis.cross(t1.zaxis)) >= 0 ? "RH" : "LH"
+        puts "[OEAlignPCA] done (2D) handedness=#{det1}"
         return
       end
 
@@ -2695,7 +2706,9 @@ module ASM_Extensions
         puts "[OEAlignPCA]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
       end
       permute_axes_by_extent(instance)
-      puts "[OEAlignPCA] done"
+      t1 = instance.transformation
+      det1 = t1.xaxis.dot(t1.yaxis.cross(t1.zaxis)) >= 0 ? "RH" : "LH"
+      puts "[OEAlignPCA] done handedness=#{det1}"
     end
 
     # Tool class that runs align_x_to_dominant_edge then align_to_min_bb in one
