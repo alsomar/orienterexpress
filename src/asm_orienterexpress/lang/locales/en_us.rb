@@ -6,7 +6,7 @@ module ASM_Extensions
       def self.locale_en_us
         {
           commands: {
-            oeedgevertex: {
+            oevertex: {
               label:         "Edge Vertex Placement",
               tooltip:       "Edge Vertex Placement",
               status:        "Place oriented copies at both vertices of each edge, with optional inward offset.",

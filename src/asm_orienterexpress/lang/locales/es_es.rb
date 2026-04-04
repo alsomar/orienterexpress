@@ -6,7 +6,7 @@ module ASM_Extensions
       def self.locale_es_es
         {
           commands: {
-            oeedgevertex: {
+            oevertex: {
               label:         "Colocación en vértices de arista",
               tooltip:       "Colocación en vértices de arista",
               status:        "Coloca copias orientadas en ambos vértices de cada arista, con desfase opcional hacia el interior.",

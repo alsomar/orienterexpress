@@ -49,7 +49,7 @@ function settingsJSON(config) {
       window.app.settingsContextMenu    = config.context_menu;
       window.app.rotationMode           = config.rotation_mode || 'ground';
       window.app.settingsInsertionPointCustom = config.insertion_point_custom || {
-        oeedgevertex: 'origin',
+        oevertex: 'origin',
         oecenter:     'center',
         oeflow:       'center',
         oeface:       'base'

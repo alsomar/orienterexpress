@@ -9,12 +9,11 @@
         <rect x="13.05" y="12" width="6" height="5" style="fill:white;"/>
         <rect x="21.05" y="12" width="6" height="5" style="fill:white;"/>
     </g>
-    <g id="scale">
-        <path d="M12.05,11L28.05,27" style="fill:none;stroke:rgb(255,216,74);stroke-width:2px;"/>
-        <path d="M12.05,9L14.05,11L12.05,13L10.05,11L12.05,9Z" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:1px;stroke-linecap:butt;"/>
-        <path d="M28.05,25L30.05,27L28.05,29L26.05,27L28.05,25Z" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:1px;stroke-linecap:butt;"/>
+    <g id="oevertex">
+        <path d="M11.05,10L29.05,28" style="fill:none;stroke:rgb(51,51,51);stroke-width:2px;"/>
+        <circle cx="12.05" cy="11" r="2" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:1px;stroke-linecap:butt;"/>
+        <circle cx="28.05" cy="27" r="2" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:1px;stroke-linecap:butt;"/>
     </g>
-    <path d="M16.05,16L23.05,16L17.05,22L24.05,22" style="fill:none;stroke:rgb(0,70,209);stroke-width:2px;stroke-linecap:butt;"/>
     <g>
         <path d="M1.289,25.401L3.829,15.923L7.693,16.958L5.153,26.437C4.587,28.549 3.297,30.274 2.137,29.964C0.978,29.653 0.723,27.514 1.289,25.401Z" style="fill:rgb(198,198,198);"/>
         <path d="M1.289,25.401L3.829,15.923L7.693,16.958L5.153,26.437C4.587,28.549 3.297,30.274 2.137,29.964C0.978,29.653 0.723,27.514 1.289,25.401ZM2.255,25.66C2.013,26.566 1.935,27.477 2.053,28.196C2.09,28.421 2.145,28.624 2.229,28.791C2.276,28.883 2.311,28.975 2.396,28.998C2.482,29.021 2.558,28.959 2.644,28.902C2.8,28.8 2.949,28.652 3.094,28.475C3.556,27.912 3.944,27.084 4.187,26.178L6.468,17.665L4.536,17.148L2.255,25.66Z" style="fill:rgb(102,102,102);"/>

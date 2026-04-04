@@ -569,7 +569,7 @@ module ASM_Extensions
     # Places two copies per edge (one at each vertex), with the active axis
     # pointing inward along the edge direction, offset along the edge from
     # the vertex. Supports Tab (cycle axis) and End (cycle rotation mode).
-    class OEEdgeVertexTool
+    class OEVertexTool
 
       class SelectionWatcher < Sketchup::SelectionObserver
         def initialize(&block)
@@ -595,19 +595,19 @@ module ASM_Extensions
         @@cursor_ids ||= {}
         @@cursor_ids[variant] ||= begin
           ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
-          filename = variant == :default ? "oe_zscale_32" : "oe_zscale_#{variant}_32"
+          filename = variant == :default ? "oe_vertex_32" : "oe_vertex_#{variant}_32"
           path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
           UI.create_cursor(path, 5, 5)
         end
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oeedgevertex_offset] || "0cm"
+        @@last_offset_str ||= CONFIG[:oevertex_offset] || "0cm"
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oeedgevertex_offset: val)
+        OrienterExpress.user_settings(oevertex_offset: val)
       end
 
       def initialize(edges, entity_def, entity_t, flow_map, rotation_mode)
@@ -617,7 +617,7 @@ module ASM_Extensions
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
-        @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oeedgevertex).to_sym
+        @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oevertex).to_sym
         @model             = Sketchup.active_model
         @applied           = false
         @first_apply       = true
@@ -633,7 +633,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEEdgeVertexTool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OEVertexTool.last_offset_str); sync_selection }
       end
 
       def deactivate(view)
@@ -790,19 +790,19 @@ module ASM_Extensions
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
           update_vcb
-          apply(OEEdgeVertexTool.last_offset_str)
+          apply(OEVertexTool.last_offset_str)
         when 35 # End — cycle rotation mode
           @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
           rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
           update_vcb
-          apply(OEEdgeVertexTool.last_offset_str)
+          apply(OEVertexTool.last_offset_str)
         when 36 # Home — cycle insertion point
           @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom].dup
-          custom[:oeedgevertex] = @insertion_point.to_s
+          custom[:oevertex] = @insertion_point.to_s
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
-          apply(OEEdgeVertexTool.last_offset_str)
+          apply(OEVertexTool.last_offset_str)
         end
       end
 
@@ -832,7 +832,7 @@ module ASM_Extensions
                   else
                     :default
                   end
-        UI.set_cursor(OEEdgeVertexTool.cursor_id(variant))
+        UI.set_cursor(OEVertexTool.cursor_id(variant))
       end
 
       def pick_entity(view, x, y, aperture = 16)
@@ -911,7 +911,7 @@ module ASM_Extensions
         end
         return if @edges.to_set == before
         rebuild_flow_map if @rotation_mode == :flow
-        apply(OEEdgeVertexTool.last_offset_str)
+        apply(OEVertexTool.last_offset_str)
         sync_selection
       end
 
@@ -922,7 +922,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OEEdgeVertexTool.last_offset_str) rescue nil
+        current = Sketchup.parse_length(OEVertexTool.last_offset_str) rescue nil
         return unless current
         step    = Sketchup.parse_length("1cm")
         new_val = current + direction * step
@@ -938,7 +938,7 @@ module ASM_Extensions
         @edges = new_edges
         rebuild_flow_map if @rotation_mode == :flow
         @syncing = true
-        apply(OEEdgeVertexTool.last_offset_str)
+        apply(OEVertexTool.last_offset_str)
         sync_selection
       ensure
         @syncing = false
@@ -976,9 +976,9 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
-        Sketchup.set_status_text(Lang.commands.oeedgevertex.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEEdgeVertexTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeedgevertex.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
+        Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
+        Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
+        Sketchup.set_status_text("#{Lang.commands.oevertex.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
       end
 
       def pick_new_sample(view, x, y)
@@ -999,7 +999,7 @@ module ASM_Extensions
         @first_apply    = true
         @sample_mode    = false
         update_cursor
-        apply(OEEdgeVertexTool.last_offset_str)
+        apply(OEVertexTool.last_offset_str)
         sync_selection
       end
 
@@ -1101,7 +1101,7 @@ module ASM_Extensions
           @applied       = true
           @skipped_edges = []
           formatted = Sketchup.format_length(offset)
-          OEEdgeVertexTool.last_offset_str = formatted
+          OEVertexTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
@@ -1111,7 +1111,7 @@ module ASM_Extensions
       end
     end
 
-    def self.oeedgevertex
+    def self.oevertex
       model   = Sketchup.active_model
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
@@ -1134,7 +1134,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEEdgeVertexTool.new(edges, entity.definition, entity.transformation,
+        OEVertexTool.new(edges, entity.definition, entity.transformation,
                              flow_map, rotation_mode)
       )
     end
@@ -1169,7 +1169,7 @@ module ASM_Extensions
         @@cursor_ids ||= {}
         @@cursor_ids[variant] ||= begin
           ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
-          filename = variant == :default ? "oe_zscale_32" : "oe_zscale_#{variant}_32"
+          filename = variant == :default ? "oe_center_32" : "oe_center_#{variant}_32"
           path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
           UI.create_cursor(path, 5, 5)
         end
@@ -3399,59 +3399,121 @@ module ASM_Extensions
     # Tool class for interactive Reset Rotations.
     # Tab cycles the pivot point; the reset is re-applied live on each change.
     class OEResetTool
+
+      BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
+
+      def self.cursor_id
+        @@cursor_id ||= begin
+          ext  = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
+          path = File.join(PATH_CURSORS, "oe_reset_32.#{ext}")
+          UI.create_cursor(path, 5, 5)
+        end
+      end
+
       def initialize(targets)
-        @targets        = targets
-        @original_ts    = targets.map(&:transformation)
-        @model          = Sketchup.active_model
-        @applied         = false
-        @first_apply     = true
+        @model           = Sketchup.active_model
+        @hovered         = nil
         custom = CONFIG[:insertion_point_custom]
         @insertion_point = (custom.is_a?(Hash) && custom[:oereset] ? custom[:oereset].to_sym : :base)
+        # Apply immediately to any pre-selected targets
+        @pending_targets = targets
       end
 
       def activate
         update_vcb
-        UI.start_timer(0, false) { apply }
+        UI.start_timer(0, false) { apply_to(@pending_targets) unless @pending_targets.empty? }
       end
 
-      def deactivate(_view)
-        @applied = false
+      def deactivate(view)
+        @hovered = nil
+        view.invalidate
       end
 
       def resume(_view)
         update_vcb
       end
 
+      def suspend(view)
+        @hovered = nil
+        view.invalidate
+      end
+
+      def enableVCB?
+        false
+      end
+
+      def onMouseMove(_flags, x, y, view)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        entity    = ph.best_picked
+        candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
+        if candidate != @hovered
+          @hovered = candidate
+          view.invalidate
+        end
+      end
+
+      def draw(view)
+        return unless @hovered&.valid?
+        t       = @hovered.transformation
+        def_bb  = @hovered.definition.bounds
+        corners = 8.times.map { |i| t * def_bb.corner(i) }
+        eye     = view.camera.eye
+        view.line_width    = 2
+        view.drawing_color = Sketchup::Color.new(148, 0, 211)
+        BB_EDGES.each do |a, b|
+          pa = corners[a].offset((eye - corners[a]).normalize, 0.1)
+          pb = corners[b].offset((eye - corners[b]).normalize, 0.1)
+          view.draw(GL_LINES, [pa, pb])
+        end
+      end
+
+      def getExtents
+        bb = Geom::BoundingBox.new
+        if @hovered&.valid?
+          t = @hovered.transformation
+          8.times { |i| bb.add(t * @hovered.definition.bounds.corner(i)) }
+        end
+        bb
+      end
+
+      def onSetCursor
+        UI.set_cursor(OEResetTool.cursor_id)
+      end
+
+      def onLButtonDown(_flags, x, y, view)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        entity = ph.best_picked
+        return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
+        @model.selection.clear
+        @model.selection.add(entity)
+        apply_to([entity])
+      end
+
       def onKeyDown(key, _repeat, _flags, _view)
         case key
-        when 27 # Esc — undo and exit
-          if @applied
-            @model.start_operation("Cancel Reset Rotations", true)
-            @targets.each_with_index { |e, i| e.transformation = @original_ts[i] if e.valid? }
-            @model.commit_operation
-            @applied = false
-          end
+        when 27 # Esc — exit
           @model.select_tool(nil)
         when 9 # Tab — cycle pivot
           @insertion_point = { center: :origin, origin: :base, base: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom] || {}
           OrienterExpress.user_settings(insertion_point_custom: custom.merge(oereset: @insertion_point.to_s))
           update_vcb
-          apply
         end
       end
 
       private
 
-      def pivot_for(entity)
+      def pivot_for(entity, original_t)
         case @insertion_point
         when :origin
-          entity.transformation.origin
+          original_t.origin
         when :base
           db = entity.definition.bounds
-          entity.transformation * Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+          original_t * Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
         else # :center
-          entity.bounds.center
+          (original_t * entity.definition.bounds.center)
         end
       end
 
@@ -3461,20 +3523,18 @@ module ASM_Extensions
         Sketchup.set_status_text("#{Lang.commands.oereset.vcb_hint}  |  #{ip}", 0)
       end
 
-      def apply
-        transparent = !@first_apply
-        @model.start_operation("Orienter Express: Reset Rotations", true, false, transparent)
+      def apply_to(targets)
+        return if targets.empty?
+        @model.start_operation("Orienter Express: Reset Rotations", true)
         begin
-          @targets.each_with_index do |entity, i|
+          targets.each do |entity|
             next unless entity.valid?
-            entity.transformation = @original_ts[i]
-            pivot = pivot_for(entity)
+            original_t = entity.transformation
+            pivot      = pivot_for(entity, original_t)
             OrienterExpress.send(:align_axis, entity, pivot, entity.transformation.zaxis, Z_AXIS)
             OrienterExpress.send(:align_axis, entity, pivot, entity.transformation.xaxis, X_AXIS)
           end
           @model.commit_operation
-          @first_apply = false
-          @applied     = true
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -3486,7 +3546,6 @@ module ASM_Extensions
     def self.oereset
       model   = Sketchup.active_model
       targets = instances(model.selection)
-      return unless check_targets(targets)
       model.select_tool(OEResetTool.new(targets))
     end
 
@@ -4170,6 +4229,14 @@ module ASM_Extensions
 
       BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
 
+      def self.cursor_id
+        @@cursor_id ||= begin
+          ext  = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
+          path = File.join(PATH_CURSORS, "oe_optimize_32.#{ext}")
+          UI.create_cursor(path, 5, 5)
+        end
+      end
+
       def initialize(instances)
         @model     = Sketchup.active_model
         @instances = instances
@@ -4232,6 +4299,10 @@ module ASM_Extensions
 
       def enableVCB?
         true
+      end
+
+      def onSetCursor
+        UI.set_cursor(OEAlignOptimalTool.cursor_id)
       end
 
       def onLButtonDown(_flags, x, y, view)

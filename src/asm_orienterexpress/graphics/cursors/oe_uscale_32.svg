@@ -9,13 +9,15 @@
         <rect x="13.05" y="12" width="6" height="5" style="fill:white;"/>
         <rect x="21.05" y="12" width="6" height="5" style="fill:white;"/>
     </g>
-    <rect x="1" y="25" width="8" height="2" style="fill:rgb(39,39,208);"/>
-    <rect x="4" y="22" width="2" height="8" style="fill:rgb(39,39,208);"/>
-    <rect x="1" y="18" width="8" height="2" style="fill:rgb(39,39,208);"/>
     <g id="scale">
         <path d="M12.05,11L28.05,27" style="fill:none;stroke:rgb(255,216,74);stroke-width:2px;"/>
         <path d="M12.05,9L14.05,11L12.05,13L10.05,11L12.05,9Z" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:1px;stroke-linecap:butt;"/>
         <path d="M28.05,25L30.05,27L28.05,29L26.05,27L28.05,25Z" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:1px;stroke-linecap:butt;"/>
     </g>
-    <path d="M16.05,16L23.05,16L17.05,22L24.05,22" style="fill:none;stroke:rgb(0,70,209);stroke-width:2px;stroke-linecap:butt;"/>
+    <g>
+        <rect x="18.05" y="15" width="4" height="2.997" style="fill:rgb(198,198,198);"/>
+        <path d="M19.05,17.997L17.05,17.997L17.05,16.997C17.05,16.187 17.318,15.453 17.813,14.913C18.312,14.369 19.05,14 20.05,14C21.05,14 21.788,14.369 22.287,14.913C22.782,15.453 23.05,16.187 23.05,16.997L23.05,17.998L21.05,17.997L21.05,16.997C21.05,16.717 20.985,16.453 20.814,16.266C20.647,16.084 20.385,16 20.05,16C19.715,16 19.453,16.084 19.286,16.266C19.115,16.453 19.05,16.717 19.05,16.997L19.05,17.997Z" style="fill:rgb(102,102,102);"/>
+        <path d="M17.05,17.997L23.05,17.997C23.602,17.997 24.05,18.445 24.05,18.997L24.05,23C24.05,23.552 23.602,24 23.05,24L17.05,24C16.498,24 16.05,23.552 16.05,23L16.05,18.997C16.05,18.445 16.498,17.997 17.05,17.997Z" style="fill:rgb(102,102,102);"/>
+        <circle cx="20.05" cy="20.997" r="1.1" style="fill:white;"/>
+    </g>
 </svg>
