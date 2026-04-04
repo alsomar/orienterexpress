@@ -12,7 +12,7 @@
         <g id="oeflow">
             <path d="M3,8L12,12L16,21" style="fill:none;stroke:rgb(51,51,51);stroke-width:2px;"/>
             <g transform="matrix(0.666667,0,0,0.666667,4,4)">
-                <circle cx="12" cy="12" r="3" style="fill:rgb(255,76,77);stroke:rgb(255,0,0);stroke-width:1.5px;stroke-linecap:butt;"/>
+                <circle cx="12" cy="12" r="3" style="fill:rgb(61,255,48);stroke:rgb(13,209,0);stroke-width:1.5px;stroke-linecap:butt;"/>
             </g>
             <g transform="matrix(0.769625,0,0,0.769625,5.29861,0.230375)">
                 <path d="M21.701,8.796L23,1L15.204,2.299L21.701,8.796Z" style="fill:rgb(48,117,255);"/>
