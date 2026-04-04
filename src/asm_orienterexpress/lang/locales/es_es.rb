@@ -99,11 +99,11 @@ module ASM_Extensions
               version:     "Versión ",
               designed_by: "Diseñado y desarrollado por #{LINK_ALEJANDRO}.",
               uses:        "Esta extensión utiliza #{LINK_MODUS}.",
-              warning:     "<b>¡#{EXT_NAME} es gratis!</b> Confía sólo en #{LINK_EXT_WAREHOUSE} y #{LINK_SKETCHUCATION} para descargarlo."
+              warning:     "<b>¡#{EXT_NAME} es gratis!</b> Confía sólo en #{LINK_EXT_WAREHOUSE} y #{LINK_SKETCHUCATION} para descargarlo de forma segura."
             },
             thanks: {
-              title:   "Agradecimientos",
-              tooltip: "Agradecimientos",
+              title:   "Gracias",
+              tooltip: "Gracias",
               txt1:    "Gracias a las comunidades de #{LINK_SKP_FORUMS} y #{LINK_SUC_FORUMS} por compartir su conocimiento y tender la mano a nuevos desarrolladores.",
               txt2:    "El apoyo de la comunidad es lo que hace posible proyectos como #{EXT_NAME}. Si puedes, considera contribuir a través de #{LINK_PATREON} o #{LINK_KOFI}.",
               txt3:    "¡Gracias por tu generosidad!",

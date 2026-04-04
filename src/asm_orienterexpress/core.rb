@@ -88,8 +88,8 @@ module ASM_Extensions
       @commands[:oereset] = cmd
 
       cmd = UI::Command.new(Lang.commands.settings.label.to_s) { self.settings_tool }
-      cmd.small_icon = self.icon("settings_24")
-      cmd.large_icon = self.icon("settings_32")
+      cmd.small_icon = self.icon("oesettings_24")
+      cmd.large_icon = self.icon("oesettings_32")
       cmd.status_bar_text = Lang.commands.settings.status
       cmd.tooltip = Lang.commands.settings.tooltip
       cmd_settings = cmd
