@@ -9,9 +9,11 @@
             <rect x="5" y="5" width="6" height="5" style="fill:white;"/>
             <rect x="13" y="5" width="6" height="5" style="fill:white;"/>
         </g>
-        <g transform="matrix(0.848528,0.848528,-1.06066,1.06066,6.0603,-10.9103)">
-            <path d="M17,4C19.76,4 22,5.792 22,8C22,10.208 19.76,12 17,12C14.24,12 12,10.208 12,8" style="fill:none;stroke:rgb(0,70,209);stroke-width:1.47px;"/>
+        <g transform="matrix(1,0,0,1,-1.00118,0)">
+            <g transform="matrix(0.848528,0.848528,-1.06066,1.06066,6.0603,-10.9103)">
+                <path d="M17,4C19.76,4 22,5.792 22,8C22,10.208 19.76,12 17,12C14.24,12 12,10.208 12,8" style="fill:none;stroke:rgb(0,70,209);stroke-width:1.47px;"/>
+            </g>
+            <path d="M15,10L19,8L15,5L15,10Z" style="fill:rgb(0,70,209);stroke:rgb(0,70,209);stroke-width:2px;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:6;"/>
         </g>
-        <path d="M15,10L19,8L15,5L15,10Z" style="fill:rgb(0,70,209);stroke:rgb(0,70,209);stroke-width:2px;stroke-linecap:square;stroke-linejoin:miter;stroke-miterlimit:6;"/>
     </g>
 </svg>
