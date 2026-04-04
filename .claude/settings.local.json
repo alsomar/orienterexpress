@@ -28,7 +28,8 @@
       "Bash(find src:*)",
       "Bash(wc -l /d/Code/Projects/orienterexpress/tests/OrienterExpress/*.rb)",
       "Bash(rubocop src/asm_orienterexpress/ops/orients.rb tests/OrienterExpress/TC_orients.rb)",
-      "Bash(rubocop src/asm_orienterexpress/ops/orients.rb)"
+      "Bash(rubocop src/asm_orienterexpress/ops/orients.rb)",
+      "Bash(grep -n \"class OEZScaleTool\\\\|^    end$\\\\|^    class OEFlow\\\\|^    class OEFace\" \"d:/Code/Projects/orienterexpress/src/asm_orienterexpress/ops/orients.rb\")"
     ],
     "additionalDirectories": [
       "D:\\Code\\Projects\\TestExt\\src\\asm_testext\\dialogs",

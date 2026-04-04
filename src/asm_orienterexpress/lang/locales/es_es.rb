@@ -7,21 +7,25 @@ module ASM_Extensions
         {
           commands: {
             oeedgevertex: {
-              label:   "Colocación en vértices de arista",
-              tooltip: "Colocación en vértices de arista",
-              status:  "Coloca copias orientadas en ambos vértices de cada arista."
+              label:         "Colocación en vértices de arista",
+              tooltip:       "Colocación en vértices de arista",
+              status:        "Coloca copias orientadas en ambos vértices de cada arista, con desfase opcional hacia el interior.",
+              offset_prompt: "Desfase",
+              vcb_hint:      "Enter: actualizar  |  Tab: eje  |  End: modo  |  Home: inserción  |  ←→: ajustar  |  ↓: reiniciar  |  Esc: cancelar"
             },
             oecenter: {
-              label:   "Colocación centrada en arista",
-              tooltip: "Colocación centrada en arista",
-              status:  "Coloca copias centradas sobre las aristas."
+              label:         "Colocación centrada en arista",
+              tooltip:       "Colocación centrada en arista",
+              status:        "Coloca copias centradas sobre las aristas con desfase opcional.",
+              offset_prompt: "Desfase",
+              vcb_hint:      "Enter: actualizar  |  Tab: eje  |  End: modo  |  Home: inserción  |  ←→: ajustar  |  ↓: reiniciar  |  Esc: cancelar"
             },
-oezscale: {
+            oezscale: {
               label:          "Escalado en Z",
               tooltip:        "Escalado en Z",
               status:         "Escala y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
               offset_prompt:  "Desfase",
-              vcb_hint:       "Enter: actualizar  |  Tab: cambiar rotación  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar"
+              vcb_hint:       "Enter: actualizar  |  Tab: eje  |  End: modo  |  Home: inserción  |  ←→: ajustar  |  ↓: reiniciar  |  Esc: cancelar"
             },
             oeuscale: {
               label:   "Escalado uniforme",
@@ -33,14 +37,14 @@ oezscale: {
               tooltip:        "Colocación según flujo de vértices",
               status:         "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes.",
               offset_prompt:  "Desfase",
-              vcb_hint:       "Enter: actualizar  |  Tab: cambiar inserción  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar"
+              vcb_hint:       "Enter: actualizar  |  Tab: eje  |  End: modo  |  Home: inserción  |  ←→: ajustar  |  ↓: reiniciar  |  Esc: cancelar"
             },
             oeface: {
               label:         "Colocación en cara",
               tooltip:       "Colocación en cara",
               status:        "Coloca copias en el centroide de cada cara con un desfase a lo largo de la normal.",
               offset_prompt: "Desfase",
-              vcb_hint:      "Enter: actualizar  |  Tab: cambiar inserción  |  ←→: ajustar desfase  |  ↓: resetear  |  Esc: cancelar",
+              vcb_hint:      "Enter: actualizar  |  Tab: eje  |  End: orientación  |  Home: inserción  |  ←→: ajustar  |  ↓: reiniciar  |  Esc: cancelar",
               axis_parallel: "paralelo a arista dominante",
               axis_perp:     "perpendicular a arista dominante",
               axis_ground:   "horizontal"

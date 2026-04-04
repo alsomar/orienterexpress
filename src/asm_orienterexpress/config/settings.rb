@@ -14,6 +14,7 @@ module ASM_Extensions
       insertion_point_custom: {
         oeedgevertex: "origin",
         oecenter:     "center",
+        oezscale:     "center",
         oeflow:       "center",
         oeface:       "base",
         oereset:      "base"
@@ -22,6 +23,8 @@ module ASM_Extensions
       # Inner Options
       dark_mode: false,
       debug_mode: false,
+      oeedgevertex_offset: "0cm",
+      oecenter_offset: "0cm",
       oezscale_offset: "10cm",
       oeface_offset:   "0cm",
       oeflow_offset:   "0cm"
