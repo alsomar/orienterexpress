@@ -44,6 +44,25 @@ module ASM_Extensions
         assert_equal "auto", DEFAULT_CONFIG[:language]
       end
 
+      def test_default_config_insertion_point_custom_has_all_tool_keys
+        custom = DEFAULT_CONFIG[:insertion_point_custom]
+        assert_instance_of Hash, custom, "insertion_point_custom should be a Hash"
+        expected_tools = %i[oeedgevertex oecenter oezscale oeflow oeface oereset]
+        expected_tools.each do |tool|
+          assert custom.key?(tool), "insertion_point_custom missing tool key: #{tool}"
+        end
+      end
+
+      def test_default_config_insertion_point_custom_values_are_valid
+        valid = %w[center base origin]
+        DEFAULT_CONFIG[:insertion_point_custom].each do |tool, value|
+          assert_instance_of String, value,
+            "insertion_point_custom[:#{tool}] should be a String, got #{value.class}"
+          assert valid.include?(value),
+            "insertion_point_custom[:#{tool}] = #{value.inspect} is not one of #{valid}"
+        end
+      end
+
       def test_frontend_keys_match_default_config
         FRONTEND_KEYS.each do |key|
           assert DEFAULT_CONFIG.key?(key), "DEFAULT_CONFIG missing frontend key: #{key}"

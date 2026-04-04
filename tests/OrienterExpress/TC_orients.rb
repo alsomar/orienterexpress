@@ -62,6 +62,13 @@ module ASM_Extensions
         edge
       end
 
+      # Asserts that two values differ by more than delta.
+      def refute_in_delta(expected, actual, delta, msg = nil)
+        diff = (expected - actual).abs
+        refute diff <= delta,
+          msg || "Expected |#{expected} - #{actual}| > #{delta}, but difference was #{diff}"
+      end
+
       # Asserts that two vectors point in the same direction (within TOL on dot product).
       def assert_same_direction(expected, actual, msg = nil)
         en  = expected.normalize
@@ -558,6 +565,165 @@ module ASM_Extensions
         assert_in_delta -rh.xaxis.x, lh.xaxis.x, TOL, 'X axes should be opposite (mirror)'
         assert_in_delta -rh.xaxis.y, lh.xaxis.y, TOL, 'X axes should be opposite (mirror)'
         assert_in_delta -rh.xaxis.z, lh.xaxis.z, TOL, 'X axes should be opposite (mirror)'
+      end
+
+      # =========================================================================
+      # move_insertion_to — axis-aware base placement
+      # Regression: before the fix, scale_axis was ignored and base always used
+      # min.z regardless of which axis was active.
+      # =========================================================================
+
+      def move_to(inst, point, insertion, axis = nil)
+        OE.send(:move_insertion_to, inst, point, insertion, axis)
+      end
+
+      def test_move_insertion_center_lands_on_target
+        inst   = make_instance
+        target = Geom::Point3d.new(500, 500, 500)
+        move_to(inst, target, :center)
+        assert_in_delta target.x, inst.bounds.center.x, TOL
+        assert_in_delta target.y, inst.bounds.center.y, TOL
+        assert_in_delta target.z, inst.bounds.center.z, TOL
+      end
+
+      def test_move_insertion_origin_lands_on_target
+        inst   = make_instance
+        target = Geom::Point3d.new(300, 400, 500)
+        move_to(inst, target, :origin)
+        assert_in_delta target.x, inst.transformation.origin.x, TOL
+        assert_in_delta target.y, inst.transformation.origin.y, TOL
+        assert_in_delta target.z, inst.transformation.origin.z, TOL
+      end
+
+      def test_move_insertion_base_z_uses_min_z
+        inst   = make_instance
+        target = Geom::Point3d.new(0, 0, 0)
+        move_to(inst, target, :base, :z)
+        db         = inst.definition.bounds
+        world_base = inst.transformation * Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+        assert_in_delta target.x, world_base.x, TOL
+        assert_in_delta target.y, world_base.y, TOL
+        assert_in_delta target.z, world_base.z, TOL
+      end
+
+      def test_move_insertion_base_x_uses_min_x
+        inst   = make_instance
+        target = Geom::Point3d.new(100, 200, 300)
+        move_to(inst, target, :base, :x)
+        db         = inst.definition.bounds
+        world_base = inst.transformation * Geom::Point3d.new(db.min.x, db.center.y, db.center.z)
+        assert_in_delta target.x, world_base.x, TOL, 'base with axis :x should use min.x face'
+        assert_in_delta target.y, world_base.y, TOL
+        assert_in_delta target.z, world_base.z, TOL
+      end
+
+      def test_move_insertion_base_y_uses_min_y
+        inst   = make_instance
+        target = Geom::Point3d.new(100, 200, 300)
+        move_to(inst, target, :base, :y)
+        db         = inst.definition.bounds
+        world_base = inst.transformation * Geom::Point3d.new(db.center.x, db.min.y, db.center.z)
+        assert_in_delta target.x, world_base.x, TOL, 'base with axis :y should use min.y face'
+        assert_in_delta target.y, world_base.y, TOL
+        assert_in_delta target.z, world_base.z, TOL
+      end
+
+      # Regression: axis :x must NOT produce the same result as axis :z when
+      # the component is not a cube (different extent in each axis).
+      def test_move_insertion_base_x_differs_from_base_z
+        # Asymmetric component: 100x100x200 box, so min.x != min.z in world coords
+        inst_x = make_instance
+        inst_z = make_instance
+        target = Geom::Point3d.new(0, 0, 0)
+        move_to(inst_x, target, :base, :x)
+        move_to(inst_z, target, :base, :z)
+        # After placing with :base/:x vs :base/:z the origins must differ
+        refute_in_delta inst_x.transformation.origin.x, inst_z.transformation.origin.x, TOL,
+          'base :x and base :z should produce different placements for a non-cube component'
+      end
+
+      # =========================================================================
+      # orient_to_face_edge — axis-aware secondary orientation
+      # Regression: hardcoded Z/X axes caused wrong rotation when scale_axis was
+      # :x or :y.
+      # =========================================================================
+
+      def test_orient_to_face_edge_with_scale_axis_z_aligns_x
+        # A flat face in XY plane; axis_idx=0 → align X to dominant edge
+        pts  = [[0,0,0],[200,0,0],[200,100,0],[0,100,0]]
+        face = @definition.entities.grep(Sketchup::Face).first ||
+               @definition.entities.add_face(pts)
+        inst = make_instance
+        # Rotate so Z points along face normal (world Z) — already default
+        OE.send(:orient_to_face_edge, inst, face, 0, :z)
+        # X should now be along the dominant (longest) edge direction
+        assert_in_delta 0.0, inst.transformation.xaxis.z, TOL,
+          'With scale_axis :z, X should be ground-parallel after face edge alignment'
+      end
+
+      def test_orient_to_face_edge_with_scale_axis_x_rotates_around_x
+        pts  = [[0,0,0],[200,0,0],[200,100,0],[0,100,0]]
+        face = @definition.entities.grep(Sketchup::Face).first ||
+               @definition.entities.add_face(pts)
+        inst = make_instance
+        # Align X to face normal first
+        t = inst.transformation
+        OE.align_axis(inst, t.origin, t.xaxis, face.normal)
+        OE.send(:orient_to_face_edge, inst, face, 0, :x)
+        # X axis should remain aligned to face normal (rotation was around X)
+        assert_same_direction face.normal, inst.transformation.xaxis,
+          'With scale_axis :x, X axis should stay aligned to face normal after orient_to_face_edge'
+      end
+
+      # =========================================================================
+      # orient_ground_around — vertical axis guard
+      # Regression: passing a vertical rotation axis caused a divide-by-near-zero.
+      # =========================================================================
+
+      def test_orient_ground_around_vertical_axis_is_noop
+        inst     = make_instance
+        a_before = inst.transformation.to_a.dup
+        # Pass world Z as rotation axis — should return early without crash or change
+        OE.send(:orient_ground_around, inst, Z_AXIS, X_AXIS)
+        assert_equal a_before, inst.transformation.to_a,
+          'orient_ground_around should be a no-op when rotation axis is vertical'
+      end
+
+      def test_orient_ground_around_makes_target_axis_ground_parallel
+        # Tilt 60° around Y so local X is no longer ground-parallel
+        rot  = Geom::Transformation.rotation(ORIGIN, Y_AXIS, Math::PI / 3)
+        inst = make_instance(rot)
+        refute_in_delta 0.0, inst.transformation.xaxis.z, TOL,
+          'Precondition: X should not be ground-parallel before orient_ground_around'
+        OE.send(:orient_ground_around, inst,
+                inst.transformation.zaxis,
+                inst.transformation.xaxis)
+        assert_in_delta 0.0, inst.transformation.xaxis.z, TOL,
+          'X should be ground-parallel after orient_ground_around with rot_axis=Z, target=X'
+      end
+
+      # =========================================================================
+      # orient_to_face_normal_around — uses explicit rotation axis
+      # Regression: calling orient_to_face_normal after orient_x_to_edge would
+      # rotate around world Z, undoing the X→edge alignment.
+      # =========================================================================
+
+      def test_orient_to_face_normal_around_preserves_rot_axis_direction
+        pts  = [[0,0,0],[200,0,0],[200,100,0],[0,100,0]]
+        @definition.entities.grep(Sketchup::Face).first ||
+          @definition.entities.add_face(pts)
+        edge = make_edge_between([0,0,0],[200,0,0])
+        inst = make_instance
+        # Align X to edge
+        OE.orient_x_to_edge(inst, edge)
+        x_after_align = inst.transformation.xaxis.clone
+        # Apply face-normal rotation around X
+        OE.send(:orient_to_face_normal_around, inst, edge,
+                inst.transformation.xaxis,
+                inst.transformation.zaxis)
+        # X axis must remain aligned to edge (rot_axis must not move)
+        assert_same_direction x_after_align, inst.transformation.xaxis,
+          'Rotation axis (X→edge) must not change after orient_to_face_normal_around'
       end
 
     end

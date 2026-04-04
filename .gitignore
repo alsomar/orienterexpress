@@ -23,3 +23,6 @@ Thumbs.db
 .vscode/settings.json
 *.swp
 *~
+
+# Claude Code
+.claude/
