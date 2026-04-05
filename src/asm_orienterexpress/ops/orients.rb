@@ -655,7 +655,6 @@ module ASM_Extensions
         @skipped_edges = []
         @lbutton_down  = false
         @drag_mode     = nil
-        @sample_mode   = false
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -673,9 +672,7 @@ module ASM_Extensions
       end
 
       def draw(view)
-        draw_sample_bounds(view)
         return if @skipped_edges.nil? || @skipped_edges.empty?
-        view.invalidate
         eye = view.camera.eye
         view.line_width = 4
         view.drawing_color = Sketchup::Color.new(255, 0, 0)
@@ -684,22 +681,6 @@ module ASM_Extensions
           p1 = edge.start.position.offset((eye - edge.start.position).normalize, 0.1)
           p2 = edge.end.position.offset((eye - edge.end.position).normalize, 0.1)
           view.draw(GL_LINES, [p1, p2])
-        end
-      end
-
-      def draw_sample_bounds(view)
-        bounds = @entity_def.bounds
-        return if bounds.empty?
-        eye     = view.camera.eye
-        corners = 8.times.map do |i|
-          pt = @entity_t * bounds.corner(i)
-          pt.offset((eye - pt).normalize, 0.1)
-        end
-        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
-        view.line_width = 3
-        view.drawing_color = Sketchup::Color.new(255, 140, 0)
-        pairs.each do |a, b|
-          view.draw(GL_LINES, [corners[a], corners[b]])
         end
       end
 
@@ -727,10 +708,6 @@ module ASM_Extensions
       end
 
       def onLButtonDown(flags, x, y, view)
-        if @sample_mode
-          pick_new_sample(view, x, y)
-          return
-        end
         @lbutton_down = true
         @syncing = true
         saved = @edges.dup
@@ -782,9 +759,8 @@ module ASM_Extensions
         before_ctrl  = @mod_ctrl
         before_shift = @mod_shift
         case key
-        when 17 then @mod_ctrl  = true;  @sample_mode = false
-        when 16 then @mod_shift = true;  @sample_mode = false
-        when 38 then @sample_mode = !@sample_mode
+        when 17 then @mod_ctrl  = true
+        when 16 then @mod_shift = true
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -847,9 +823,7 @@ module ASM_Extensions
       private
 
       def update_cursor
-        variant = if @sample_mode
-                    :pick
-                  elsif @mod_ctrl && @mod_shift
+        variant = if @mod_ctrl && @mod_shift
                     :minus
                   elsif @mod_ctrl
                     :plus
@@ -903,8 +877,17 @@ module ASM_Extensions
       def handle_click(flags, x, y, view, click_type)
         ctrl  = flags & COPY_MODIFIER_MASK      != 0
         shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        best  = pick_entity(view, x, y)
-        best  = @entity_to_edge[best] if best && @entity_to_edge.key?(best)
+        ph_exact = view.pick_helper
+        count_exact = ph_exact.do_pick(x, y)
+        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
+          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_edge.key?(e)
+        }
+        if front_instance
+          pick_new_sample_entity(front_instance)
+          return
+        end
+        raw   = pick_entity(view, x, y)
+        best  = @entity_to_edge.key?(raw) ? @entity_to_edge[raw] : raw
         if shift && best.is_a?(Sketchup::Edge)
           @drag_mode = :remove
           modify_edges(:remove, [best])
@@ -1014,24 +997,16 @@ module ASM_Extensions
         Sketchup.set_status_text("#{Lang.commands.oevertex.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
       end
 
-      def pick_new_sample(view, x, y)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, 16)
-        paths = count.times.map { |i| ph.path_at(i) }
-        instance = paths.map(&:first).find { |e|
-          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
-        }
-        return unless instance
-        @source_entity = instance
-        @entity_def    = instance.definition
-        @entity_t      = instance.transformation
+      def pick_new_sample_entity(entity)
+        @source_entity = entity
+        @entity_def    = entity.definition
+        @entity_t      = entity.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
         @model.commit_operation
         @entity_to_edge = {}
         @first_apply    = true
-        @sample_mode    = false
         update_cursor
         apply(OEVertexTool.last_offset_str)
         sync_selection
@@ -1218,7 +1193,6 @@ module ASM_Extensions
         @skipped_edges = []
         @lbutton_down  = false
         @drag_mode     = nil
-        @sample_mode   = false
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -1236,9 +1210,7 @@ module ASM_Extensions
       end
 
       def draw(view)
-        draw_sample_bounds(view)
         return if @skipped_edges.nil? || @skipped_edges.empty?
-        view.invalidate
         eye = view.camera.eye
         view.line_width = 4
         view.drawing_color = Sketchup::Color.new(255, 0, 0)
@@ -1247,22 +1219,6 @@ module ASM_Extensions
           p1 = edge.start.position.offset((eye - edge.start.position).normalize, 0.1)
           p2 = edge.end.position.offset((eye - edge.end.position).normalize, 0.1)
           view.draw(GL_LINES, [p1, p2])
-        end
-      end
-
-      def draw_sample_bounds(view)
-        bounds = @entity_def.bounds
-        return if bounds.empty?
-        eye     = view.camera.eye
-        corners = 8.times.map do |i|
-          pt = @entity_t * bounds.corner(i)
-          pt.offset((eye - pt).normalize, 0.1)
-        end
-        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
-        view.line_width = 3
-        view.drawing_color = Sketchup::Color.new(255, 140, 0)
-        pairs.each do |a, b|
-          view.draw(GL_LINES, [corners[a], corners[b]])
         end
       end
 
@@ -1290,10 +1246,6 @@ module ASM_Extensions
       end
 
       def onLButtonDown(flags, x, y, view)
-        if @sample_mode
-          pick_new_sample(view, x, y)
-          return
-        end
         @lbutton_down = true
         @syncing = true
         saved = @edges.dup
@@ -1345,9 +1297,8 @@ module ASM_Extensions
         before_ctrl  = @mod_ctrl
         before_shift = @mod_shift
         case key
-        when 17 then @mod_ctrl  = true;  @sample_mode = false
-        when 16 then @mod_shift = true;  @sample_mode = false
-        when 38 then @sample_mode = !@sample_mode
+        when 17 then @mod_ctrl  = true
+        when 16 then @mod_shift = true
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -1410,9 +1361,7 @@ module ASM_Extensions
       private
 
       def update_cursor
-        variant = if @sample_mode
-                    :pick
-                  elsif @mod_ctrl && @mod_shift
+        variant = if @mod_ctrl && @mod_shift
                     :minus
                   elsif @mod_ctrl
                     :plus
@@ -1466,8 +1415,17 @@ module ASM_Extensions
       def handle_click(flags, x, y, view, click_type)
         ctrl  = flags & COPY_MODIFIER_MASK      != 0
         shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        best  = pick_entity(view, x, y)
-        best  = @entity_to_edge[best] if best && @entity_to_edge.key?(best)
+        ph_exact = view.pick_helper
+        count_exact = ph_exact.do_pick(x, y)
+        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
+          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_edge.key?(e)
+        }
+        if front_instance
+          pick_new_sample_entity(front_instance)
+          return
+        end
+        raw   = pick_entity(view, x, y)
+        best  = @entity_to_edge.key?(raw) ? @entity_to_edge[raw] : raw
         if shift && best.is_a?(Sketchup::Edge)
           @drag_mode = :remove
           modify_edges(:remove, [best])
@@ -1577,24 +1535,16 @@ module ASM_Extensions
         Sketchup.set_status_text("#{Lang.commands.oecenter.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
       end
 
-      def pick_new_sample(view, x, y)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, 16)
-        paths = count.times.map { |i| ph.path_at(i) }
-        instance = paths.map(&:first).find { |e|
-          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
-        }
-        return unless instance
-        @source_entity = instance
-        @entity_def    = instance.definition
-        @entity_t      = instance.transformation
+      def pick_new_sample_entity(entity)
+        @source_entity = entity
+        @entity_def    = entity.definition
+        @entity_t      = entity.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
         @model.commit_operation
         @entity_to_edge = {}
         @first_apply    = true
-        @sample_mode    = false
         update_cursor
         apply(OECenterTool.last_offset_str)
         sync_selection
@@ -1776,7 +1726,6 @@ module ASM_Extensions
         @skipped_edges = []
         @lbutton_down  = false
         @drag_mode     = nil
-        @sample_mode   = false
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -1794,11 +1743,7 @@ module ASM_Extensions
       end
 
       def draw(view)
-        draw_sample_bounds(view)
-
         return if @skipped_edges.nil? || @skipped_edges.empty?
-
-        view.invalidate
         eye = view.camera.eye
         view.line_width = 4
         view.drawing_color = Sketchup::Color.new(255, 0, 0)
@@ -1807,24 +1752,6 @@ module ASM_Extensions
           p1 = edge.start.position.offset((eye - edge.start.position).normalize, 0.1)
           p2 = edge.end.position.offset((eye - edge.end.position).normalize, 0.1)
           view.draw(GL_LINES, [p1, p2])
-        end
-      end
-
-      def draw_sample_bounds(view)
-        bounds = @entity_def.bounds
-        return if bounds.empty?
-
-        eye     = view.camera.eye
-        corners = 8.times.map do |i|
-          pt = @entity_t * bounds.corner(i)
-          pt.offset((eye - pt).normalize, 0.1)
-        end
-        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
-
-        view.line_width = 3
-        view.drawing_color = Sketchup::Color.new(255, 140, 0)
-        pairs.each do |a, b|
-          view.draw(GL_LINES, [corners[a], corners[b]])
         end
       end
 
@@ -1852,10 +1779,6 @@ module ASM_Extensions
       end
 
       def onLButtonDown(flags, x, y, view)
-        if @sample_mode
-          pick_new_sample(view, x, y)
-          return
-        end
         @lbutton_down = true
         @syncing = true
         saved = @edges.dup
@@ -1906,9 +1829,8 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, flags, view)
         case key
-        when 17 then @mod_ctrl = true;  @sample_mode = false
-        when 16 then @mod_shift = true; @sample_mode = false
-        when 38 then @sample_mode = !@sample_mode
+        when 17 then @mod_ctrl  = true
+        when 16 then @mod_shift = true
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -1975,9 +1897,7 @@ module ASM_Extensions
 
       # SB_PROMPT=0, SB_VCB_LABEL=1, SB_VCB_VALUE=2
       def update_cursor
-        variant = if @sample_mode
-                    :pick
-                  elsif @mod_ctrl && @mod_shift
+        variant = if @mod_ctrl && @mod_shift
                     :minus
                   elsif @mod_ctrl
                     :plus
@@ -2040,8 +1960,18 @@ module ASM_Extensions
         ctrl  = flags & COPY_MODIFIER_MASK      != 0
         shift = flags & CONSTRAIN_MODIFIER_MASK != 0
 
-        best = pick_entity(view, x, y)
-        best = @entity_to_edge[best] if best && @entity_to_edge.key?(best)
+        ph_exact    = view.pick_helper
+        count_exact = ph_exact.do_pick(x, y)
+        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
+          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_edge.key?(e)
+        }
+        if front_instance
+          pick_new_sample_entity(front_instance)
+          return
+        end
+
+        raw  = pick_entity(view, x, y)
+        best = @entity_to_edge.key?(raw) ? @entity_to_edge[raw] : raw
 
         if shift && best.is_a?(Sketchup::Edge)
           @drag_mode = :remove
@@ -2158,24 +2088,16 @@ module ASM_Extensions
         Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
       end
 
-      def pick_new_sample(view, x, y)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, 16)
-        paths = count.times.map { |i| ph.path_at(i) }
-        instance = paths.map(&:first).find { |e|
-          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
-        }
-        return unless instance
-        @source_entity = instance
-        @entity_def    = instance.definition
-        @entity_t      = instance.transformation
+      def pick_new_sample_entity(entity)
+        @source_entity = entity
+        @entity_def    = entity.definition
+        @entity_t      = entity.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
         @model.commit_operation
         @entity_to_edge = {}
         @first_apply    = true
-        @sample_mode    = false
         update_cursor
         apply(OEZScaleTool.last_offset_str)
         sync_selection
@@ -2419,7 +2341,6 @@ module ASM_Extensions
         @first_apply       = true
         @previous_entities = []
         @entity_to_vertex  = {}
-        @sample_mode       = false
         @mod_ctrl          = false
         @mod_shift         = false
       end
@@ -2462,25 +2383,7 @@ module ASM_Extensions
         bb
       end
 
-      def draw(view)
-        bounds  = @entity_def.bounds
-        return if bounds.empty?
-        eye     = view.camera.eye
-        corners = 8.times.map do |i|
-          pt = @entity_t * bounds.corner(i)
-          pt.offset((eye - pt).normalize, 0.1)
-        end
-        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
-        view.line_width    = 3
-        view.drawing_color = Sketchup::Color.new(255, 140, 0)
-        pairs.each { |a, b| view.draw(GL_LINES, [corners[a], corners[b]]) }
-      end
-
       def onLButtonDown(flags, x, y, view)
-        if @sample_mode
-          pick_new_sample(view, x, y)
-          return
-        end
         @lbutton_down = true
         @syncing = true
         saved = @edges.dup
@@ -2513,9 +2416,6 @@ module ASM_Extensions
         if ctrl != @mod_ctrl || shift != @mod_shift
           @mod_ctrl  = ctrl
           @mod_shift = shift
-          if ctrl || shift
-            @sample_mode = false
-          end
           update_cursor
           view.invalidate
         end
@@ -2532,8 +2432,8 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, _flags, view)
         case key
-        when 17 then @mod_ctrl = true;  @sample_mode = false; update_cursor; view.invalidate; return
-        when 16 then @mod_shift = true; @sample_mode = false; update_cursor; view.invalidate; return
+        when 17 then @mod_ctrl = true;  update_cursor; view.invalidate; return
+        when 16 then @mod_shift = true; update_cursor; view.invalidate; return
         end
         case key
         when 27 # VK_ESCAPE
@@ -2545,11 +2445,6 @@ module ASM_Extensions
             @applied = false
           end
           @model.select_tool(nil)
-        when 38 # Up arrow — toggle sample mode
-          @sample_mode = !@sample_mode
-          update_vcb
-          update_cursor
-          view.invalidate
         when 37, 39 # Left/Right arrow — adjust offset
           dir = key == 39 ? +1 : -1
           unless @arrow_key_dir == dir
@@ -2595,9 +2490,7 @@ module ASM_Extensions
       private
 
       def update_cursor
-        variant = if @sample_mode
-                    :pick
-                  elsif @mod_ctrl && @mod_shift
+        variant = if @mod_ctrl && @mod_shift
                     :minus
                   elsif @mod_ctrl
                     :plus
@@ -2659,7 +2552,17 @@ module ASM_Extensions
         ctrl  = flags & COPY_MODIFIER_MASK      != 0
         shift = flags & CONSTRAIN_MODIFIER_MASK != 0
 
-        best = pick_entity(view, x, y)
+        ph_exact = view.pick_helper
+        count_exact = ph_exact.do_pick(x, y)
+        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
+          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_vertex.key?(e)
+        }
+        if front_instance
+          pick_new_sample_entity(front_instance)
+          return
+        end
+        raw  = pick_entity(view, x, y)
+        best = @entity_to_vertex.key?(raw) ? nil : raw
 
         picked_edges = case click_type
                        when :single then pick_edges_from(best)
@@ -2722,24 +2625,16 @@ module ASM_Extensions
         @syncing = false
       end
 
-      def pick_new_sample(view, x, y)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, 16)
-        paths = count.times.map { |i| ph.path_at(i) }
-        instance = paths.map(&:first).find { |e|
-          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
-        }
-        return unless instance
-        @source_entity = instance
-        @entity_def    = instance.definition
-        @entity_t      = instance.transformation
+      def pick_new_sample_entity(entity)
+        @source_entity = entity
+        @entity_def    = entity.definition
+        @entity_t      = entity.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
         @model.commit_operation
         @entity_to_vertex = {}
         @first_apply      = true
-        @sample_mode      = false
         update_vcb
         apply(OEFlowTool.last_offset_str)
         sync_selection
@@ -2763,8 +2658,7 @@ module ASM_Extensions
         ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
-        sample_label = @sample_mode ? "  [SAMPLE]" : ""
-        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}#{sample_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
       end
 
       def apply(text)
@@ -2959,7 +2853,6 @@ module ASM_Extensions
         @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oeface).to_sym
         @scale_axis        = :z
         @axis_idx          = 0
-        @sample_mode       = false
         @mod_ctrl          = false
         @mod_shift         = false
       end
@@ -3003,10 +2896,6 @@ module ASM_Extensions
       end
 
       def onLButtonDown(flags, x, y, view)
-        if @sample_mode
-          pick_new_sample(view, x, y)
-          return
-        end
         @lbutton_down = true
         @syncing = true
         saved = @faces.dup
@@ -3054,8 +2943,8 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, _flags, view)
         case key
-        when 17 then @mod_ctrl = true;  @sample_mode = false; update_cursor; view.invalidate; return
-        when 16 then @mod_shift = true; @sample_mode = false; update_cursor; view.invalidate; return
+        when 17 then @mod_ctrl = true;  update_cursor; view.invalidate; return
+        when 16 then @mod_shift = true; update_cursor; view.invalidate; return
         end
         case key
         when 27 # VK_ESCAPE
@@ -3085,11 +2974,6 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
-        when 38 # Up arrow — toggle sample mode
-          @sample_mode = !@sample_mode
-          update_vcb
-          update_cursor
-          view.invalidate
         when 36 # Home — cycle insertion point
           @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom].dup
@@ -3117,9 +3001,7 @@ module ASM_Extensions
       private
 
       def update_cursor
-        variant = if @sample_mode
-                    :pick
-                  elsif @mod_ctrl && @mod_shift
+        variant = if @mod_ctrl && @mod_shift
                     :minus
                   elsif @mod_ctrl
                     :plus
@@ -3165,17 +3047,27 @@ module ASM_Extensions
         ctrl  = flags & COPY_MODIFIER_MASK      != 0
         shift = flags & CONSTRAIN_MODIFIER_MASK != 0
 
-        ph = view.pick_helper
-        ph.do_pick(x, y)
-        best = ph.best_picked
-
-        if shift && best && @entity_to_face.key?(best)
-          @drag_mode = :remove
-          modify_faces(:remove, [@entity_to_face[best]])
+        ph_exact = view.pick_helper
+        count_exact = ph_exact.do_pick(x, y)
+        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
+          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_face.key?(e)
+        }
+        if front_instance
+          pick_new_sample_entity(front_instance)
           return
         end
 
-        best = @entity_to_face[best] if best && @entity_to_face.key?(best)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        raw = ph.best_picked
+
+        if shift && raw && @entity_to_face.key?(raw)
+          @drag_mode = :remove
+          modify_faces(:remove, [@entity_to_face[raw]])
+          return
+        end
+
+        best = @entity_to_face.key?(raw) ? @entity_to_face[raw] : raw
 
         picked_faces = case click_type
                        when :single then pick_faces_from(best)
@@ -3268,10 +3160,9 @@ module ASM_Extensions
         ][@axis_idx]
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
-        sample_label = @sample_mode ? "  [SAMPLE]" : ""
         Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{scale_label}  |  #{orient_label}  |  #{ip_label}#{sample_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{scale_label}  |  #{orient_label}  |  #{ip_label}", 0)
       end
 
       def apply(text)
@@ -3343,24 +3234,16 @@ module ASM_Extensions
       end
 
 
-      def pick_new_sample(view, x, y)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, 16)
-        paths = count.times.map { |i| ph.path_at(i) }
-        instance = paths.map(&:first).find { |e|
-          e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
-        }
-        return unless instance
-        @source_entity = instance
-        @entity_def    = instance.definition
-        @entity_t      = instance.transformation
+      def pick_new_sample_entity(entity)
+        @source_entity = entity
+        @entity_def    = entity.definition
+        @entity_t      = entity.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
         @model.commit_operation
         @entity_to_face = {}
         @first_apply    = true
-        @sample_mode    = false
         update_vcb
         apply(OEFaceTool.last_offset_str)
         sync_selection
