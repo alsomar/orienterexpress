@@ -591,11 +591,11 @@ module ASM_Extensions
 
     ### MAIN TOOLS ### ------------------------------------------------------------
 
-    # Interactive tool for Edge Vertex Placement.
-    # Places two copies per edge (one at each vertex), with the active axis
-    # pointing inward along the edge direction, offset along the edge from
-    # the vertex. Supports Tab (cycle axis) and End (cycle rotation mode).
-    class OEVertexTool
+    # Base class for interactive placement tools (OEVertex, OECenter, OEZScale,
+    # OEFlow, OEFace). Handles selection watching, VCB, modifier keys, cursor,
+    # click routing, and key repeating. Subclasses implement the placement logic
+    # via hook methods: apply, render_vcb, handle_key, on_drag, and others.
+    class OEPlacementTool
 
       class SelectionWatcher < Sketchup::SelectionObserver
         def initialize(&block)
@@ -617,48 +617,28 @@ module ASM_Extensions
         end
       end
 
-      def self.cursor_id(variant = :default)
-        @@cursor_ids ||= {}
-        @@cursor_ids[variant] ||= begin
-          ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
-          filename = variant == :default ? "oe_vertex_32" : "oe_vertex_#{variant}_32"
-          path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
-          UI.create_cursor(path, 5, 5)
-        end
-      end
-
-      def self.last_offset_str
-        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oevertex_offset)
-      end
-
-      def self.last_offset_str=(val)
-        @@last_offset_str = val
-      end
-
-      def initialize(edges, entity, flow_map, rotation_mode)
-        @edges             = edges
+      def initialize(geometry, entity)
+        @geometry          = geometry
         @source_entity     = entity
         @entity_def        = entity && entity.definition
         @entity_t          = entity && entity.transformation
-        @flow_map          = flow_map
-        @rotation_mode     = rotation_mode
-        @scale_axis        = :z
-        @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oevertex).to_sym
         @model             = Sketchup.active_model
         @applied           = false
         @first_apply       = true
         @previous_entities = []
-        @entity_to_edge    = {}
+        @placement_map     = {}
+        @mod_ctrl          = false
+        @mod_shift         = false
       end
 
       def activate
-        @skipped_edges = []
         @lbutton_down  = false
         @drag_mode     = nil
+        @arrow_key_dir = nil
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEVertexTool.last_offset_str); sync_selection } if @entity_def
+        UI.start_timer(0, false) { apply(self.class.last_offset_str); sync_selection } if @entity_def
       end
 
       def deactivate(view)
@@ -666,22 +646,9 @@ module ASM_Extensions
         @watcher           = nil
         @applied           = false
         @previous_entities = []
-        @skipped_edges     = []
-        @entity_to_edge    = {}
+        @placement_map     = {}
+        on_deactivate
         view.invalidate
-      end
-
-      def draw(view)
-        return if @skipped_edges.nil? || @skipped_edges.empty?
-        eye = view.camera.eye
-        view.line_width = 4
-        view.drawing_color = Sketchup::Color.new(255, 0, 0)
-        @skipped_edges.each do |edge|
-          next unless edge.valid?
-          p1 = edge.start.position.offset((eye - edge.start.position).normalize, 0.1)
-          p2 = edge.end.position.offset((eye - edge.end.position).normalize, 0.1)
-          view.draw(GL_LINES, [p1, p2])
-        end
       end
 
       def resume(view)
@@ -711,9 +678,9 @@ module ASM_Extensions
       def onLButtonDown(flags, x, y, view)
         @lbutton_down = true
         @syncing = true
-        saved = @edges.dup
+        saved = @geometry.dup
         handle_click(flags, x, y, view, :single)
-        @edges = saved if @edges.empty? && !saved.empty?
+        @geometry = saved if @geometry.empty? && !saved.empty?
         sync_selection
       ensure
         @syncing = false
@@ -721,9 +688,9 @@ module ASM_Extensions
 
       def onLButtonDoubleClick(flags, x, y, view)
         @syncing = true
-        saved = @edges.dup
+        saved = @geometry.dup
         handle_click(flags, x, y, view, :double)
-        @edges = saved if @edges.empty? && !saved.empty?
+        @geometry = saved if @geometry.empty? && !saved.empty?
         sync_selection
         @model.close_active while @model.active_path && !@model.active_path.empty?
       ensure
@@ -744,11 +711,7 @@ module ASM_Extensions
           update_cursor
           view.invalidate
         end
-        if @lbutton_down && @drag_mode && (ctrl || shift)
-          picked_edges = pick_edges(view, x, y)
-          modify_edges(@drag_mode, picked_edges) if picked_edges
-        end
-        view.invalidate unless @skipped_edges.nil? || @skipped_edges.empty?
+        on_drag(ctrl, shift, view, x, y)
       end
 
       def onUserText(text, _view)
@@ -757,8 +720,6 @@ module ASM_Extensions
       end
 
       def onKeyDown(key, _repeat, flags, view)
-        before_ctrl  = @mod_ctrl
-        before_shift = @mod_shift
         case key
         when 17 then @mod_ctrl  = true
         when 16 then @mod_shift = true
@@ -771,7 +732,7 @@ module ASM_Extensions
         case key
         when 27 # Esc
           if @applied
-            @model.start_operation("Cancel Edge Vertex Placement", true)
+            @model.start_operation(cancel_op_name, true)
             @previous_entities.each { |e| e.erase! if e.valid? }
             @previous_entities = []
             @model.commit_operation
@@ -789,6 +750,347 @@ module ASM_Extensions
           end
         when 40 # Down — reset offset to zero
           apply(Sketchup.format_length(0))
+        else
+          handle_key(key)
+        end
+      end
+
+      def onKeyUp(key, _repeat, flags, view)
+        case key
+        when 17 then @mod_ctrl  = false
+        when 16 then @mod_shift = false
+        else
+          @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
+          @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+        end
+        @arrow_key_dir = nil if key == 37 || key == 39
+        update_cursor
+        view.invalidate
+      end
+
+      private
+
+      # Hook: tool-specific cleanup on deactivate (e.g. clear @skipped_edges)
+      def on_deactivate; end
+
+      # Hook: tool-specific key handling (Tab, End, Home, etc.)
+      def handle_key(_key); end
+
+      # Hook: drag behaviour in onMouseMove
+      def on_drag(_ctrl, _shift, _view, _x, _y); end
+
+      # Hook: operation name used when Esc cancels placed entities
+      def cancel_op_name
+        "Orienter Express: Cancel"
+      end
+
+      def update_cursor
+        variant = if @mod_ctrl && @mod_shift
+                    :minus
+                  elsif @mod_ctrl
+                    :plus
+                  elsif @mod_shift
+                    :toggle
+                  else
+                    :default
+                  end
+        UI.set_cursor(self.class.cursor_id(variant))
+      end
+
+      def pick_entity(view, x, y, aperture = 16)
+        ph    = view.pick_helper
+        count = ph.do_pick(x, y, aperture)
+        paths = count.times.map { |i| ph.path_at(i) }
+        placed = paths.find { |path| @placement_map.key?(path.first) }
+        return placed.first if placed
+        root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
+        return root_edge.first if root_edge
+        ph.best_picked
+      end
+
+      # Default: edges from entity (Face → edges, Edge → [edge]).
+      # Overridden by OEFaceTool to return faces.
+      def pick_geometry_from_entity(entity)
+        case entity
+        when Sketchup::Edge then [entity]
+        when Sketchup::Face then entity.edges.to_a
+        end
+      end
+
+      # Default: edge-based flood fill. Overridden by OEFaceTool.
+      def connected_geometry(entity)
+        start_items = pick_geometry_from_entity(entity)
+        return nil unless start_items
+        visited = {}
+        queue   = start_items.dup
+        until queue.empty?
+          edge = queue.pop
+          next if visited[edge]
+          visited[edge] = true
+          [edge.start, edge.end].each { |v| v.edges.each { |e| queue << e unless visited[e] } }
+          edge.faces.each { |f| f.edges.each { |e| queue << e unless visited[e] } }
+        end
+        visited.keys
+      end
+
+      def handle_click(flags, x, y, view, click_type)
+        ctrl  = flags & COPY_MODIFIER_MASK      != 0
+        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+        ph_exact    = view.pick_helper
+        count_exact = ph_exact.do_pick(x, y)
+        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
+          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@placement_map.key?(e)
+        }
+        if front_instance
+          pick_new_sample_entity(front_instance)
+          return
+        end
+        handle_geometry_click(ctrl, shift, view, x, y, click_type)
+      end
+
+      # Default geometry-click handler (edge tools: Vertex, Center, ZScale).
+      # OEFlowTool uses this unchanged; OEFaceTool overrides it.
+      def handle_geometry_click(ctrl, shift, view, x, y, click_type)
+        raw  = pick_entity(view, x, y)
+        best = @placement_map.key?(raw) ? @placement_map[raw] : raw
+        if shift && best.is_a?(Sketchup::Edge)
+          @drag_mode = :remove
+          modify_geometry(:remove, [best])
+          return
+        end
+        picked = case click_type
+                 when :single then pick_geometry_from_entity(best)
+                 when :double then connected_geometry(best)
+                 end
+        mode = if ctrl && shift
+                 :remove
+               elsif ctrl
+                 :add
+               elsif shift
+                 (picked && picked.all? { |e| @geometry.include?(e) }) ? :remove : :add
+               else
+                 :replace
+               end
+        @drag_mode = mode unless mode == :replace
+        return unless picked
+        modify_geometry(mode, picked)
+      end
+
+      def modify_geometry(mode, items)
+        before = @geometry.to_set
+        case mode
+        when :add     then @geometry = (@geometry + items).uniq
+        when :remove  then @geometry = @geometry - items
+        when :replace then @geometry = items.uniq
+        end
+        return if @geometry.to_set == before
+        on_geometry_changed
+        apply(self.class.last_offset_str)
+        sync_selection
+      end
+
+      # Hook: called after geometry set changes (e.g. rebuild flow map)
+      def on_geometry_changed; end
+
+      def key_repeat(dir, gen)
+        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
+        scroll_offset(dir)
+        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
+      end
+
+      def scroll_offset(direction)
+        current = OrienterExpress.send(:parse_length_safe, self.class.last_offset_str)
+        return unless current
+        step    = Sketchup.parse_length("1cm")
+        new_val = current + direction * step
+        apply(Sketchup.format_length(new_val))
+      end
+
+      def on_external_selection_change
+        return if @syncing
+        new_geometry = collect_geometry_from_selection(@model.selection)
+        return if new_geometry.to_set == @geometry.to_set
+        old_set      = @geometry.to_set
+        new_set      = new_geometry.to_set
+        @geometry    = new_geometry
+        return unless @entity_def
+        @syncing = true
+        on_selection_changed(new_set, old_set)
+        sync_selection
+      ensure
+        @syncing = false
+      end
+
+      # Hook: collect geometry items from the current selection.
+      # Overridden by OEFaceTool to collect faces instead of edges.
+      def collect_geometry_from_selection(selection)
+        (selection.grep(Sketchup::Edge) +
+         selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
+      end
+
+      # Hook: react to an external selection change when entity_def is set.
+      # Default does a full re-apply; edge tools override to use apply_diff.
+      def on_selection_changed(_new_set, _old_set)
+        apply(self.class.last_offset_str)
+      end
+
+      def sync_selection
+        valid_items = @geometry.select(&:valid?)
+        source      = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target      = (valid_items + source).to_set
+        current     = @model.selection.to_a.to_set
+        to_remove   = (current - target).to_a
+        to_add      = (target - current).to_a
+        @model.selection.remove(to_remove) unless to_remove.empty?
+        @model.selection.add(to_add)       unless to_add.empty?
+      end
+
+      def update_vcb
+        unless @entity_def
+          Sketchup.set_status_text("", 1)
+          Sketchup.set_status_text("", 2)
+          Sketchup.set_status_text("Click a component to use as sample", 0)
+          return
+        end
+        render_vcb
+      end
+
+      # Hook: fill in VCB labels/hints when entity_def is set.
+      def render_vcb; end
+
+      def pick_new_sample_entity(entity)
+        @source_entity = entity
+        @entity_def    = entity.definition
+        @entity_t      = entity.transformation
+        @model.start_operation("Orienter Express: Change Sample", true, false, false)
+        @previous_entities.each { |e| e.erase! if e.valid? }
+        @previous_entities = []
+        @model.commit_operation
+        @placement_map = {}
+        @first_apply   = true
+        update_cursor
+        update_vcb
+        apply(self.class.last_offset_str)
+        sync_selection
+      end
+
+      def rebuild_flow_map
+        vertex_edges = {}
+        @geometry.each do |edge|
+          [edge.start, edge.end].each do |v|
+            vertex_edges[v] ||= []
+            vertex_edges[v] << edge
+          end
+        end
+        @flow_map = OrienterExpress.send(:all_vertex_flow_directions, vertex_edges)
+      end
+
+    end
+
+    # Interactive tool for Edge Vertex Placement.
+    # Places two copies per edge (one at each vertex), with the active axis
+    # pointing inward along the edge direction, offset along the edge from
+    # the vertex. Supports Tab (cycle axis) and End (cycle rotation mode).
+    class OEVertexTool < OEPlacementTool
+
+      def self.cursor_id(variant = :default)
+        @@cursor_ids ||= {}
+        @@cursor_ids[variant] ||= begin
+          ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
+          filename = variant == :default ? "oe_vertex_32" : "oe_vertex_#{variant}_32"
+          path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
+          UI.create_cursor(path, 5, 5)
+        end
+      end
+
+      def self.last_offset_str
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oevertex_offset)
+      end
+
+      def self.last_offset_str=(val)
+        @@last_offset_str = val
+      end
+
+      def initialize(edges, entity, flow_map, rotation_mode)
+        super(edges, entity)
+        @flow_map        = flow_map
+        @rotation_mode   = rotation_mode
+        @scale_axis      = :z
+        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oevertex).to_sym
+      end
+
+      def activate
+        @skipped_edges = []
+        super
+      end
+
+      def draw(view)
+        return if @skipped_edges.nil? || @skipped_edges.empty?
+        eye = view.camera.eye
+        view.line_width = 4
+        view.drawing_color = Sketchup::Color.new(255, 0, 0)
+        @skipped_edges.each do |edge|
+          next unless edge.valid?
+          p1 = edge.start.position.offset((eye - edge.start.position).normalize, 0.1)
+          p2 = edge.end.position.offset((eye - edge.end.position).normalize, 0.1)
+          view.draw(GL_LINES, [p1, p2])
+        end
+      end
+
+      def onMouseMove(flags, x, y, view)
+        super
+        view.invalidate unless @skipped_edges.nil? || @skipped_edges.empty?
+      end
+
+      private
+
+      def on_deactivate
+        @skipped_edges = []
+      end
+
+      def on_drag(ctrl, shift, view, x, y)
+        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        entity = pick_entity(view, x, y, 16)
+        entity = @placement_map[entity] if entity && @placement_map.key?(entity)
+        picked = pick_geometry_from_entity(entity)
+        modify_geometry(@drag_mode, picked) if picked
+      end
+
+      def on_geometry_changed
+        rebuild_flow_map if @rotation_mode == :flow
+      end
+
+      def on_selection_changed(new_set, old_set)
+        if @rotation_mode == :flow
+          rebuild_flow_map
+          apply(OEVertexTool.last_offset_str)
+        else
+          offset = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+        end
+      end
+
+      def sync_selection
+        valid_edges = @geometry.select(&:valid?)
+        edge_set    = valid_edges.to_set
+        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
+          f.valid? && f.edges.all? { |e| edge_set.include?(e) }
+        }
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (valid_edges + full_faces + source).to_set
+        current   = @model.selection.to_a.to_set
+        to_remove = (current - target).to_a
+        to_add    = (target - current).to_a
+        @model.selection.remove(to_remove) unless to_remove.empty?
+        @model.selection.add(to_add)       unless to_add.empty?
+      end
+
+      def cancel_op_name
+        "Cancel Edge Vertex Placement"
+      end
+
+      def handle_key(key)
+        case key
         when 9 # Tab — cycle axis Z → X → Y
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
@@ -809,191 +1111,7 @@ module ASM_Extensions
         end
       end
 
-      def onKeyUp(key, _repeat, flags, _view)
-        case key
-        when 17 then @mod_ctrl  = false
-        when 16 then @mod_shift = false
-        else
-          @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
-          @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        end
-        @arrow_key_dir = nil if key == 37 || key == 39
-        update_cursor
-      end
-
-      private
-
-      def update_cursor
-        variant = if @mod_ctrl && @mod_shift
-                    :minus
-                  elsif @mod_ctrl
-                    :plus
-                  elsif @mod_shift
-                    :toggle
-                  else
-                    :default
-                  end
-        UI.set_cursor(OEVertexTool.cursor_id(variant))
-      end
-
-      def pick_entity(view, x, y, aperture = 16)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, aperture)
-        paths = count.times.map { |i| ph.path_at(i) }
-        placed = paths.find { |path| @entity_to_edge.key?(path.first) }
-        return placed.first if placed
-        root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
-        return root_edge.first if root_edge
-        ph.best_picked
-      end
-
-      def pick_edges(view, x, y)
-        entity = pick_entity(view, x, y, 16)
-        entity = @entity_to_edge[entity] if entity && @entity_to_edge.key?(entity)
-        pick_edges_from(entity)
-      end
-
-      def pick_edges_from(entity)
-        case entity
-        when Sketchup::Edge then [entity]
-        when Sketchup::Face then entity.edges.to_a
-        end
-      end
-
-      def connected_geometry(entity)
-        start_edges = pick_edges_from(entity)
-        return nil unless start_edges
-        visited = {}
-        queue   = start_edges.dup
-        until queue.empty?
-          edge = queue.pop
-          next if visited[edge]
-          visited[edge] = true
-          [edge.start, edge.end].each { |v| v.edges.each { |e| queue << e unless visited[e] } }
-          edge.faces.each { |f| f.edges.each { |e| queue << e unless visited[e] } }
-        end
-        visited.keys
-      end
-
-      def handle_click(flags, x, y, view, click_type)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        ph_exact = view.pick_helper
-        count_exact = ph_exact.do_pick(x, y)
-        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
-          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_edge.key?(e)
-        }
-        if front_instance
-          pick_new_sample_entity(front_instance)
-          return
-        end
-        raw   = pick_entity(view, x, y)
-        best  = @entity_to_edge.key?(raw) ? @entity_to_edge[raw] : raw
-        if shift && best.is_a?(Sketchup::Edge)
-          @drag_mode = :remove
-          modify_edges(:remove, [best])
-          return
-        end
-        picked_edges = case click_type
-                       when :single then pick_edges_from(best)
-                       when :double then connected_geometry(best)
-                       end
-        mode = if ctrl && shift
-                 :remove
-               elsif ctrl
-                 :add
-               elsif shift
-                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
-               else
-                 :replace
-               end
-        @drag_mode = mode unless mode == :replace
-        return unless picked_edges
-        modify_edges(mode, picked_edges)
-      end
-
-      def modify_edges(mode, picked_edges)
-        before = @edges.to_set
-        case mode
-        when :add     then @edges = (@edges + picked_edges).uniq
-        when :remove  then @edges = @edges - picked_edges
-        when :replace then @edges = picked_edges.uniq
-        end
-        return if @edges.to_set == before
-        rebuild_flow_map if @rotation_mode == :flow
-        apply(OEVertexTool.last_offset_str)
-        sync_selection
-      end
-
-      def key_repeat(dir, gen)
-        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
-        scroll_offset(dir)
-        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
-      end
-
-      def scroll_offset(direction)
-        current = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
-        return unless current
-        step    = Sketchup.parse_length("1cm")
-        new_val = current + direction * step
-        apply(Sketchup.format_length(new_val))
-      end
-
-      def on_external_selection_change
-        return if @syncing
-        new_edges = (@model.selection.grep(Sketchup::Edge) +
-                     @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
-        return if new_edges.to_set == @edges.to_set
-        old_set  = @edges.to_set
-        new_set  = new_edges.to_set
-        @edges   = new_edges
-        return unless @entity_def
-        @syncing = true
-        if @rotation_mode == :flow
-          rebuild_flow_map
-          apply(OEVertexTool.last_offset_str)
-        else
-          offset = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
-        end
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def sync_selection
-        valid_edges = @edges.select(&:valid?)
-        edge_set    = valid_edges.to_set
-        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
-          f.valid? && f.edges.all? { |e| edge_set.include?(e) }
-        }
-        source      = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
-        target      = (valid_edges + full_faces + source).to_set
-        current     = @model.selection.to_a.to_set
-        to_remove   = (current - target).to_a
-        to_add      = (target - current).to_a
-        @model.selection.remove(to_remove) unless to_remove.empty?
-        @model.selection.add(to_add)       unless to_add.empty?
-      end
-
-      def rebuild_flow_map
-        vertex_edges = {}
-        @edges.each do |edge|
-          [edge.start, edge.end].each do |v|
-            vertex_edges[v] ||= []
-            vertex_edges[v] << edge
-          end
-        end
-        @flow_map = OrienterExpress.send(:all_vertex_flow_directions, vertex_edges)
-      end
-
-      def update_vcb
-        unless @entity_def
-          Sketchup.set_status_text("", 1)
-          Sketchup.set_status_text("", 2)
-          Sketchup.set_status_text("Click a component to use as sample", 0)
-          return
-        end
+      def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
@@ -1002,21 +1120,6 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
         Sketchup.set_status_text("#{Lang.commands.oevertex.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
-      end
-
-      def pick_new_sample_entity(entity)
-        @source_entity = entity
-        @entity_def    = entity.definition
-        @entity_t      = entity.transformation
-        @model.start_operation("Orienter Express: Change Sample", true, false, false)
-        @previous_entities.each { |e| e.erase! if e.valid? }
-        @previous_entities = []
-        @model.commit_operation
-        @entity_to_edge = {}
-        @first_apply    = true
-        update_cursor
-        apply(OEVertexTool.last_offset_str)
-        sync_selection
       end
 
       def apply(text)
@@ -1030,9 +1133,9 @@ module ASM_Extensions
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
-          @entity_to_edge    = {}
+          @placement_map     = {}
 
-          @edges.each { |edge| place_for_edge(edge, offset) }
+          @geometry.each { |edge| place_for_edge(edge, offset) }
 
           @model.commit_operation
           @first_apply   = false
@@ -1053,9 +1156,9 @@ module ASM_Extensions
         @model.start_operation("Orienter Express: Edge Vertex Placement", true, false, true)
         begin
           removed.each do |edge|
-            to_erase = @entity_to_edge.select { |_, e| e == edge }.keys
+            to_erase = @placement_map.select { |_, e| e == edge }.keys
             to_erase.each { |ent| ent.erase! if ent.valid? }
-            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_edge.delete(ent) }
+            to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
           added.each { |edge| place_for_edge(edge, offset) }
           @model.commit_operation
@@ -1105,7 +1208,7 @@ module ASM_Extensions
           target_point = vertex_pos.offset(inward_dir, offset)
           OrienterExpress.send(:move_insertion_to, entity_copy, target_point, @insertion_point, @scale_axis)
           @previous_entities << entity_copy
-          @entity_to_edge[entity_copy] = edge
+          @placement_map[entity_copy] = edge
         end
       end
     end
@@ -1114,7 +1217,6 @@ module ASM_Extensions
       model   = Sketchup.active_model
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
-
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -1140,27 +1242,7 @@ module ASM_Extensions
     # Places a copy of the component at the midpoint of each selected edge,
     # offset along the edge direction. Supports Tab (cycle axis) and
     # End (cycle rotation mode), identical to OEZScaleTool but without scaling.
-    class OECenterTool
-
-      class SelectionWatcher < Sketchup::SelectionObserver
-        def initialize(&block)
-          @callback = block
-          @pending  = false
-        end
-
-        def onSelectionAdded(_selection, _entity)   schedule end
-        def onSelectionRemoved(_selection, _entity) schedule end
-        def onSelectionBulkChange(_selection)       schedule end
-        def onSelectionCleared(_selection)          schedule end
-
-        private
-
-        def schedule
-          return if @pending
-          @pending = true
-          UI.start_timer(0, false) { @pending = false; @callback.call }
-        end
-      end
+    class OECenterTool < OEPlacementTool
 
       def self.cursor_id(variant = :default)
         @@cursor_ids ||= {}
@@ -1181,39 +1263,16 @@ module ASM_Extensions
       end
 
       def initialize(edges, entity, flow_map, rotation_mode)
-        @edges             = edges
-        @source_entity     = entity
-        @entity_def        = entity && entity.definition
-        @entity_t          = entity && entity.transformation
-        @flow_map          = flow_map
-        @rotation_mode     = rotation_mode
-        @scale_axis        = :z
-        @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oecenter).to_sym
-        @model             = Sketchup.active_model
-        @applied           = false
-        @first_apply       = true
-        @previous_entities = []
-        @entity_to_edge    = {}
+        super(edges, entity)
+        @flow_map        = flow_map
+        @rotation_mode   = rotation_mode
+        @scale_axis      = :z
+        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oecenter).to_sym
       end
 
       def activate
         @skipped_edges = []
-        @lbutton_down  = false
-        @drag_mode     = nil
-        @watcher = SelectionWatcher.new { on_external_selection_change }
-        @model.selection.add_observer(@watcher)
-        update_vcb
-        UI.start_timer(0, false) { apply(OECenterTool.last_offset_str); sync_selection } if @entity_def
-      end
-
-      def deactivate(view)
-        @model.selection.remove_observer(@watcher) if @watcher
-        @watcher           = nil
-        @applied           = false
-        @previous_entities = []
-        @skipped_edges     = []
-        @entity_to_edge    = {}
-        view.invalidate
+        super
       end
 
       def draw(view)
@@ -1229,111 +1288,60 @@ module ASM_Extensions
         end
       end
 
-      def resume(view)
-        update_vcb
-        view.invalidate
-      end
-
-      def suspend(view)
-        view.invalidate
-      end
-
-      def enableVCB?
-        true
-      end
-
-      def getExtents
-        return Geom::BoundingBox.new unless @entity_def && @entity_t
-        bb = Geom::BoundingBox.new
-        8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
-        bb
-      end
-
-      def onSetCursor
-        update_cursor
-      end
-
-      def onLButtonDown(flags, x, y, view)
-        @lbutton_down = true
-        @syncing = true
-        saved = @edges.dup
-        handle_click(flags, x, y, view, :single)
-        @edges = saved if @edges.empty? && !saved.empty?
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonDoubleClick(flags, x, y, view)
-        @syncing = true
-        saved = @edges.dup
-        handle_click(flags, x, y, view, :double)
-        @edges = saved if @edges.empty? && !saved.empty?
-        sync_selection
-        @model.close_active while @model.active_path && !@model.active_path.empty?
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonUp(_flags, _x, _y, _view)
-        @lbutton_down = false
-        @drag_mode    = nil
-      end
-
       def onMouseMove(flags, x, y, view)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        if ctrl != @mod_ctrl || shift != @mod_shift
-          @mod_ctrl  = ctrl
-          @mod_shift = shift
-          update_cursor
-          view.invalidate
-        end
-        if @lbutton_down && @drag_mode && (ctrl || shift)
-          picked_edges = pick_edges(view, x, y)
-          modify_edges(@drag_mode, picked_edges) if picked_edges
-        end
+        super
         view.invalidate unless @skipped_edges.nil? || @skipped_edges.empty?
       end
 
-      def onUserText(text, _view)
-        return if text.strip.empty?
-        apply(text.strip)
+      private
+
+      def on_deactivate
+        @skipped_edges = []
       end
 
-      def onKeyDown(key, _repeat, flags, view)
-        before_ctrl  = @mod_ctrl
-        before_shift = @mod_shift
-        case key
-        when 17 then @mod_ctrl  = true
-        when 16 then @mod_shift = true
+      def on_drag(ctrl, shift, view, x, y)
+        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        entity = pick_entity(view, x, y, 16)
+        entity = @placement_map[entity] if entity && @placement_map.key?(entity)
+        picked = pick_geometry_from_entity(entity)
+        modify_geometry(@drag_mode, picked) if picked
+      end
+
+      def on_geometry_changed
+        rebuild_flow_map if @rotation_mode == :flow
+      end
+
+      def on_selection_changed(new_set, old_set)
+        if @rotation_mode == :flow
+          rebuild_flow_map
+          apply(OECenterTool.last_offset_str)
         else
-          @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
-          @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+          offset = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
-        update_cursor
-        view.invalidate
+      end
+
+      def sync_selection
+        valid_edges = @geometry.select(&:valid?)
+        edge_set    = valid_edges.to_set
+        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
+          f.valid? && f.edges.all? { |e| edge_set.include?(e) }
+        }
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (valid_edges + full_faces + source).to_set
+        current   = @model.selection.to_a.to_set
+        to_remove = (current - target).to_a
+        to_add    = (target - current).to_a
+        @model.selection.remove(to_remove) unless to_remove.empty?
+        @model.selection.add(to_add)       unless to_add.empty?
+      end
+
+      def cancel_op_name
+        "Cancel Center Placement"
+      end
+
+      def handle_key(key)
         case key
-        when 27 # Esc
-          if @applied
-            @model.start_operation("Cancel Center Placement", true)
-            @previous_entities.each { |e| e.erase! if e.valid? }
-            @previous_entities = []
-            @model.commit_operation
-            @applied = false
-          end
-          @model.select_tool(nil)
-        when 37, 39 # Left/Right — adjust offset
-          dir = key == 39 ? +1 : -1
-          unless @arrow_key_dir == dir
-            scroll_offset(dir)
-            @arrow_key_dir  = dir
-            @key_repeat_gen = (@key_repeat_gen || 0) + 1
-            gen = @key_repeat_gen
-            UI.start_timer(0.7, false) { key_repeat(dir, gen) }
-          end
-        when 40 # Down — reset offset to zero
-          apply(Sketchup.format_length(0))
         when 9 # Tab — cycle axis Z → X → Y
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
@@ -1354,191 +1362,7 @@ module ASM_Extensions
         end
       end
 
-      def onKeyUp(key, _repeat, flags, _view)
-        case key
-        when 17 then @mod_ctrl  = false
-        when 16 then @mod_shift = false
-        else
-          @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
-          @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        end
-        @arrow_key_dir = nil if key == 37 || key == 39
-        update_cursor
-      end
-
-      private
-
-      def update_cursor
-        variant = if @mod_ctrl && @mod_shift
-                    :minus
-                  elsif @mod_ctrl
-                    :plus
-                  elsif @mod_shift
-                    :toggle
-                  else
-                    :default
-                  end
-        UI.set_cursor(OECenterTool.cursor_id(variant))
-      end
-
-      def pick_entity(view, x, y, aperture = 16)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, aperture)
-        paths = count.times.map { |i| ph.path_at(i) }
-        placed = paths.find { |path| @entity_to_edge.key?(path.first) }
-        return placed.first if placed
-        root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
-        return root_edge.first if root_edge
-        ph.best_picked
-      end
-
-      def pick_edges(view, x, y)
-        entity = pick_entity(view, x, y, 16)
-        entity = @entity_to_edge[entity] if entity && @entity_to_edge.key?(entity)
-        pick_edges_from(entity)
-      end
-
-      def pick_edges_from(entity)
-        case entity
-        when Sketchup::Edge then [entity]
-        when Sketchup::Face then entity.edges.to_a
-        end
-      end
-
-      def connected_geometry(entity)
-        start_edges = pick_edges_from(entity)
-        return nil unless start_edges
-        visited = {}
-        queue   = start_edges.dup
-        until queue.empty?
-          edge = queue.pop
-          next if visited[edge]
-          visited[edge] = true
-          [edge.start, edge.end].each { |v| v.edges.each { |e| queue << e unless visited[e] } }
-          edge.faces.each { |f| f.edges.each { |e| queue << e unless visited[e] } }
-        end
-        visited.keys
-      end
-
-      def handle_click(flags, x, y, view, click_type)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        ph_exact = view.pick_helper
-        count_exact = ph_exact.do_pick(x, y)
-        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
-          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_edge.key?(e)
-        }
-        if front_instance
-          pick_new_sample_entity(front_instance)
-          return
-        end
-        raw   = pick_entity(view, x, y)
-        best  = @entity_to_edge.key?(raw) ? @entity_to_edge[raw] : raw
-        if shift && best.is_a?(Sketchup::Edge)
-          @drag_mode = :remove
-          modify_edges(:remove, [best])
-          return
-        end
-        picked_edges = case click_type
-                       when :single then pick_edges_from(best)
-                       when :double then connected_geometry(best)
-                       end
-        mode = if ctrl && shift
-                 :remove
-               elsif ctrl
-                 :add
-               elsif shift
-                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
-               else
-                 :replace
-               end
-        @drag_mode = mode unless mode == :replace
-        return unless picked_edges
-        modify_edges(mode, picked_edges)
-      end
-
-      def modify_edges(mode, picked_edges)
-        before = @edges.to_set
-        case mode
-        when :add     then @edges = (@edges + picked_edges).uniq
-        when :remove  then @edges = @edges - picked_edges
-        when :replace then @edges = picked_edges.uniq
-        end
-        return if @edges.to_set == before
-        rebuild_flow_map if @rotation_mode == :flow
-        apply(OECenterTool.last_offset_str)
-        sync_selection
-      end
-
-      def key_repeat(dir, gen)
-        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
-        scroll_offset(dir)
-        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
-      end
-
-      def scroll_offset(direction)
-        current = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
-        return unless current
-        step    = Sketchup.parse_length("1cm")
-        new_val = current + direction * step
-        apply(Sketchup.format_length(new_val))
-      end
-
-      def on_external_selection_change
-        return if @syncing
-        new_edges = (@model.selection.grep(Sketchup::Edge) +
-                     @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
-        return if new_edges.to_set == @edges.to_set
-        old_set  = @edges.to_set
-        new_set  = new_edges.to_set
-        @edges   = new_edges
-        return unless @entity_def
-        @syncing = true
-        if @rotation_mode == :flow
-          rebuild_flow_map
-          apply(OECenterTool.last_offset_str)
-        else
-          offset = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
-        end
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def sync_selection
-        valid_edges = @edges.select(&:valid?)
-        edge_set    = valid_edges.to_set
-        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
-          f.valid? && f.edges.all? { |e| edge_set.include?(e) }
-        }
-        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
-        target    = (valid_edges + full_faces + source).to_set
-        current   = @model.selection.to_a.to_set
-        to_remove = (current - target).to_a
-        to_add    = (target - current).to_a
-        @model.selection.remove(to_remove) unless to_remove.empty?
-        @model.selection.add(to_add)       unless to_add.empty?
-      end
-
-      def rebuild_flow_map
-        vertex_edges = {}
-        @edges.each do |edge|
-          [edge.start, edge.end].each do |v|
-            vertex_edges[v] ||= []
-            vertex_edges[v] << edge
-          end
-        end
-        @flow_map = OrienterExpress.send(:all_vertex_flow_directions, vertex_edges)
-      end
-
-      def update_vcb
-        unless @entity_def
-          Sketchup.set_status_text("", 1)
-          Sketchup.set_status_text("", 2)
-          Sketchup.set_status_text("Click a component to use as sample", 0)
-          return
-        end
+      def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
@@ -1547,21 +1371,6 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OECenterTool.last_offset_str, 2)
         Sketchup.set_status_text("#{Lang.commands.oecenter.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
-      end
-
-      def pick_new_sample_entity(entity)
-        @source_entity = entity
-        @entity_def    = entity.definition
-        @entity_t      = entity.transformation
-        @model.start_operation("Orienter Express: Change Sample", true, false, false)
-        @previous_entities.each { |e| e.erase! if e.valid? }
-        @previous_entities = []
-        @model.commit_operation
-        @entity_to_edge = {}
-        @first_apply    = true
-        update_cursor
-        apply(OECenterTool.last_offset_str)
-        sync_selection
       end
 
       def apply(text)
@@ -1575,9 +1384,9 @@ module ASM_Extensions
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
-          @entity_to_edge    = {}
+          @placement_map     = {}
 
-          @edges.each { |edge| place_for_edge(edge, offset) }
+          @geometry.each { |edge| place_for_edge(edge, offset) }
 
           @model.commit_operation
           @first_apply   = false
@@ -1598,9 +1407,9 @@ module ASM_Extensions
         @model.start_operation("Orienter Express: Center Placement", true, false, true)
         begin
           removed.each do |edge|
-            to_erase = @entity_to_edge.select { |_, e| e == edge }.keys
+            to_erase = @placement_map.select { |_, e| e == edge }.keys
             to_erase.each { |ent| ent.erase! if ent.valid? }
-            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_edge.delete(ent) }
+            to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
           added.each { |edge| place_for_edge(edge, offset) }
           @model.commit_operation
@@ -1644,7 +1453,7 @@ module ASM_Extensions
         midpoint = midpoint.offset(edge_vec.normalize, offset) unless edge_vec.length < 1e-6
         OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
         @previous_entities << entity_copy
-        @entity_to_edge[entity_copy] = edge
+        @placement_map[entity_copy] = edge
       end
 
     end
@@ -1653,7 +1462,6 @@ module ASM_Extensions
       model   = Sketchup.active_model
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
-
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -1680,27 +1488,7 @@ module ASM_Extensions
     # The user adjusts the offset via the VCB; each Enter re-applies the
     # operation so the result updates in real time.
     # Escape undoes the last preview and exits. Switching tools commits.
-    class OEZScaleTool
-
-      class SelectionWatcher < Sketchup::SelectionObserver
-        def initialize(&block)
-          @callback = block
-          @pending  = false
-        end
-
-        def onSelectionAdded(_selection, _entity)   schedule end
-        def onSelectionRemoved(_selection, _entity) schedule end
-        def onSelectionBulkChange(_selection)       schedule end
-        def onSelectionCleared(_selection)          schedule end
-
-        private
-
-        def schedule
-          return if @pending
-          @pending = true
-          UI.start_timer(0, false) { @pending = false; @callback.call }
-        end
-      end
+    class OEZScaleTool < OEPlacementTool
 
       def self.cursor_id(variant = :default)
         @@cursor_ids ||= {}
@@ -1721,39 +1509,16 @@ module ASM_Extensions
       end
 
       def initialize(edges, entity, flow_map, rotation_mode)
-        @edges             = edges
-        @source_entity     = entity
-        @entity_def        = entity && entity.definition
-        @entity_t          = entity && entity.transformation
-        @flow_map          = flow_map
-        @rotation_mode     = rotation_mode
-        @scale_axis        = :z
-        @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oezscale).to_sym
-        @model             = Sketchup.active_model
-        @applied           = false
-        @first_apply       = true
-        @previous_entities = []
-        @entity_to_edge    = {}
+        super(edges, entity)
+        @flow_map        = flow_map
+        @rotation_mode   = rotation_mode
+        @scale_axis      = :z
+        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oezscale).to_sym
       end
 
       def activate
         @skipped_edges = []
-        @lbutton_down  = false
-        @drag_mode     = nil
-        @watcher = SelectionWatcher.new { on_external_selection_change }
-        @model.selection.add_observer(@watcher)
-        update_vcb
-        UI.start_timer(0, false) { apply(OEZScaleTool.last_offset_str); sync_selection } if @entity_def
-      end
-
-      def deactivate(view)
-        @model.selection.remove_observer(@watcher) if @watcher
-        @watcher           = nil
-        @applied           = false
-        @previous_entities = []
-        @skipped_edges     = []
-        @entity_to_edge    = {}
-        view.invalidate
+        super
       end
 
       def draw(view)
@@ -1769,112 +1534,62 @@ module ASM_Extensions
         end
       end
 
-      def resume(view)
-        update_vcb
-        view.invalidate
-      end
-
-      def suspend(view)
-        view.invalidate
-      end
-
-      def enableVCB?
-        true
-      end
-
-      def getExtents
-        return Geom::BoundingBox.new unless @entity_def && @entity_t
-        bb = Geom::BoundingBox.new
-        8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
-        bb
-      end
-
-      def onSetCursor
-        update_cursor
-      end
-
-      def onLButtonDown(flags, x, y, view)
-        @lbutton_down = true
-        @syncing = true
-        saved = @edges.dup
-        handle_click(flags, x, y, view, :single)
-        @edges = saved if @edges.empty? && !saved.empty?
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonDoubleClick(flags, x, y, view)
-        @syncing = true
-        saved = @edges.dup
-        handle_click(flags, x, y, view, :double)
-        @edges = saved if @edges.empty? && !saved.empty?
-        sync_selection
-        @model.close_active while @model.active_path && !@model.active_path.empty?
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonUp(_flags, _x, _y, _view)
-        @lbutton_down = false
-        @drag_mode    = nil
-      end
-
       def onMouseMove(flags, x, y, view)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        if ctrl != @mod_ctrl || shift != @mod_shift
-          @mod_ctrl  = ctrl
-          @mod_shift = shift
-          update_cursor
-          view.invalidate
-        end
-        if @lbutton_down && @drag_mode && (ctrl || shift)
-          picked_edges = pick_edges(view, x, y)
-          modify_edges(@drag_mode, picked_edges) if picked_edges
-        end
+        super
         view.invalidate unless @skipped_edges.nil? || @skipped_edges.empty?
       end
 
-      def onUserText(text, _view)
-        return if text.strip.empty?
-        apply(text.strip)
+      private
+
+      def on_deactivate
+        @skipped_edges = []
       end
 
+      def on_drag(ctrl, shift, view, x, y)
+        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        entity = pick_entity(view, x, y, 16)
+        entity = @placement_map[entity] if entity && @placement_map.key?(entity)
+        picked = pick_geometry_from_entity(entity)
+        modify_geometry(@drag_mode, picked) if picked
+      end
 
-      def onKeyDown(key, _repeat, flags, view)
-        case key
-        when 17 then @mod_ctrl  = true
-        when 16 then @mod_shift = true
+      def on_geometry_changed
+        rebuild_flow_map if @rotation_mode == :flow
+      end
+
+      def on_selection_changed(new_set, old_set)
+        if @rotation_mode == :flow
+          rebuild_flow_map
+          apply(OEZScaleTool.last_offset_str)
         else
-          @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
-          @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
+          offset = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
-        update_cursor
-        view.invalidate
+      end
+
+      def sync_selection
+        valid_edges = @geometry.select(&:valid?)
+        edge_set    = valid_edges.to_set
+        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
+          f.valid? && f.edges.all? { |e| edge_set.include?(e) }
+        }
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (valid_edges + full_faces + source).to_set
+        current   = @model.selection.to_a.to_set
+        to_remove = (current - target).to_a
+        to_add    = (target - current).to_a
+        @model.selection.remove(to_remove) unless to_remove.empty?
+        @model.selection.add(to_add)       unless to_add.empty?
+      end
+
+      def cancel_op_name
+        "Cancel Z-Scaling"
+      end
+
+      def handle_key(key)
         case key
-        when 27 # VK_ESCAPE
-          if @applied
-            @model.start_operation("Cancel Z-Scaling", true)
-            @previous_entities.each { |e| e.erase! if e.valid? }
-            @previous_entities = []
-            @model.commit_operation
-            @applied = false
-          end
-          @model.select_tool(nil)
-        when 37, 39 # Left/Right arrow — adjust offset
-          dir = key == 39 ? +1 : -1
-          unless @arrow_key_dir == dir
-            scroll_offset(dir)
-            @arrow_key_dir  = dir
-            @key_repeat_gen = (@key_repeat_gen || 0) + 1
-            gen = @key_repeat_gen
-            UI.start_timer(0.7, false) { key_repeat(dir, gen) }
-          end
-        when 40 # Down arrow — reset offset to zero
-          apply(Sketchup.format_length(0))
         when 9 # Tab — cycle scale axis X → Y → Z
-          @scale_axis = { x: :y, y: :z, z: :x }[@scale_axis]
+          @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
           @first_apply = true
           update_vcb
           apply(OEZScaleTool.last_offset_str)
@@ -1893,213 +1608,8 @@ module ASM_Extensions
         end
       end
 
-      def onKeyUp(key, _repeat, flags, view)
-        before_ctrl  = @mod_ctrl
-        before_shift = @mod_shift
-        case key
-        when 17 then @mod_ctrl  = false
-        when 16 then @mod_shift = false
-        else
-          @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
-          @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        end
-        @arrow_key_dir = nil if key == 37 || key == 39
-        update_cursor
-        view.invalidate
-      end
-
-      private
-
-      # SB_PROMPT=0, SB_VCB_LABEL=1, SB_VCB_VALUE=2
-      def update_cursor
-        variant = if @mod_ctrl && @mod_shift
-                    :minus
-                  elsif @mod_ctrl
-                    :plus
-                  elsif @mod_shift
-                    :toggle
-                  else
-                    :default
-                  end
-        UI.set_cursor(OEZScaleTool.cursor_id(variant))
-      end
-
-      def pick_entity(view, x, y, aperture = 16)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, aperture)
-        paths = count.times.map { |i| ph.path_at(i) }
-
-        placed = paths.find { |path| @entity_to_edge.key?(path.first) }
-        return placed.first if placed
-
-        root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
-        return root_edge.first if root_edge
-
-        ph.best_picked
-      end
-
-      def pick_edges(view, x, y)
-        entity = pick_entity(view, x, y, 16)
-        entity = @entity_to_edge[entity] if entity && @entity_to_edge.key?(entity)
-        pick_edges_from(entity)
-      end
-
-      def pick_edges_from(entity)
-        case entity
-        when Sketchup::Edge then [entity]
-        when Sketchup::Face then entity.edges.to_a
-        end
-      end
-
-      def connected_geometry(entity)
-        start_edges = pick_edges_from(entity)
-        return nil unless start_edges
-
-        visited = {}
-        queue   = start_edges.dup
-        until queue.empty?
-          edge = queue.pop
-          next if visited[edge]
-          visited[edge] = true
-          [edge.start, edge.end].each do |v|
-            v.edges.each { |e| queue << e unless visited[e] }
-          end
-          edge.faces.each do |f|
-            f.edges.each { |e| queue << e unless visited[e] }
-          end
-        end
-        visited.keys
-      end
-
-      def handle_click(flags, x, y, view, click_type)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-
-        ph_exact    = view.pick_helper
-        count_exact = ph_exact.do_pick(x, y)
-        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
-          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_edge.key?(e)
-        }
-        if front_instance
-          pick_new_sample_entity(front_instance)
-          return
-        end
-
-        raw  = pick_entity(view, x, y)
-        best = @entity_to_edge.key?(raw) ? @entity_to_edge[raw] : raw
-
-        if shift && best.is_a?(Sketchup::Edge)
-          @drag_mode = :remove
-          modify_edges(:remove, [best])
-          return
-        end
-
-        picked_edges = case click_type
-                       when :single then pick_edges_from(best)
-                       when :double then connected_geometry(best)
-                       end
-
-        mode = if ctrl && shift
-                 :remove
-               elsif ctrl
-                 :add
-               elsif shift
-                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
-               else
-                 :replace
-               end
-
-        # Set drag_mode even when clicking empty space so subsequent drag picks up edges
-        @drag_mode = mode unless mode == :replace
-
-        return unless picked_edges
-
-        modify_edges(mode, picked_edges)
-      end
-
-      def modify_edges(mode, picked_edges)
-        before = @edges.to_set
-        case mode
-        when :add     then @edges = (@edges + picked_edges).uniq
-        when :remove  then @edges = @edges - picked_edges
-        when :replace then @edges = picked_edges.uniq
-        end
-        return if @edges.to_set == before
-        rebuild_flow_map if @rotation_mode == :flow
-        apply(OEZScaleTool.last_offset_str)
-        sync_selection
-      end
-
-      def key_repeat(dir, gen)
-        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
-        scroll_offset(dir)
-        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
-      end
-
-      def scroll_offset(direction)
-        current = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
-        return unless current
-        step    = Sketchup.parse_length("1cm")
-        new_val = current + direction * step
-        apply(Sketchup.format_length(new_val))
-      end
-
-      def on_external_selection_change
-        return if @syncing
-        new_edges = (@model.selection.grep(Sketchup::Edge) +
-                     @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
-        return if new_edges.to_set == @edges.to_set
-        old_set  = @edges.to_set
-        new_set  = new_edges.to_set
-        @edges   = new_edges
-        return unless @entity_def
-        @syncing = true
-        if @rotation_mode == :flow
-          rebuild_flow_map
-          apply(OEZScaleTool.last_offset_str)
-        else
-          offset = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
-        end
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def sync_selection
-        valid_edges = @edges.select(&:valid?)
-        edge_set    = valid_edges.to_set
-        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
-          f.valid? && f.edges.all? { |e| edge_set.include?(e) }
-        }
-        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
-        target    = (valid_edges + full_faces + source).to_set
-        current   = @model.selection.to_a.to_set
-        to_remove = (current - target).to_a
-        to_add    = (target - current).to_a
-        @model.selection.remove(to_remove) unless to_remove.empty?
-        @model.selection.add(to_add)       unless to_add.empty?
-      end
-
-      def rebuild_flow_map
-        vertex_edges = {}
-        @edges.each do |edge|
-          [edge.start, edge.end].each do |v|
-            vertex_edges[v] ||= []
-            vertex_edges[v] << edge
-          end
-        end
-        @flow_map = OrienterExpress.send(:all_vertex_flow_directions, vertex_edges)
-      end
-
-      def update_vcb
-        unless @entity_def
-          Sketchup.set_status_text("", 1)
-          Sketchup.set_status_text("", 2)
-          Sketchup.set_status_text("Click a component to use as sample", 0)
-          return
-        end
-        mode_key = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
+      def render_vcb
+        mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
@@ -2107,21 +1617,6 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
         Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
-      end
-
-      def pick_new_sample_entity(entity)
-        @source_entity = entity
-        @entity_def    = entity.definition
-        @entity_t      = entity.transformation
-        @model.start_operation("Orienter Express: Change Sample", true, false, false)
-        @previous_entities.each { |e| e.erase! if e.valid? }
-        @previous_entities = []
-        @model.commit_operation
-        @entity_to_edge = {}
-        @first_apply    = true
-        update_cursor
-        apply(OEZScaleTool.last_offset_str)
-        sync_selection
       end
 
       def apply(text)
@@ -2135,10 +1630,10 @@ module ASM_Extensions
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
-          @entity_to_edge    = {}
+          @placement_map     = {}
           skipped            = []
 
-          @edges.each { |edge| place_for_edge(edge, offset, skipped) }
+          @geometry.each { |edge| place_for_edge(edge, offset, skipped) }
 
           @model.commit_operation
           @first_apply   = false
@@ -2160,9 +1655,9 @@ module ASM_Extensions
         begin
           removed.each do |edge|
             @skipped_edges.delete(edge)
-            to_erase = @entity_to_edge.select { |_, e| e == edge }.keys
+            to_erase = @placement_map.select { |_, e| e == edge }.keys
             to_erase.each { |ent| ent.erase! if ent.valid? }
-            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_edge.delete(ent) }
+            to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
           added.each { |edge| place_for_edge(edge, offset, @skipped_edges) }
           @model.commit_operation
@@ -2215,7 +1710,7 @@ module ASM_Extensions
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
         @previous_entities << entity_copy
-        @entity_to_edge[entity_copy] = edge
+        @placement_map[entity_copy] = edge
       end
     end
 
@@ -2223,7 +1718,6 @@ module ASM_Extensions
       model   = Sketchup.active_model
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
-
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -2309,26 +1803,7 @@ module ASM_Extensions
     # Tool class for interactive Flow Placement.
     # Places components at edge vertices aligned to the flow direction.
     # The user adjusts an offset along the flow direction via the VCB or arrow keys.
-    class OEFlowTool
-      class SelectionWatcher < Sketchup::SelectionObserver
-        def initialize(&block)
-          @callback = block
-          @pending  = false
-        end
-
-        def onSelectionAdded(_selection, _entity)   schedule end
-        def onSelectionRemoved(_selection, _entity) schedule end
-        def onSelectionBulkChange(_selection)       schedule end
-        def onSelectionCleared(_selection)          schedule end
-
-        private
-
-        def schedule
-          return if @pending
-          @pending = true
-          UI.start_timer(0, false) { @pending = false; @callback.call }
-        end
-      end
+    class OEFlowTool < OEPlacementTool
 
       def self.last_offset_str
         @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeflow_offset)
@@ -2349,135 +1824,44 @@ module ASM_Extensions
       end
 
       def initialize(edges, entity, flow_map, rotation_mode)
-        @edges             = edges
-        @source_entity     = entity
-        @entity_def        = entity && entity.definition
-        @entity_t          = entity && entity.transformation
-        @flow_map          = flow_map
-        @rotation_mode     = rotation_mode
-        @scale_axis        = :z
-        @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oeflow).to_sym
-        @model             = Sketchup.active_model
-        @applied           = false
-        @first_apply       = true
-        @previous_entities = []
-        @entity_to_vertex  = {}
-        @mod_ctrl          = false
-        @mod_shift         = false
+        super(edges, entity)
+        @flow_map        = flow_map
+        @rotation_mode   = rotation_mode
+        @scale_axis      = :z
+        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oeflow).to_sym
       end
 
-      def activate
-        @lbutton_down  = false
-        @drag_mode     = nil
-        @arrow_key_dir = nil
-        @watcher = SelectionWatcher.new { on_external_selection_change }
-        @model.selection.add_observer(@watcher)
-        update_vcb
-        UI.start_timer(0, false) { apply(OEFlowTool.last_offset_str); sync_selection } if @entity_def
+      private
+
+      def on_drag(ctrl, shift, view, x, y)
+        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        entity = pick_entity(view, x, y)
+        picked = pick_geometry_from_entity(entity)
+        modify_geometry(@drag_mode, picked) if picked
       end
 
-      def deactivate(view)
-        @model.selection.remove_observer(@watcher) if @watcher
-        @watcher           = nil
-        @applied           = false
-        @previous_entities = []
-        @entity_to_vertex  = {}
-        view.invalidate
+      # OEFlow always does a full re-apply on external selection change
+      def on_selection_changed(_new_set, _old_set)
+        apply(OEFlowTool.last_offset_str)
       end
 
-      def resume(view)
-        update_vcb
-        view.invalidate
+      # OEFlow sync_selection does not include full_faces
+      def sync_selection
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (@geometry.select(&:valid?) + source).to_set
+        current   = @model.selection.to_a.to_set
+        to_remove = (current - target).to_a
+        to_add    = (target - current).to_a
+        @model.selection.remove(to_remove) unless to_remove.empty?
+        @model.selection.add(to_add)       unless to_add.empty?
       end
 
-      def suspend(view)
-        view.invalidate
+      def cancel_op_name
+        "Cancel Flow Placement"
       end
 
-      def enableVCB?
-        true
-      end
-
-      def getExtents
-        return Geom::BoundingBox.new unless @entity_def && @entity_t
-        bb = Geom::BoundingBox.new
-        8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
-        bb
-      end
-
-      def onLButtonDown(flags, x, y, view)
-        @lbutton_down = true
-        @syncing = true
-        saved = @edges.dup
-        handle_click(flags, x, y, view, :single)
-        @edges = saved if @edges.empty? && !saved.empty?
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonDoubleClick(flags, x, y, view)
-        @syncing = true
-        saved = @edges.dup
-        handle_click(flags, x, y, view, :double)
-        @edges = saved if @edges.empty? && !saved.empty?
-        sync_selection
-        @model.close_active while @model.active_path && !@model.active_path.empty?
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonUp(_flags, _x, _y, _view)
-        @lbutton_down = false
-        @drag_mode    = nil
-      end
-
-      def onMouseMove(flags, x, y, view)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        if ctrl != @mod_ctrl || shift != @mod_shift
-          @mod_ctrl  = ctrl
-          @mod_shift = shift
-          update_cursor
-          view.invalidate
-        end
-        if @lbutton_down && @drag_mode && (ctrl || shift)
-          picked_edges = pick_edges(view, x, y)
-          modify_edges(@drag_mode, picked_edges) if picked_edges
-        end
-      end
-
-      def onUserText(text, _view)
-        return if text.strip.empty?
-        apply(text.strip)
-      end
-
-      def onKeyDown(key, _repeat, _flags, view)
+      def handle_key(key)
         case key
-        when 17 then @mod_ctrl = true;  update_cursor; view.invalidate; return
-        when 16 then @mod_shift = true; update_cursor; view.invalidate; return
-        end
-        case key
-        when 27 # VK_ESCAPE
-          if @applied
-            @model.start_operation("Cancel Flow Placement", true)
-            @previous_entities.each { |e| e.erase! if e.valid? }
-            @previous_entities = []
-            @model.commit_operation
-            @applied = false
-          end
-          @model.select_tool(nil)
-        when 37, 39 # Left/Right arrow — adjust offset
-          dir = key == 39 ? +1 : -1
-          unless @arrow_key_dir == dir
-            scroll_offset(dir)
-            @arrow_key_dir  = dir
-            @key_repeat_gen = (@key_repeat_gen || 0) + 1
-            gen = @key_repeat_gen
-            UI.start_timer(0.7, false) { key_repeat(dir, gen) }
-          end
-        when 40 # Down arrow — reset offset to zero
-          apply(Sketchup.format_length(0))
         when 9 # Tab — cycle axis Z → X → Y
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
@@ -2497,187 +1881,7 @@ module ASM_Extensions
         end
       end
 
-      def onKeyUp(key, _repeat, _flags, view)
-        case key
-        when 17 then @mod_ctrl  = false; update_cursor; view.invalidate
-        when 16 then @mod_shift = false; update_cursor; view.invalidate
-        end
-        @arrow_key_dir = nil if key == 37 || key == 39
-      end
-
-      def onSetCursor
-        update_cursor
-      end
-
-      private
-
-      def update_cursor
-        variant = if @mod_ctrl && @mod_shift
-                    :minus
-                  elsif @mod_ctrl
-                    :plus
-                  elsif @mod_shift
-                    :toggle
-                  else
-                    :default
-                  end
-        UI.set_cursor(OEFlowTool.cursor_id(variant))
-      end
-
-      def pick_entity(view, x, y, aperture = 16)
-        ph    = view.pick_helper
-        count = ph.do_pick(x, y, aperture)
-        paths = count.times.map { |i| ph.path_at(i) }
-
-        placed = paths.find { |path| @entity_to_vertex.key?(path.first) }
-        return placed.first if placed
-
-        root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
-        return root_edge.first if root_edge
-
-        ph.best_picked
-      end
-
-      def pick_edges(view, x, y)
-        entity = pick_entity(view, x, y)
-        pick_edges_from(entity)
-      end
-
-      def pick_edges_from(entity)
-        case entity
-        when Sketchup::Edge then [entity]
-        when Sketchup::Face then entity.edges.to_a
-        end
-      end
-
-      def connected_geometry(entity)
-        start_edges = pick_edges_from(entity)
-        return nil unless start_edges
-
-        visited = {}
-        queue   = start_edges.dup
-        until queue.empty?
-          edge = queue.pop
-          next if visited[edge]
-          visited[edge] = true
-          [edge.start, edge.end].each do |v|
-            v.edges.each { |e| queue << e unless visited[e] }
-          end
-          edge.faces.each do |f|
-            f.edges.each { |e| queue << e unless visited[e] }
-          end
-        end
-        visited.keys
-      end
-
-      def handle_click(flags, x, y, view, click_type)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-
-        ph_exact = view.pick_helper
-        count_exact = ph_exact.do_pick(x, y)
-        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
-          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_vertex.key?(e)
-        }
-        if front_instance
-          pick_new_sample_entity(front_instance)
-          return
-        end
-        raw  = pick_entity(view, x, y)
-        best = @entity_to_vertex.key?(raw) ? nil : raw
-
-        picked_edges = case click_type
-                       when :single then pick_edges_from(best)
-                       when :double then connected_geometry(best)
-                       end
-
-        mode = if ctrl && shift
-                 :remove
-               elsif ctrl
-                 :add
-               elsif shift
-                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
-               else
-                 :replace
-               end
-
-        @drag_mode = mode unless mode == :replace
-        return unless picked_edges
-
-        modify_edges(mode, picked_edges)
-      end
-
-      def modify_edges(mode, picked_edges)
-        before = @edges.to_set
-        case mode
-        when :add     then @edges = (@edges + picked_edges).uniq
-        when :remove  then @edges = @edges - picked_edges
-        when :replace then @edges = picked_edges.uniq
-        end
-        return if @edges.to_set == before
-        apply(OEFlowTool.last_offset_str)
-        sync_selection
-      end
-
-      def key_repeat(dir, gen)
-        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
-        scroll_offset(dir)
-        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
-      end
-
-      def scroll_offset(direction)
-        current = OrienterExpress.send(:parse_length_safe, OEFlowTool.last_offset_str)
-        return unless current
-        step    = Sketchup.parse_length("1cm")
-        apply(Sketchup.format_length(current + direction * step))
-      end
-
-      def on_external_selection_change
-        return if @syncing
-        new_edges = (@model.selection.grep(Sketchup::Edge) +
-                     @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
-        return if new_edges.to_set == @edges.to_set
-        @edges = new_edges
-        return unless @entity_def
-        @syncing = true
-        apply(OEFlowTool.last_offset_str)
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def pick_new_sample_entity(entity)
-        @source_entity = entity
-        @entity_def    = entity.definition
-        @entity_t      = entity.transformation
-        @model.start_operation("Orienter Express: Change Sample", true, false, false)
-        @previous_entities.each { |e| e.erase! if e.valid? }
-        @previous_entities = []
-        @model.commit_operation
-        @entity_to_vertex = {}
-        @first_apply      = true
-        update_vcb
-        apply(OEFlowTool.last_offset_str)
-        sync_selection
-      end
-
-      def sync_selection
-        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
-        target    = (@edges.select(&:valid?) + source).to_set
-        current   = @model.selection.to_a.to_set
-        to_remove = (current - target).to_a
-        to_add    = (target - current).to_a
-        @model.selection.remove(to_remove) unless to_remove.empty?
-        @model.selection.add(to_add)       unless to_add.empty?
-      end
-
-      def update_vcb
-        unless @entity_def
-          Sketchup.set_status_text("", 1)
-          Sketchup.set_status_text("", 2)
-          Sketchup.set_status_text("Click a component to use as sample", 0)
-          return
-        end
+      def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
@@ -2694,7 +1898,7 @@ module ASM_Extensions
         return unless offset
 
         vertex_edges = {}
-        @edges.select(&:valid?).each do |edge|
+        @geometry.select(&:valid?).each do |edge|
           [edge.start, edge.end].each do |v|
             vertex_edges[v] ||= []
             vertex_edges[v] << edge
@@ -2709,7 +1913,7 @@ module ASM_Extensions
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
-          @entity_to_vertex  = {}
+          @placement_map     = {}
 
           flow_map.each do |vertex, direction|
             target      = vertex.position.offset(direction.normalize, offset)
@@ -2782,7 +1986,7 @@ module ASM_Extensions
 
             OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
             @previous_entities << entity_copy
-            @entity_to_vertex[entity_copy] = vertex
+            @placement_map[entity_copy] = vertex
           end
 
           @model.commit_operation
@@ -2803,7 +2007,6 @@ module ASM_Extensions
       model   = Sketchup.active_model
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
-
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -2828,26 +2031,7 @@ module ASM_Extensions
     # Tool class for interactive Face Placement.
     # Equivalent to OEZScaleTool but for faces: the user adjusts an offset
     # along the face normal via the VCB or arrow keys.
-    class OEFaceTool
-      class SelectionWatcher < Sketchup::SelectionObserver
-        def initialize(&block)
-          @callback = block
-          @pending  = false
-        end
-
-        def onSelectionAdded(_selection, _entity)   schedule end
-        def onSelectionRemoved(_selection, _entity) schedule end
-        def onSelectionBulkChange(_selection)       schedule end
-        def onSelectionCleared(_selection)          schedule end
-
-        private
-
-        def schedule
-          return if @pending
-          @pending = true
-          UI.start_timer(0, false) { @pending = false; @callback.call }
-        end
-      end
+    class OEFaceTool < OEPlacementTool
 
       def self.last_offset_str
         @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeface_offset)
@@ -2868,196 +2052,26 @@ module ASM_Extensions
       end
 
       def initialize(faces, entity)
-        @faces             = faces
-        @source_entity     = entity
-        @entity_def        = entity && entity.definition
-        @entity_t          = entity && entity.transformation
-        @model             = Sketchup.active_model
-        @applied           = false
-        @first_apply       = true
-        @previous_entities = []
-        @entity_to_face    = {}
-        @insertion_point   = OrienterExpress.send(:resolved_insertion_point, :oeface).to_sym
-        @scale_axis        = :z
-        @axis_idx          = 0
-        @mod_ctrl          = false
-        @mod_shift         = false
-      end
-
-      def activate
-        @lbutton_down  = false
-        @drag_mode     = nil
-        @arrow_key_dir = nil
-        @watcher = SelectionWatcher.new { on_external_selection_change }
-        @model.selection.add_observer(@watcher)
-        update_vcb
-        UI.start_timer(0, false) { apply(OEFaceTool.last_offset_str); sync_selection } if @entity_def
-      end
-
-      def deactivate(view)
-        @model.selection.remove_observer(@watcher) if @watcher
-        @watcher           = nil
-        @applied           = false
-        @previous_entities = []
-        @entity_to_face    = {}
-        view.invalidate
-      end
-
-      def resume(view)
-        update_vcb
-        view.invalidate
-      end
-
-      def suspend(view)
-        view.invalidate
-      end
-
-      def enableVCB?
-        true
-      end
-
-      def getExtents
-        return Geom::BoundingBox.new unless @entity_def && @entity_t
-        bb = Geom::BoundingBox.new
-        8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
-        bb
-      end
-
-      def onLButtonDown(flags, x, y, view)
-        @lbutton_down = true
-        @syncing = true
-        saved = @faces.dup
-        handle_click(flags, x, y, view, :single)
-        @faces = saved if @faces.empty? && !saved.empty?
-        sync_selection
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonDoubleClick(flags, x, y, view)
-        @syncing = true
-        saved = @faces.dup
-        handle_click(flags, x, y, view, :double)
-        @faces = saved if @faces.empty? && !saved.empty?
-        sync_selection
-        @model.close_active while @model.active_path && !@model.active_path.empty?
-      ensure
-        @syncing = false
-      end
-
-      def onLButtonUp(_flags, _x, _y, _view)
-        @lbutton_down = false
-        @drag_mode    = nil
-      end
-
-      def onMouseMove(flags, x, y, view)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-        if ctrl != @mod_ctrl || shift != @mod_shift
-          @mod_ctrl  = ctrl
-          @mod_shift = shift
-          update_cursor
-        end
-        if @lbutton_down && @drag_mode && (ctrl || shift)
-          picked_faces = pick_faces(view, x, y)
-          modify_faces(@drag_mode, picked_faces) if picked_faces
-        end
-      end
-
-      def onUserText(text, _view)
-        return if text.strip.empty?
-        apply(text.strip)
-      end
-
-      def onKeyDown(key, _repeat, _flags, view)
-        case key
-        when 17 then @mod_ctrl = true;  update_cursor; view.invalidate; return
-        when 16 then @mod_shift = true; update_cursor; view.invalidate; return
-        end
-        case key
-        when 27 # VK_ESCAPE
-          if @applied
-            @model.start_operation("Cancel Face Placement", true)
-            @previous_entities.each { |e| e.erase! if e.valid? }
-            @previous_entities = []
-            @model.commit_operation
-            @applied = false
-          end
-          @model.select_tool(nil)
-        when 9 # Tab — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEFaceTool.last_offset_str)
-        when 35 # End — cycle face orientation
-          @axis_idx = (@axis_idx + 1) % 3
-          update_vcb
-          apply(OEFaceTool.last_offset_str)
-        when 37, 39 # Left/Right arrow — adjust offset
-          dir = key == 39 ? +1 : -1
-          unless @arrow_key_dir == dir
-            scroll_offset(dir)
-            @arrow_key_dir  = dir
-            @key_repeat_gen = (@key_repeat_gen || 0) + 1
-            gen = @key_repeat_gen
-            UI.start_timer(0.7, false) { key_repeat(dir, gen) }
-          end
-        when 36 # Home — cycle insertion point
-          @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oeface] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(OEFaceTool.last_offset_str)
-        when 40 # Down arrow — reset offset to zero
-          apply(Sketchup.format_length(0))
-        end
-      end
-
-      def onKeyUp(key, _repeat, _flags, view)
-        case key
-        when 17 then @mod_ctrl  = false; update_cursor; view.invalidate
-        when 16 then @mod_shift = false; update_cursor; view.invalidate
-        end
-        @arrow_key_dir = nil if key == 37 || key == 39
-      end
-
-      def onSetCursor
-        update_cursor
+        super(faces, entity)
+        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oeface).to_sym
+        @scale_axis      = :z
+        @axis_idx        = 0
       end
 
       private
 
-      def update_cursor
-        variant = if @mod_ctrl && @mod_shift
-                    :minus
-                  elsif @mod_ctrl
-                    :plus
-                  elsif @mod_shift
-                    :toggle
-                  else
-                    :default
-                  end
-        UI.set_cursor(OEFaceTool.cursor_id(variant))
-      end
-
-      def pick_faces(view, x, y)
-        ph = view.pick_helper
-        ph.do_pick(x, y)
-        pick_faces_from(ph.best_picked)
-      end
-
-      def pick_faces_from(entity)
+      # OEFace picks faces: Face → [face], Edge → edge.faces
+      def pick_geometry_from_entity(entity)
         case entity
         when Sketchup::Face then [entity]
         when Sketchup::Edge then entity.faces.to_a
         end
       end
 
+      # OEFace flood-fill traverses faces via edges
       def connected_geometry(entity)
-        start_faces = pick_faces_from(entity)
+        start_faces = pick_geometry_from_entity(entity)
         return nil unless start_faces
-
         visited = {}
         queue   = start_faces.dup
         until queue.empty?
@@ -3071,36 +2085,24 @@ module ASM_Extensions
         visited.keys
       end
 
-      def handle_click(flags, x, y, view, click_type)
-        ctrl  = flags & COPY_MODIFIER_MASK      != 0
-        shift = flags & CONSTRAIN_MODIFIER_MASK != 0
-
-        ph_exact = view.pick_helper
-        count_exact = ph_exact.do_pick(x, y)
-        front_instance = count_exact.times.map { |i| ph_exact.path_at(i).first }.find { |e|
-          (e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)) && !@entity_to_face.key?(e)
-        }
-        if front_instance
-          pick_new_sample_entity(front_instance)
-          return
-        end
-
+      # OEFace uses best_picked (not path-based) and maps placed → source face
+      def handle_geometry_click(ctrl, shift, view, x, y, click_type)
         ph = view.pick_helper
         ph.do_pick(x, y)
         raw = ph.best_picked
 
-        if shift && raw && @entity_to_face.key?(raw)
+        if shift && raw && @placement_map.key?(raw)
           @drag_mode = :remove
-          modify_faces(:remove, [@entity_to_face[raw]])
+          modify_geometry(:remove, [@placement_map[raw]])
           return
         end
 
-        best = @entity_to_face.key?(raw) ? @entity_to_face[raw] : raw
+        best = @placement_map.key?(raw) ? @placement_map[raw] : raw
 
-        picked_faces = case click_type
-                       when :single then pick_faces_from(best)
-                       when :double then connected_geometry(best)
-                       end
+        picked = case click_type
+                 when :single then pick_geometry_from_entity(best)
+                 when :double then connected_geometry(best)
+                 end
 
         if ctrl && shift
           @drag_mode = :remove
@@ -3110,67 +2112,45 @@ module ASM_Extensions
           @drag_mode = :add
         end
 
-        return unless picked_faces
+        return unless picked
 
         mode = if ctrl && shift
                  :remove
                elsif ctrl
                  :add
                elsif shift
-                 picked_faces.all? { |f| @faces.include?(f) } ? :remove : :add
+                 picked.all? { |f| @geometry.include?(f) } ? :remove : :add
                else
                  :replace
                end
 
         @drag_mode = mode unless mode == :replace
-        modify_faces(mode, picked_faces)
+        modify_geometry(mode, picked)
       end
 
-      def modify_faces(mode, picked_faces)
-        before = @faces.to_set
-        case mode
-        when :add     then @faces = (@faces + picked_faces).uniq
-        when :remove  then @faces = @faces - picked_faces
-        when :replace then @faces = picked_faces.uniq
-        end
-        return if @faces.to_set == before
-        apply(OEFaceTool.last_offset_str)
-        sync_selection
+      def on_drag(ctrl, shift, view, x, y)
+        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        ph = view.pick_helper
+        ph.do_pick(x, y)
+        picked = pick_geometry_from_entity(ph.best_picked)
+        modify_geometry(@drag_mode, picked) if picked
       end
 
-      def key_repeat(dir, gen)
-        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
-        scroll_offset(dir)
-        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
+      # OEFace collects faces from selection, not edges
+      def collect_geometry_from_selection(selection)
+        (selection.grep(Sketchup::Face) +
+         selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
       end
 
-      def scroll_offset(direction)
-        current = OrienterExpress.send(:parse_length_safe, OEFaceTool.last_offset_str)
-        return unless current
-        step    = Sketchup.parse_length("1cm")
-        apply(Sketchup.format_length(current + direction * step))
-      end
-
-      def on_external_selection_change
-        return if @syncing
-        new_faces = (@model.selection.grep(Sketchup::Face) +
-                     @model.selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
-        return if new_faces.to_set == @faces.to_set
-        old_set  = @faces.to_set
-        new_set  = new_faces.to_set
-        @faces   = new_faces
-        return unless @entity_def
-        @syncing = true
+      def on_selection_changed(new_set, old_set)
         offset = OrienterExpress.send(:parse_length_safe, OEFaceTool.last_offset_str)
         apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
-        sync_selection
-      ensure
-        @syncing = false
       end
 
+      # OEFace sync_selection uses faces, no full_faces expansion
       def sync_selection
         source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
-        target    = (@faces.select(&:valid?) + source).to_set
+        target    = (@geometry.select(&:valid?) + source).to_set
         current   = @model.selection.to_a.to_set
         to_remove = (current - target).to_a
         to_add    = (target - current).to_a
@@ -3178,13 +2158,32 @@ module ASM_Extensions
         @model.selection.add(to_add)       unless to_add.empty?
       end
 
-      def update_vcb
-        unless @entity_def
-          Sketchup.set_status_text("", 1)
-          Sketchup.set_status_text("", 2)
-          Sketchup.set_status_text("Click a component to use as sample", 0)
-          return
+      def cancel_op_name
+        "Cancel Face Placement"
+      end
+
+      def handle_key(key)
+        case key
+        when 9 # Tab — cycle axis Z → X → Y
+          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+          @first_apply = true
+          update_vcb
+          apply(OEFaceTool.last_offset_str)
+        when 35 # End — cycle face orientation
+          @axis_idx = (@axis_idx + 1) % 3
+          update_vcb
+          apply(OEFaceTool.last_offset_str)
+        when 36 # Home — cycle insertion point
+          @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
+          custom = CONFIG[:insertion_point_custom].dup
+          custom[:oeface] = @insertion_point.to_s
+          OrienterExpress.user_settings(insertion_point_custom: custom)
+          update_vcb
+          apply(OEFaceTool.last_offset_str)
         end
+      end
+
+      def render_vcb
         scale_label  = @scale_axis.to_s.upcase
         orient_label = [
           Lang.commands.oeface.axis_parallel,
@@ -3209,9 +2208,9 @@ module ASM_Extensions
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
-          @entity_to_face    = {}
+          @placement_map     = {}
 
-          @faces.each { |face| place_for_face(face, offset) }
+          @geometry.each { |face| place_for_face(face, offset) }
 
           @model.commit_operation
           @first_apply = false
@@ -3231,9 +2230,9 @@ module ASM_Extensions
         @model.start_operation("Orienter Express: Face Placement", true, false, true)
         begin
           removed.each do |face|
-            to_erase = @entity_to_face.select { |_, f| f == face }.keys
+            to_erase = @placement_map.select { |_, f| f == face }.keys
             to_erase.each { |ent| ent.erase! if ent.valid? }
-            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_face.delete(ent) }
+            to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
           added.each { |face| place_for_face(face, offset) }
           @model.commit_operation
@@ -3264,31 +2263,15 @@ module ASM_Extensions
         end
         OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
         @previous_entities << entity_copy
-        @entity_to_face[entity_copy] = face
+        @placement_map[entity_copy] = face
       end
 
-
-      def pick_new_sample_entity(entity)
-        @source_entity = entity
-        @entity_def    = entity.definition
-        @entity_t      = entity.transformation
-        @model.start_operation("Orienter Express: Change Sample", true, false, false)
-        @previous_entities.each { |e| e.erase! if e.valid? }
-        @previous_entities = []
-        @model.commit_operation
-        @entity_to_face = {}
-        @first_apply    = true
-        update_vcb
-        apply(OEFaceTool.last_offset_str)
-        sync_selection
-      end
     end
 
     def self.oeface
       model   = Sketchup.active_model
       faces   = (faces(model.selection) + edges(model.selection).flat_map(&:faces)).uniq
       targets = instances(model.selection)
-
 
       entity = targets.first
       model.select_tool(
