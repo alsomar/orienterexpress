@@ -200,8 +200,8 @@ module ASM_Extensions
       Debug.log(self, method_id,
         "edge #{edge.start.position.to_a.map { |v| v.round(2) }} → " \
         "#{edge.end.position.to_a.map { |v| v.round(2) }} | " \
-        "flow_start=#{flow_start&.to_a&.map { |v| v.round(3) } || 'nil'} " \
-        "flow_end=#{flow_end&.to_a&.map { |v| v.round(3) } || 'nil'}")
+        "flow_start=#{flow_start ? flow_start.to_a.map { |v| v.round(3) } : 'nil'} " \
+        "flow_end=#{flow_end ? flow_end.to_a.map { |v| v.round(3) } : 'nil'}")
 
       if candidates.empty?
         Debug.log(self, method_id, "  → fallback: no flow data")
@@ -420,6 +420,32 @@ module ASM_Extensions
                  instance.transformation.yaxis, edge_vector.normalize)
     end
 
+    # Parses a length string, falling back to stripping spaces (SketchUp 2017
+    # cannot parse "0 mm" but can parse "0mm"). Returns nil if unparseable.
+    def self.parse_length_safe(text)
+      result = Sketchup.parse_length(text) rescue nil
+      result = Sketchup.parse_length(text.delete(' ')) rescue nil if result.nil?
+      # Last resort: plain numeric string stored in CONFIG (value in inches)
+      result = text.to_f if result.nil? && text =~ /\A-?[\d.]+\z/
+      result
+    end
+
+    # Returns a display string for an offset value in the model's current units.
+    # Persists the raw numeric value (in inches) to config so it survives unit changes.
+    def self.format_and_persist_offset(value, config_key)
+      OrienterExpress.user_settings(config_key => value.to_s)
+      Sketchup.format_length(value)
+    end
+
+    # Reads a persisted offset from CONFIG, converting a raw numeric string if needed.
+    def self.load_offset_str(config_key)
+      raw = CONFIG[config_key]
+      return Sketchup.format_length(0) unless raw
+      # If stored as plain number (inches), convert to current model units
+      return Sketchup.format_length(raw.to_f) if raw =~ /\A-?[\d.]+\z/
+      raw
+    end
+
     # Returns the effective insertion mode for a tool from per-tool config.
     def self.resolved_insertion_point(tool_key)
       custom = CONFIG[:insertion_point_custom]
@@ -452,9 +478,9 @@ module ASM_Extensions
     def self.face_centroid(face)
       verts = face.outer_loop.vertices
       n = verts.length.to_f
-      x = verts.sum { |v| v.position.x } / n
-      y = verts.sum { |v| v.position.y } / n
-      z = verts.sum { |v| v.position.z } / n
+      x = verts.inject(0.0) { |s, v| s + v.position.x } / n
+      y = verts.inject(0.0) { |s, v| s + v.position.y } / n
+      z = verts.inject(0.0) { |s, v| s + v.position.z } / n
       Geom::Point3d.new(x, y, z)
     end
 
@@ -474,7 +500,7 @@ module ASM_Extensions
       return nil if dirs.empty?
 
       # 1. Sum of direction vectors.
-      sum = Geom::Vector3d.new(dirs.sum(&:x), dirs.sum(&:y), dirs.sum(&:z))
+      sum = Geom::Vector3d.new(dirs.inject(0.0) { |s, v| s + v.x }, dirs.inject(0.0) { |s, v| s + v.y }, dirs.inject(0.0) { |s, v| s + v.z })
       return sum.normalize if sum.length > 1e-6
 
       # 2. Average normals of connected faces.
@@ -493,7 +519,7 @@ module ASM_Extensions
       end
 
       unless face_normals.empty?
-        fn_sum = Geom::Vector3d.new(face_normals.sum(&:x), face_normals.sum(&:y), face_normals.sum(&:z))
+        fn_sum = Geom::Vector3d.new(face_normals.inject(0.0) { |s, v| s + v.x }, face_normals.inject(0.0) { |s, v| s + v.y }, face_normals.inject(0.0) { |s, v| s + v.z })
         return fn_sum.normalize if fn_sum.length > 1e-6
       end
 
@@ -602,18 +628,18 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oevertex_offset] || "0cm"
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oevertex_offset)
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oevertex_offset: val)
       end
 
-      def initialize(edges, entity_def, entity_t, flow_map, rotation_mode)
+      def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
-        @entity_def        = entity_def
-        @entity_t          = entity_t
+        @source_entity     = entity
+        @entity_def        = entity.definition
+        @entity_t          = entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -893,7 +919,7 @@ module ASM_Extensions
                elsif ctrl
                  :add
                elsif shift
-                 picked_edges&.all? { |e| @edges.include?(e) } ? :remove : :add
+                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
                else
                  :replace
                end
@@ -922,7 +948,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OEVertexTool.last_offset_str) rescue nil
+        current = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
         return unless current
         step    = Sketchup.parse_length("1cm")
         new_val = current + direction * step
@@ -935,26 +961,33 @@ module ASM_Extensions
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
         return if new_edges.to_set == @edges.to_set
-        @edges = new_edges
-        rebuild_flow_map if @rotation_mode == :flow
+        old_set  = @edges.to_set
+        new_set  = new_edges.to_set
+        @edges   = new_edges
         @syncing = true
-        apply(OEVertexTool.last_offset_str)
+        if @rotation_mode == :flow
+          rebuild_flow_map
+          apply(OEVertexTool.last_offset_str)
+        else
+          offset = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+        end
         sync_selection
       ensure
         @syncing = false
       end
 
       def sync_selection
-        valid_edges    = @edges.select(&:valid?)
-        edge_set       = valid_edges.to_set
-        full_faces     = valid_edges.flat_map(&:faces).uniq.select { |f|
+        valid_edges = @edges.select(&:valid?)
+        edge_set    = valid_edges.to_set
+        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
           f.valid? && f.edges.all? { |e| edge_set.include?(e) }
         }
-        valid_entities = @previous_entities.select(&:valid?)
-        target  = (valid_edges + full_faces + valid_entities).to_set
-        current = @model.selection.to_a.to_set
-        to_remove = (current - target).to_a
-        to_add    = (target - current).to_a
+        source      = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target      = (valid_edges + full_faces + source).to_set
+        current     = @model.selection.to_a.to_set
+        to_remove   = (current - target).to_a
+        to_add      = (target - current).to_a
         @model.selection.remove(to_remove) unless to_remove.empty?
         @model.selection.add(to_add)       unless to_add.empty?
       end
@@ -989,8 +1022,9 @@ module ASM_Extensions
           e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
         }
         return unless instance
-        @entity_def = instance.definition
-        @entity_t   = instance.transformation
+        @source_entity = instance
+        @entity_def    = instance.definition
+        @entity_t      = instance.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
@@ -1004,11 +1038,7 @@ module ASM_Extensions
       end
 
       def apply(text)
-        offset = begin
-          Sketchup.parse_length(text)
-        rescue
-          nil
-        end
+        offset = OrienterExpress.send(:parse_length_safe, text)
         return if offset.nil?
 
         transparent = !@first_apply
@@ -1019,94 +1049,80 @@ module ASM_Extensions
           @previous_entities = []
           @entity_to_edge    = {}
 
-          created = 0
-          @edges.each do |edge|
-            next if edge.length.zero?
-            edge_vec = edge.end.position - edge.start.position
-            next if edge_vec.length < 1e-6
-            edge_dir = edge_vec.normalize
+          @edges.each { |edge| place_for_edge(edge, offset) }
 
-            # Two placements: start vertex (pointing inward) and end vertex (pointing inward)
-            [
-              [edge.start.position,  edge_dir],
-              [edge.end.position,    edge_dir.reverse]
-            ].each do |vertex_pos, inward_dir|
-              entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
-
-              # Align the active axis to inward_dir
-              t = entity_copy.transformation
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:align_axis, entity_copy, t.origin, t.xaxis, inward_dir)
-              when :y
-                OrienterExpress.send(:align_axis, entity_copy, t.origin, t.yaxis, inward_dir)
-              else
-                OrienterExpress.send(:align_axis, entity_copy, t.origin, t.zaxis, inward_dir)
-              end
-
-              # Rotation mode (secondary orientation)
-              case @rotation_mode
-              when :flow
-                case @scale_axis
-                when :x
-                  OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map,
-                                       entity_copy.transformation.xaxis,
-                                       entity_copy.transformation.zaxis)
-                when :y
-                  OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map,
-                                       entity_copy.transformation.yaxis,
-                                       entity_copy.transformation.zaxis)
-                else
-                  OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
-                end
-              when :normal
-                case @scale_axis
-                when :x
-                  OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge,
-                                       entity_copy.transformation.xaxis,
-                                       entity_copy.transformation.zaxis)
-                when :y
-                  OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge,
-                                       entity_copy.transformation.yaxis,
-                                       entity_copy.transformation.zaxis)
-                else
-                  OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
-                end
-              else # ground
-                case @scale_axis
-                when :x
-                  OrienterExpress.send(:orient_ground_around, entity_copy,
-                                       entity_copy.transformation.xaxis,
-                                       entity_copy.transformation.yaxis)
-                when :y
-                  OrienterExpress.send(:orient_ground_around, entity_copy,
-                                       entity_copy.transformation.yaxis,
-                                       entity_copy.transformation.zaxis)
-                else
-                  OrienterExpress.orient_x(entity_copy)
-                end
-              end
-
-              # Placement: vertex position offset inward along the edge
-              target_point = vertex_pos.offset(inward_dir, offset)
-              OrienterExpress.send(:move_insertion_to, entity_copy, target_point, @insertion_point, @scale_axis)
-
-              @previous_entities << entity_copy
-              @entity_to_edge[entity_copy] = edge
-              created += 1
-            end
-          end
           @model.commit_operation
           @first_apply   = false
           @applied       = true
           @skipped_edges = []
-          formatted = Sketchup.format_length(offset)
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oevertex_offset)
           OEVertexTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")
+        end
+      end
+
+      def apply_diff(added, removed, offset)
+        return unless offset
+        @model.start_operation("Orienter Express: Edge Vertex Placement", true, false, true)
+        begin
+          removed.each do |edge|
+            to_erase = @entity_to_edge.select { |_, e| e == edge }.keys
+            to_erase.each { |ent| ent.erase! if ent.valid? }
+            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_edge.delete(ent) }
+          end
+          added.each { |edge| place_for_edge(edge, offset) }
+          @model.commit_operation
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
+        end
+      end
+
+      def place_for_edge(edge, offset)
+        return if edge.length.zero?
+        edge_vec = edge.end.position - edge.start.position
+        return if edge_vec.length < 1e-6
+        edge_dir = edge_vec.normalize
+        [
+          [edge.start.position, edge_dir],
+          [edge.end.position,   edge_dir.reverse]
+        ].each do |vertex_pos, inward_dir|
+          entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
+          t = entity_copy.transformation
+          case @scale_axis
+          when :x then OrienterExpress.send(:align_axis, entity_copy, t.origin, t.xaxis, inward_dir)
+          when :y then OrienterExpress.send(:align_axis, entity_copy, t.origin, t.yaxis, inward_dir)
+          else         OrienterExpress.send(:align_axis, entity_copy, t.origin, t.zaxis, inward_dir)
+          end
+          case @rotation_mode
+          when :flow
+            case @scale_axis
+            when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+            when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+            else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+            end
+          when :normal
+            case @scale_axis
+            when :x then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+            when :y then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+            else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
+            end
+          else # ground
+            case @scale_axis
+            when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
+            when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+            else         OrienterExpress.orient_x(entity_copy)
+            end
+          end
+          target_point = vertex_pos.offset(inward_dir, offset)
+          OrienterExpress.send(:move_insertion_to, entity_copy, target_point, @insertion_point, @scale_axis)
+          @previous_entities << entity_copy
+          @entity_to_edge[entity_copy] = edge
         end
       end
     end
@@ -1134,8 +1150,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEVertexTool.new(edges, entity.definition, entity.transformation,
-                             flow_map, rotation_mode)
+        OEVertexTool.new(edges, entity, flow_map, rotation_mode)
       )
     end
 
@@ -1176,18 +1191,18 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oecenter_offset] || "0cm"
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oecenter_offset)
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oecenter_offset: val)
       end
 
-      def initialize(edges, entity_def, entity_t, flow_map, rotation_mode)
+      def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
-        @entity_def        = entity_def
-        @entity_t          = entity_t
+        @source_entity     = entity
+        @entity_def        = entity.definition
+        @entity_t          = entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -1467,7 +1482,7 @@ module ASM_Extensions
                elsif ctrl
                  :add
                elsif shift
-                 picked_edges&.all? { |e| @edges.include?(e) } ? :remove : :add
+                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
                else
                  :replace
                end
@@ -1496,7 +1511,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OECenterTool.last_offset_str) rescue nil
+        current = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
         return unless current
         step    = Sketchup.parse_length("1cm")
         new_val = current + direction * step
@@ -1509,24 +1524,31 @@ module ASM_Extensions
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
         return if new_edges.to_set == @edges.to_set
-        @edges = new_edges
-        rebuild_flow_map if @rotation_mode == :flow
+        old_set  = @edges.to_set
+        new_set  = new_edges.to_set
+        @edges   = new_edges
         @syncing = true
-        apply(OECenterTool.last_offset_str)
+        if @rotation_mode == :flow
+          rebuild_flow_map
+          apply(OECenterTool.last_offset_str)
+        else
+          offset = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+        end
         sync_selection
       ensure
         @syncing = false
       end
 
       def sync_selection
-        valid_edges    = @edges.select(&:valid?)
-        edge_set       = valid_edges.to_set
-        full_faces     = valid_edges.flat_map(&:faces).uniq.select { |f|
+        valid_edges = @edges.select(&:valid?)
+        edge_set    = valid_edges.to_set
+        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
           f.valid? && f.edges.all? { |e| edge_set.include?(e) }
         }
-        valid_entities = @previous_entities.select(&:valid?)
-        target  = (valid_edges + full_faces + valid_entities).to_set
-        current = @model.selection.to_a.to_set
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (valid_edges + full_faces + source).to_set
+        current   = @model.selection.to_a.to_set
         to_remove = (current - target).to_a
         to_add    = (target - current).to_a
         @model.selection.remove(to_remove) unless to_remove.empty?
@@ -1563,8 +1585,9 @@ module ASM_Extensions
           e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
         }
         return unless instance
-        @entity_def = instance.definition
-        @entity_t   = instance.transformation
+        @source_entity = instance
+        @entity_def    = instance.definition
+        @entity_t      = instance.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
@@ -1578,11 +1601,7 @@ module ASM_Extensions
       end
 
       def apply(text)
-        offset = begin
-          Sketchup.parse_length(text)
-        rescue
-          nil
-        end
+        offset = OrienterExpress.send(:parse_length_safe, text)
         return if offset.nil?
 
         transparent = !@first_apply
@@ -1593,80 +1612,13 @@ module ASM_Extensions
           @previous_entities = []
           @entity_to_edge    = {}
 
-          created = 0
-          skipped = []
-          @edges.each do |edge|
-            next if edge.length.zero?
+          @edges.each { |edge| place_for_edge(edge, offset) }
 
-            entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
-
-            # Orient the copy to the edge (axis alignment, no scaling)
-            case @scale_axis
-            when :x then OrienterExpress.orient_x_to_edge(entity_copy, edge)
-            when :y then OrienterExpress.orient_y_to_edge(entity_copy, edge)
-            else         OrienterExpress.orient_z(entity_copy, edge)
-            end
-
-            # Rotation mode
-            case @rotation_mode
-            when :flow
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map,
-                                     entity_copy.transformation.xaxis,
-                                     entity_copy.transformation.zaxis)
-              when :y
-                OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map,
-                                     entity_copy.transformation.yaxis,
-                                     entity_copy.transformation.zaxis)
-              else
-                OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
-              end
-            when :normal
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge,
-                                     entity_copy.transformation.xaxis,
-                                     entity_copy.transformation.zaxis)
-              when :y
-                OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge,
-                                     entity_copy.transformation.yaxis,
-                                     entity_copy.transformation.zaxis)
-              else
-                OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
-              end
-            else # ground
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:orient_ground_around, entity_copy,
-                                     entity_copy.transformation.xaxis,
-                                     entity_copy.transformation.yaxis)
-              when :y
-                OrienterExpress.send(:orient_ground_around, entity_copy,
-                                     entity_copy.transformation.yaxis,
-                                     entity_copy.transformation.zaxis)
-              else
-                OrienterExpress.orient_x(entity_copy)
-              end
-            end
-
-            # Place at midpoint + offset along edge direction
-            edge_vec = (edge.end.position - edge.start.position)
-            midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
-            unless edge_vec.length < 1e-6
-              midpoint = midpoint.offset(edge_vec.normalize, offset)
-            end
-            OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
-
-            @previous_entities << entity_copy
-            @entity_to_edge[entity_copy] = edge
-            created += 1
-          end
           @model.commit_operation
           @first_apply   = false
           @applied       = true
-          @skipped_edges = skipped
-          formatted = Sketchup.format_length(offset)
+          @skipped_edges = []
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oecenter_offset)
           OECenterTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
@@ -1674,6 +1626,60 @@ module ASM_Extensions
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")
         end
+      end
+
+      def apply_diff(added, removed, offset)
+        return unless offset
+        @model.start_operation("Orienter Express: Center Placement", true, false, true)
+        begin
+          removed.each do |edge|
+            to_erase = @entity_to_edge.select { |_, e| e == edge }.keys
+            to_erase.each { |ent| ent.erase! if ent.valid? }
+            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_edge.delete(ent) }
+          end
+          added.each { |edge| place_for_edge(edge, offset) }
+          @model.commit_operation
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
+        end
+      end
+
+      def place_for_edge(edge, offset)
+        return if edge.length.zero?
+        entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
+        case @scale_axis
+        when :x then OrienterExpress.orient_x_to_edge(entity_copy, edge)
+        when :y then OrienterExpress.orient_y_to_edge(entity_copy, edge)
+        else         OrienterExpress.orient_z(entity_copy, edge)
+        end
+        case @rotation_mode
+        when :flow
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+          end
+        when :normal
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+          when :y then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
+          end
+        else # ground
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
+          when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.orient_x(entity_copy)
+          end
+        end
+        edge_vec = edge.end.position - edge.start.position
+        midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+        midpoint = midpoint.offset(edge_vec.normalize, offset) unless edge_vec.length < 1e-6
+        OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+        @previous_entities << entity_copy
+        @entity_to_edge[entity_copy] = edge
       end
 
     end
@@ -1701,8 +1707,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OECenterTool.new(edges, entity.definition, entity.transformation,
-                         flow_map, rotation_mode)
+        OECenterTool.new(edges, entity, flow_map, rotation_mode)
       )
     end
 
@@ -1744,18 +1749,18 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oezscale_offset] || "10cm"
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oezscale_offset)
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oezscale_offset: val)
       end
 
-      def initialize(edges, entity_def, entity_t, flow_map, rotation_mode)
+      def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
-        @entity_def        = entity_def
-        @entity_t          = entity_t
+        @source_entity     = entity
+        @entity_def        = entity.definition
+        @entity_t          = entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -1881,7 +1886,6 @@ module ASM_Extensions
         ctrl  = flags & COPY_MODIFIER_MASK      != 0
         shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         if ctrl != @mod_ctrl || shift != @mod_shift
-          puts "[OEZScale.mouseMove] flags=0x#{flags.to_s(16)}  ctrl:#{@mod_ctrl}→#{ctrl}  shift:#{@mod_shift}→#{shift}  sample:#{@sample_mode}"
           @mod_ctrl  = ctrl
           @mod_shift = shift
           update_cursor
@@ -1901,9 +1905,6 @@ module ASM_Extensions
 
 
       def onKeyDown(key, _repeat, flags, view)
-        before_sample = @sample_mode
-        before_ctrl   = @mod_ctrl
-        before_shift  = @mod_shift
         case key
         when 17 then @mod_ctrl = true;  @sample_mode = false
         when 16 then @mod_shift = true; @sample_mode = false
@@ -1912,8 +1913,6 @@ module ASM_Extensions
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
-        key_name = { 16 => "Shift", 17 => "Ctrl", 27 => "Esc", 9 => "Tab", 37 => "Left", 38 => "Up", 39 => "Right", 40 => "Down" }[key] || "key#{key}"
-        puts "[OEZScale.keyDown] #{key_name} flags=0x#{flags.to_s(16)}  ctrl:#{before_ctrl}→#{@mod_ctrl}  shift:#{before_shift}→#{@mod_shift}  sample:#{before_sample}→#{@sample_mode}"
         update_cursor
         view.invalidate
         case key
@@ -1943,9 +1942,7 @@ module ASM_Extensions
           update_vcb
           apply(OEZScaleTool.last_offset_str)
         when 35 # End — cycle rotation mode
-          before = @rotation_mode
           @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-          puts "[OEZScaleTool.end] #{before.inspect} → #{@rotation_mode.inspect}"
           rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
           update_vcb
           apply(OEZScaleTool.last_offset_str)
@@ -1969,8 +1966,6 @@ module ASM_Extensions
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
-        key_name = { 16 => "Shift", 17 => "Ctrl", 27 => "Esc", 9 => "Tab", 37 => "Left", 38 => "Up", 39 => "Right", 40 => "Down" }[key] || "key#{key}"
-        puts "[OEZScale.keyUp  ] #{key_name} flags=0x#{flags.to_s(16)}  ctrl:#{before_ctrl}→#{@mod_ctrl}  shift:#{before_shift}→#{@mod_shift}  sample:#{@sample_mode}"
         @arrow_key_dir = nil if key == 37 || key == 39
         update_cursor
         view.invalidate
@@ -2064,7 +2059,7 @@ module ASM_Extensions
                elsif ctrl
                  :add
                elsif shift
-                 picked_edges&.all? { |e| @edges.include?(e) } ? :remove : :add
+                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
                else
                  :replace
                end
@@ -2097,7 +2092,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OEZScaleTool.last_offset_str) rescue nil
+        current = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
         return unless current
         step    = Sketchup.parse_length("1cm")
         new_val = current + direction * step
@@ -2110,29 +2105,33 @@ module ASM_Extensions
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
         return if new_edges.to_set == @edges.to_set
-        @edges = new_edges
-        rebuild_flow_map if @rotation_mode == :flow
+        old_set  = @edges.to_set
+        new_set  = new_edges.to_set
+        @edges   = new_edges
         @syncing = true
-        apply(OEZScaleTool.last_offset_str)
+        if @rotation_mode == :flow
+          rebuild_flow_map
+          apply(OEZScaleTool.last_offset_str)
+        else
+          offset = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+        end
         sync_selection
       ensure
         @syncing = false
       end
 
       def sync_selection
-        valid_edges    = @edges.select(&:valid?)
-        edge_set       = valid_edges.to_set
-        full_faces     = valid_edges.flat_map(&:faces).uniq.select { |f|
+        valid_edges = @edges.select(&:valid?)
+        edge_set    = valid_edges.to_set
+        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
           f.valid? && f.edges.all? { |e| edge_set.include?(e) }
         }
-        valid_entities = @previous_entities.select(&:valid?)
-
-        target  = (valid_edges + full_faces + valid_entities).to_set
-        current = @model.selection.to_a.to_set
-
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (valid_edges + full_faces + source).to_set
+        current   = @model.selection.to_a.to_set
         to_remove = (current - target).to_a
         to_add    = (target - current).to_a
-
         @model.selection.remove(to_remove) unless to_remove.empty?
         @model.selection.add(to_add)       unless to_add.empty?
       end
@@ -2167,8 +2166,9 @@ module ASM_Extensions
           e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
         }
         return unless instance
-        @entity_def = instance.definition
-        @entity_t   = instance.transformation
+        @source_entity = instance
+        @entity_def    = instance.definition
+        @entity_t      = instance.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
@@ -2182,18 +2182,8 @@ module ASM_Extensions
       end
 
       def apply(text)
-        puts "[OEZScaleTool.apply] called with text=#{text.inspect} first=#{@first_apply} edges=#{@edges.size}"
-        offset = begin
-          Sketchup.parse_length(text)
-        rescue => e
-          puts "[OEZScaleTool.apply] parse_length failed: #{e.message}"
-          nil
-        end
-        if offset.nil?
-          puts "[OEZScaleTool.apply] offset nil, returning"
-          return
-        end
-        puts "[OEZScaleTool.apply] offset=#{offset} transparent=#{!@first_apply}"
+        offset = OrienterExpress.send(:parse_length_safe, text)
+        return if offset.nil?
 
         transparent = !@first_apply
         @model.start_operation("Orienter Express: Z-Scaling", true, false, transparent)
@@ -2202,92 +2192,86 @@ module ASM_Extensions
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
           @entity_to_edge    = {}
+          skipped            = []
 
-          created = 0
-          skipped = []
-          @edges.each do |edge|
-            next if edge.length.zero?
-            effective_length = edge.length - 2 * offset
-            if effective_length <= 1e-6
-              puts "[OEZScaleTool.apply]   edge len=#{edge.length.round(3)} eff=#{effective_length.round(3)} SKIPPED"
-              skipped << edge
-              next
-            end
-            entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
-            case @scale_axis
-            when :x
-              OrienterExpress.x_scale(entity_copy, edge, effective_length)
-              OrienterExpress.orient_x_to_edge(entity_copy, edge)
-            when :y
-              OrienterExpress.y_scale(entity_copy, edge, effective_length)
-              OrienterExpress.orient_y_to_edge(entity_copy, edge)
-            else
-              OrienterExpress.z_scale(entity_copy, edge, effective_length)
-              OrienterExpress.orient_z(entity_copy, edge)
-            end
-            case @rotation_mode
-            when :flow
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map,
-                                     entity_copy.transformation.xaxis,
-                                     entity_copy.transformation.zaxis)
-              when :y
-                OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map,
-                                     entity_copy.transformation.yaxis,
-                                     entity_copy.transformation.zaxis)
-              else
-                OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
-              end
-            when :normal
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge,
-                                     entity_copy.transformation.xaxis,
-                                     entity_copy.transformation.zaxis)
-              when :y
-                OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge,
-                                     entity_copy.transformation.yaxis,
-                                     entity_copy.transformation.zaxis)
-              else
-                OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
-              end
-            else
-              # Ground: rotate around the scale axis to make the next axis ground-parallel
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:orient_ground_around, entity_copy,
-                                     entity_copy.transformation.xaxis,
-                                     entity_copy.transformation.yaxis)
-              when :y
-                OrienterExpress.send(:orient_ground_around, entity_copy,
-                                     entity_copy.transformation.yaxis,
-                                     entity_copy.transformation.zaxis)
-              else
-                OrienterExpress.orient_x(entity_copy)
-              end
-            end
-            midpoint = Geom::Point3d.linear_combination(
-              0.5, edge.start.position, 0.5, edge.end.position)
-            OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
-            @previous_entities << entity_copy
-            @entity_to_edge[entity_copy] = edge
-            created += 1
-          end
+          @edges.each { |edge| place_for_edge(edge, offset, skipped) }
+
           @model.commit_operation
-          @first_apply      = false
-          @applied          = true
-          @skipped_edges    = skipped
-          formatted = Sketchup.format_length(offset)
+          @first_apply   = false
+          @applied       = true
+          @skipped_edges = skipped
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oezscale_offset)
           OEZScaleTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
-          puts "[OEZScaleTool.apply] DONE created=#{created}"
         rescue => e
           @model.abort_operation
-          puts "[OEZScaleTool.apply] ERROR #{e.class}: #{e.message}\n#{e.backtrace.first(3).join("\n")}"
           UI.messagebox("Error: #{e.message}")
         end
+      end
+
+      def apply_diff(added, removed, offset)
+        return unless offset
+        @model.start_operation("Orienter Express: Z-Scaling", true, false, true)
+        begin
+          removed.each do |edge|
+            @skipped_edges.delete(edge)
+            to_erase = @entity_to_edge.select { |_, e| e == edge }.keys
+            to_erase.each { |ent| ent.erase! if ent.valid? }
+            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_edge.delete(ent) }
+          end
+          added.each { |edge| place_for_edge(edge, offset, @skipped_edges) }
+          @model.commit_operation
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
+        end
+      end
+
+      def place_for_edge(edge, offset, skipped = nil)
+        return if edge.length.zero?
+        effective_length = edge.length - 2 * offset
+        if effective_length <= 1e-6
+          skipped << edge if skipped
+          return
+        end
+        entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
+        case @scale_axis
+        when :x
+          OrienterExpress.x_scale(entity_copy, edge, effective_length)
+          OrienterExpress.orient_x_to_edge(entity_copy, edge)
+        when :y
+          OrienterExpress.y_scale(entity_copy, edge, effective_length)
+          OrienterExpress.orient_y_to_edge(entity_copy, edge)
+        else
+          OrienterExpress.z_scale(entity_copy, edge, effective_length)
+          OrienterExpress.orient_z(entity_copy, edge)
+        end
+        case @rotation_mode
+        when :flow
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+          end
+        when :normal
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+          when :y then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
+          end
+        else # ground
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
+          when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.orient_x(entity_copy)
+          end
+        end
+        midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+        OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+        @previous_entities << entity_copy
+        @entity_to_edge[entity_copy] = edge
       end
     end
 
@@ -2314,8 +2298,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEZScaleTool.new(edges, entity.definition, entity.transformation,
-                          flow_map, rotation_mode)
+        OEZScaleTool.new(edges, entity, flow_map, rotation_mode)
       )
     end
 
@@ -2405,12 +2388,11 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oeflow_offset] || "0cm"
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeflow_offset)
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oeflow_offset: val)
       end
 
       def self.cursor_id(variant = :default)
@@ -2423,10 +2405,11 @@ module ASM_Extensions
         end
       end
 
-      def initialize(edges, entity_def, entity_t, flow_map, rotation_mode)
+      def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
-        @entity_def        = entity_def
-        @entity_t          = entity_t
+        @source_entity     = entity
+        @entity_def        = entity.definition
+        @entity_t          = entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -2688,7 +2671,7 @@ module ASM_Extensions
                elsif ctrl
                  :add
                elsif shift
-                 picked_edges&.all? { |e| @edges.include?(e) } ? :remove : :add
+                 (picked_edges && picked_edges.all? { |e| @edges.include?(e) }) ? :remove : :add
                else
                  :replace
                end
@@ -2718,7 +2701,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OEFlowTool.last_offset_str) rescue nil
+        current = OrienterExpress.send(:parse_length_safe, OEFlowTool.last_offset_str)
         return unless current
         step    = Sketchup.parse_length("1cm")
         apply(Sketchup.format_length(current + direction * step))
@@ -2747,8 +2730,9 @@ module ASM_Extensions
           e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
         }
         return unless instance
-        @entity_def = instance.definition
-        @entity_t   = instance.transformation
+        @source_entity = instance
+        @entity_def    = instance.definition
+        @entity_t      = instance.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
@@ -2762,10 +2746,9 @@ module ASM_Extensions
       end
 
       def sync_selection
-        valid_edges    = @edges.select(&:valid?)
-        valid_entities = @previous_entities.select(&:valid?)
-        target  = (valid_edges + valid_entities).to_set
-        current = @model.selection.to_a.to_set
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (@edges.select(&:valid?) + source).to_set
+        current   = @model.selection.to_a.to_set
         to_remove = (current - target).to_a
         to_add    = (target - current).to_a
         @model.selection.remove(to_remove) unless to_remove.empty?
@@ -2785,7 +2768,7 @@ module ASM_Extensions
       end
 
       def apply(text)
-        offset = Sketchup.parse_length(text) rescue nil
+        offset = OrienterExpress.send(:parse_length_safe, text)
         return unless offset
 
         vertex_edges = {}
@@ -2822,7 +2805,7 @@ module ASM_Extensions
             end
 
             # Representative edge for rotation modes that need an edge reference
-            rep_edge = vertex_edges[vertex]&.first
+            rep_edge = vertex_edges[vertex] ? vertex_edges[vertex].first : nil
 
             # Secondary orientation (rotation mode)
             case @rotation_mode
@@ -2883,7 +2866,7 @@ module ASM_Extensions
           @model.commit_operation
           @first_apply = false
           @applied     = true
-          formatted = Sketchup.format_length(offset)
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeflow_offset)
           OEFlowTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
@@ -2917,8 +2900,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEFlowTool.new(edges, entity.definition, entity.transformation,
-                       flow_map, rotation_mode)
+        OEFlowTool.new(edges, entity, flow_map, rotation_mode)
       )
     end
 
@@ -2947,12 +2929,11 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= CONFIG[:oeface_offset] || "0cm"
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeface_offset)
       end
 
       def self.last_offset_str=(val)
         @@last_offset_str = val
-        OrienterExpress.user_settings(oeface_offset: val)
       end
 
       def self.cursor_id(variant = :default)
@@ -2965,10 +2946,11 @@ module ASM_Extensions
         end
       end
 
-      def initialize(faces, entity_def, entity_t)
+      def initialize(faces, entity)
         @faces             = faces
-        @entity_def        = entity_def
-        @entity_t          = entity_t
+        @source_entity     = entity
+        @entity_def        = entity.definition
+        @entity_t          = entity.transformation
         @model             = Sketchup.active_model
         @applied           = false
         @first_apply       = true
@@ -3018,11 +3000,6 @@ module ASM_Extensions
         bb = Geom::BoundingBox.new
         8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
         bb
-      end
-
-      def draw(view)
-        draw_bounds(view, @entity_def.bounds, @entity_t,
-                    Sketchup::Color.new(255, 140, 0), 3)
       end
 
       def onLButtonDown(flags, x, y, view)
@@ -3248,7 +3225,7 @@ module ASM_Extensions
       end
 
       def scroll_offset(direction)
-        current = Sketchup.parse_length(OEFaceTool.last_offset_str) rescue nil
+        current = OrienterExpress.send(:parse_length_safe, OEFaceTool.last_offset_str)
         return unless current
         step    = Sketchup.parse_length("1cm")
         apply(Sketchup.format_length(current + direction * step))
@@ -3261,24 +3238,23 @@ module ASM_Extensions
                      @model.selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
         return if new_faces.empty?
         return if new_faces.to_set == @faces.to_set
-        @faces = new_faces
+        old_set  = @faces.to_set
+        new_set  = new_faces.to_set
+        @faces   = new_faces
         @syncing = true
-        apply(OEFaceTool.last_offset_str)
+        offset = OrienterExpress.send(:parse_length_safe, OEFaceTool.last_offset_str)
+        apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         sync_selection
       ensure
         @syncing = false
       end
 
       def sync_selection
-        valid_faces  = @faces.select(&:valid?)
-        valid_placed = @previous_entities.select(&:valid?)
-
-        target  = (valid_faces + valid_placed).to_set
-        current = @model.selection.to_a.to_set
-
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (@faces.select(&:valid?) + source).to_set
+        current   = @model.selection.to_a.to_set
         to_remove = (current - target).to_a
         to_add    = (target - current).to_a
-
         @model.selection.remove(to_remove) unless to_remove.empty?
         @model.selection.add(to_add)       unless to_add.empty?
       end
@@ -3299,7 +3275,7 @@ module ASM_Extensions
       end
 
       def apply(text)
-        offset = Sketchup.parse_length(text) rescue nil
+        offset = OrienterExpress.send(:parse_length_safe, text)
         return unless offset
 
         transparent = !@first_apply
@@ -3310,32 +3286,12 @@ module ASM_Extensions
           @previous_entities = []
           @entity_to_face    = {}
 
-          @faces.each do |face|
-            next unless face.valid?
-            normal = face.normal
-            next if normal.length < 1e-6
-            centroid    = OrienterExpress.send(:face_centroid, face)
-            target      = centroid.offset(normal.normalize, offset)
-            entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
-            t           = entity_copy.transformation
-            case @scale_axis
-            when :x then OrienterExpress.align_axis(entity_copy, t.origin, t.xaxis, normal)
-            when :y then OrienterExpress.align_axis(entity_copy, t.origin, t.yaxis, normal)
-            else         OrienterExpress.align_axis(entity_copy, t.origin, t.zaxis, normal)
-            end
-            if @axis_idx == 2
-              OrienterExpress.orient_x(entity_copy)
-            else
-              OrienterExpress.orient_to_face_edge(entity_copy, face, @axis_idx, @scale_axis)
-            end
-            OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
-            @previous_entities << entity_copy
-            @entity_to_face[entity_copy] = face
-          end
+          @faces.each { |face| place_for_face(face, offset) }
+
           @model.commit_operation
           @first_apply = false
           @applied     = true
-          formatted = Sketchup.format_length(offset)
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeface_offset)
           OEFaceTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
@@ -3345,18 +3301,47 @@ module ASM_Extensions
         end
       end
 
-      def draw_bounds(view, bounds, transformation, color, line_width)
-        return if bounds.empty?
-        eye     = view.camera.eye
-        corners = 8.times.map do |i|
-          pt = transformation * bounds.corner(i)
-          pt.offset((eye - pt).normalize, 0.1)
+      def apply_diff(added, removed, offset)
+        return unless offset
+        @model.start_operation("Orienter Express: Face Placement", true, false, true)
+        begin
+          removed.each do |face|
+            to_erase = @entity_to_face.select { |_, f| f == face }.keys
+            to_erase.each { |ent| ent.erase! if ent.valid? }
+            to_erase.each { |ent| @previous_entities.delete(ent); @entity_to_face.delete(ent) }
+          end
+          added.each { |face| place_for_face(face, offset) }
+          @model.commit_operation
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
         end
-        pairs = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]]
-        view.line_width    = line_width
-        view.drawing_color = color
-        pairs.each { |a, b| view.draw(GL_LINES, [corners[a], corners[b]]) }
       end
+
+      def place_for_face(face, offset)
+        return unless face.valid?
+        normal = face.normal
+        return if normal.length < 1e-6
+        centroid    = OrienterExpress.send(:face_centroid, face)
+        target      = centroid.offset(normal.normalize, offset)
+        entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
+        t           = entity_copy.transformation
+        case @scale_axis
+        when :x then OrienterExpress.align_axis(entity_copy, t.origin, t.xaxis, normal)
+        when :y then OrienterExpress.align_axis(entity_copy, t.origin, t.yaxis, normal)
+        else         OrienterExpress.align_axis(entity_copy, t.origin, t.zaxis, normal)
+        end
+        if @axis_idx == 2
+          OrienterExpress.orient_x(entity_copy)
+        else
+          OrienterExpress.orient_to_face_edge(entity_copy, face, @axis_idx, @scale_axis)
+        end
+        OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+        @previous_entities << entity_copy
+        @entity_to_face[entity_copy] = face
+      end
+
 
       def pick_new_sample(view, x, y)
         ph    = view.pick_helper
@@ -3366,8 +3351,9 @@ module ASM_Extensions
           e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
         }
         return unless instance
-        @entity_def = instance.definition
-        @entity_t   = instance.transformation
+        @source_entity = instance
+        @entity_def    = instance.definition
+        @entity_t      = instance.transformation
         @model.start_operation("Orienter Express: Change Sample", true, false, false)
         @previous_entities.each { |e| e.erase! if e.valid? }
         @previous_entities = []
@@ -3390,7 +3376,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEFaceTool.new(faces, entity.definition, entity.transformation)
+        OEFaceTool.new(faces, entity)
       )
     end
 
@@ -3420,6 +3406,7 @@ module ASM_Extensions
       end
 
       def activate
+        @model.selection.clear unless @model.selection.empty?
         update_vcb
         UI.start_timer(0, false) { apply_to(@pending_targets) unless @pending_targets.empty? }
       end
@@ -3454,7 +3441,7 @@ module ASM_Extensions
       end
 
       def draw(view)
-        return unless @hovered&.valid?
+        return unless @hovered && @hovered.valid?
         t       = @hovered.transformation
         def_bb  = @hovered.definition.bounds
         corners = 8.times.map { |i| t * def_bb.corner(i) }
@@ -3470,7 +3457,7 @@ module ASM_Extensions
 
       def getExtents
         bb = Geom::BoundingBox.new
-        if @hovered&.valid?
+        if @hovered && @hovered.valid?
           t = @hovered.transformation
           8.times { |i| bb.add(t * @hovered.definition.bounds.corner(i)) }
         end
@@ -3486,8 +3473,6 @@ module ASM_Extensions
         ph.do_pick(x, y)
         entity = ph.best_picked
         return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
-        @model.selection.clear
-        @model.selection.add(entity)
         apply_to([entity])
       end
 
@@ -4244,6 +4229,7 @@ module ASM_Extensions
       end
 
       def activate
+        @model.selection.clear unless @model.selection.empty?
         update_vcb
         UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
       end
@@ -4274,7 +4260,7 @@ module ASM_Extensions
       end
 
       def draw(view)
-        return unless @hovered&.valid?
+        return unless @hovered && @hovered.valid?
         t = @hovered.transformation
         def_bb = @hovered.definition.bounds
         corners = 8.times.map { |i| t * def_bb.corner(i) }
@@ -4290,7 +4276,7 @@ module ASM_Extensions
 
       def getExtents
         bb = Geom::BoundingBox.new
-        if @hovered&.valid?
+        if @hovered && @hovered.valid?
           t = @hovered.transformation
           8.times { |i| bb.add(t * @hovered.definition.bounds.corner(i)) }
         end
@@ -4310,8 +4296,6 @@ module ASM_Extensions
         ph.do_pick(x, y)
         entity = ph.best_picked
         return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
-        @model.selection.clear
-        @model.selection.add(entity)
         apply([entity])
       end
 

@@ -24,12 +24,12 @@ AllCops:
   - src/*/ops/dc.rb   # DC internals — not in active use
   SketchUp:
     SourcePath: src
-    TargetSketchUpVersion: 2021
+    TargetSketchUpVersion: 2017
     Exclude: # Exclude common folders.
     - profiling/
     - skippy/
     - tests/
-  TargetRubyVersion: 2.7 # SketchUp 2021 uses Ruby 2.7.
+  TargetRubyVersion: 2.2 # SketchUp 2017 uses Ruby 2.2.
 
 
 # If DisabledByDefault is set to true then we need to enable the SketchUp
