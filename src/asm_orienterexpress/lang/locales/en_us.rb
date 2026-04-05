@@ -25,7 +25,7 @@ module ASM_Extensions
               tooltip:        "Z-axis Scaling",
               status:         "Scale and place copies along edges with an offset from each vertex.",
               offset_prompt:  "Offset",
-              vcb_hint:       "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↓: reset  |  Esc: cancel"
+              vcb_hint:       "Enter: update  |  Tab: axis  |  End: mode  |  ←→: adjust  |  ↓: reset  |  Esc: cancel"
             },
             oeuscale: {
               label:   "Uniform Scaling",

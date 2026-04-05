@@ -47,7 +47,7 @@ module ASM_Extensions
       def test_default_config_insertion_point_custom_has_all_tool_keys
         custom = DEFAULT_CONFIG[:insertion_point_custom]
         assert_instance_of Hash, custom, "insertion_point_custom should be a Hash"
-        expected_tools = %i[oevertex oecenter oezscale oeflow oeface oereset]
+        expected_tools = %i[oevertex oecenter oeflow oeface oereset]
         expected_tools.each do |tool|
           assert custom.key?(tool), "insertion_point_custom missing tool key: #{tool}"
         end

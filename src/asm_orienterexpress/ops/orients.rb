@@ -1513,7 +1513,7 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oezscale).to_sym
+        @insertion_point = :center
       end
 
       def activate
@@ -1598,13 +1598,6 @@ module ASM_Extensions
           rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
           update_vcb
           apply(OEZScaleTool.last_offset_str)
-        when 36 # Home — cycle insertion point
-          @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oezscale] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(OEZScaleTool.last_offset_str)
         end
       end
 
@@ -1612,11 +1605,9 @@ module ASM_Extensions
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
-        ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
-        ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}", 0)
       end
 
       def apply(text)

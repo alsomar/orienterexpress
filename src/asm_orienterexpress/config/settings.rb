@@ -13,11 +13,10 @@ module ASM_Extensions
       rotation_mode: "ground",
       insertion_point_custom: {
         oevertex: "origin",
-        oecenter:     "center",
-        oezscale:     "center",
-        oeflow:       "center",
-        oeface:       "base",
-        oereset:      "base"
+        oecenter: "center",
+        oeflow:   "center",
+        oeface:   "base",
+        oereset:  "base"
       },
 
       # Inner Options
@@ -25,7 +24,7 @@ module ASM_Extensions
       debug_mode: false,
       oevertex_offset: "0cm",
       oecenter_offset: "0cm",
-      oezscale_offset: "10cm",
+      oezscale_offset:   "10cm",
       oeface_offset:   "0cm",
       oeflow_offset:   "0cm"
     }.freeze
