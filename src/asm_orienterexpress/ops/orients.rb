@@ -635,6 +635,7 @@ module ASM_Extensions
         @lbutton_down  = false
         @drag_mode     = nil
         @arrow_key_dir = nil
+        @roll_steps    = 0
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -748,6 +749,9 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
+        when 38 # Up — roll 90°
+          @roll_steps = (@roll_steps + 1) % 4
+          apply(self.class.last_offset_str)
         when 40 # Down — reset offset to zero
           apply(Sketchup.format_length(0))
         else
@@ -957,6 +961,25 @@ module ASM_Extensions
 
       # Hook: fill in VCB labels/hints when entity_def is set.
       def render_vcb; end
+
+      # Returns the roll axis: the entity axis aligned to the placement direction
+      # (edge inward direction or face normal). Follows @scale_axis if defined.
+      def roll_axis(entity_copy)
+        t = entity_copy.transformation
+        case @scale_axis
+        when :x then t.xaxis
+        when :y then t.yaxis
+        else         t.zaxis
+        end
+      end
+
+      def apply_roll(entity_copy)
+        return if @roll_steps == 0
+        axis = roll_axis(entity_copy)
+        entity_copy.transform!(
+          Geom::Transformation.rotation(entity_copy.bounds.center, axis, @roll_steps * 90.degrees)
+        )
+      end
 
       def pick_new_sample_entity(entity)
         @source_entity = entity
@@ -1206,6 +1229,7 @@ module ASM_Extensions
             end
           end
           target_point = vertex_pos.offset(inward_dir, offset)
+          apply_roll(entity_copy)
           OrienterExpress.send(:move_insertion_to, entity_copy, target_point, @insertion_point, @scale_axis)
           @previous_entities << entity_copy
           @placement_map[entity_copy] = edge
@@ -1451,6 +1475,7 @@ module ASM_Extensions
         edge_vec = edge.end.position - edge.start.position
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         midpoint = midpoint.offset(edge_vec.normalize, offset) unless edge_vec.length < 1e-6
+        apply_roll(entity_copy)
         OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
@@ -1716,6 +1741,7 @@ module ASM_Extensions
                     else
                       @scale_axis
                     end
+        apply_roll(entity_copy)
         OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, base_axis)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
@@ -1881,6 +1907,7 @@ module ASM_Extensions
           OrienterExpress.orient_x(entity_copy)
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+        apply_roll(entity_copy)
         entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
@@ -2094,6 +2121,7 @@ module ASM_Extensions
               end
             end
 
+            apply_roll(entity_copy)
             OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
             @previous_entities << entity_copy
             @placement_map[entity_copy] = vertex
@@ -2371,7 +2399,24 @@ module ASM_Extensions
         else
           OrienterExpress.orient_to_face_edge(entity_copy, face, @axis_idx, @scale_axis)
         end
-        OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+        apply_roll(entity_copy)
+        # For base insertion, find which local axis is most aligned to the face
+        # normal after all orientation steps — orient_x can rotate the scale axis
+        # away from the normal (e.g. on near-horizontal faces with scale_axis :x).
+        base_axis = if @insertion_point == :base
+                      t2  = entity_copy.transformation
+                      n   = normal.normalize
+                      x_d = (t2.xaxis.normalize.dot(n)).abs
+                      y_d = (t2.yaxis.normalize.dot(n)).abs
+                      z_d = (t2.zaxis.normalize.dot(n)).abs
+                      if    x_d >= y_d && x_d >= z_d then :x
+                      elsif y_d >= z_d               then :y
+                      else                                nil
+                      end
+                    else
+                      @scale_axis
+                    end
+        OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, base_axis)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = face
       end

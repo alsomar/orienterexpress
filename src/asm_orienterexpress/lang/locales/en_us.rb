@@ -11,41 +11,41 @@ module ASM_Extensions
               tooltip:       "Edge Vertex Placement",
               status:        "Place oriented copies at both vertices of each edge, with optional inward offset.",
               offset_prompt: "Offset",
-              vcb_hint:      "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↓: reset  |  Esc: cancel"
+              vcb_hint:      "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↑: roll  |  ↓: reset  |  Esc: cancel"
             },
             oecenter: {
               label:         "Edge Center Placement",
               tooltip:       "Edge Center Placement",
               status:        "Place copies centered on edges with an optional offset along the edge.",
               offset_prompt: "Offset",
-              vcb_hint:      "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↓: reset  |  Esc: cancel"
+              vcb_hint:      "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↑: roll  |  ↓: reset  |  Esc: cancel"
             },
             oezscale: {
               label:          "Z-axis Scaling",
               tooltip:        "Z-axis Scaling",
               status:         "Scale and place copies along edges with an offset from each vertex.",
               offset_prompt:  "Offset",
-              vcb_hint:       "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↓: reset  |  Esc: cancel"
+              vcb_hint:       "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↑: roll  |  ↓: reset  |  Esc: cancel"
             },
             oeuscale: {
               label:    "Uniform Scaling",
               tooltip:  "Uniform Scaling",
               status:   "Scale uniformly and place copies along edges.",
-              vcb_hint: "End: mode  |  Esc: cancel"
+              vcb_hint: "End: mode  |  ↑: roll  |  Esc: cancel"
             },
             oeflow: {
               label:          "Vertex Flow Placement",
               tooltip:        "Vertex Flow Placement",
               status:         "Place oriented copies at vertices, aligned to the incoming edge flow.",
               offset_prompt:  "Offset",
-              vcb_hint:       "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↓: reset  |  Esc: cancel"
+              vcb_hint:       "Enter: update  |  Tab: axis  |  End: mode  |  Home: insertion  |  ←→: adjust  |  ↑: roll  |  ↓: reset  |  Esc: cancel"
             },
             oeface: {
               label:         "Face Placement",
               tooltip:       "Face Placement",
               status:        "Place copies at face centroids with an offset along the face normal.",
               offset_prompt: "Offset",
-              vcb_hint:      "Enter: update  |  Tab: axis  |  End: orientation  |  Home: insertion  |  ←→: adjust  |  ↓: reset  |  Esc: cancel",
+              vcb_hint:      "Enter: update  |  Tab: axis  |  End: orientation  |  Home: insertion  |  ←→: adjust  |  ↑: roll  |  ↓: reset  |  Esc: cancel",
               axis_parallel: "parallel to dominant edge",
               axis_perp:     "perpendicular to dominant edge",
               axis_ground:   "horizontal"
