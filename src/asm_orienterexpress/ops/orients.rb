@@ -981,6 +981,60 @@ module ASM_Extensions
         )
       end
 
+      # Returns which local axis symbol (:x, :y, or nil=z) of entity_copy is
+      # most aligned to reference_vec, taking sign into account so that
+      # move_insertion_to's min.{axis} always lands on the correct face.
+      # Only valid when reference_vec is the direction the scale_axis
+      # was originally aligned to (i.e. OEFaceTool, where scale_axis
+      # stays aligned to normal after all orientations).
+      def axis_most_aligned_to(entity_copy, reference_vec)
+        return @scale_axis unless reference_vec && reference_vec.length > 1e-6
+        t   = entity_copy.transformation
+        n   = reference_vec.normalize
+        x_d = (t.xaxis.normalize.dot(n)).abs
+        y_d = (t.yaxis.normalize.dot(n)).abs
+        z_d = (t.zaxis.normalize.dot(n)).abs
+        if    x_d >= y_d && x_d >= z_d then :x
+        elsif y_d >= z_d               then :y
+        else                                nil
+        end
+      end
+
+      # Places entity_copy so the bounding-box face most in the -normal direction
+      # (closest to the surface) lands at target. Works regardless of roll steps
+      # because it operates entirely in world space.
+      def move_base_to_surface(entity_copy, target, surface_normal)
+        n   = surface_normal.normalize
+        t   = entity_copy.transformation
+        db  = entity_copy.definition.bounds
+        # Use definition corners transformed to world space (oriented BB, not AABB)
+        world_corners = 8.times.map { |i| t * db.corner(i) }
+        dot_n = ->(pt) { pt.x * n.x + pt.y * n.y + pt.z * n.z }
+        min_proj  = world_corners.map { |p| dot_n.call(p) }.min
+        ctr_world = t * db.center
+        base_pt   = ctr_world.offset(n, min_proj - dot_n.call(ctr_world))
+        entity_copy.transform!(Geom::Transformation.translation(target - base_pt))
+      end
+
+      # For edge tools: when base + normal mode, use world-space projection so
+      # that the result is correct at all roll steps (sign-safe). Otherwise fall
+      # back to move_insertion_to with @scale_axis.
+      def place_with_insertion(entity_copy, target, edge_normal_vec = nil)
+        if @insertion_point == :base && @rotation_mode == :normal && edge_normal_vec
+          move_base_to_surface(entity_copy, target, edge_normal_vec)
+        else
+          OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+        end
+      end
+
+      # Returns the averaged face normal for an edge, or nil if the edge has no faces.
+      def avg_face_normal_for_edge(edge)
+        normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }
+        return nil if normals.empty?
+        avg = normals.reduce(Geom::Vector3d.new(0, 0, 0)) { |s, n| s + n }
+        avg.length > 1e-6 ? avg.normalize : nil
+      end
+
       def pick_new_sample_entity(entity)
         @source_entity = entity
         @entity_def    = entity.definition
@@ -1230,11 +1284,13 @@ module ASM_Extensions
           end
           target_point = vertex_pos.offset(inward_dir, offset)
           apply_roll(entity_copy)
-          OrienterExpress.send(:move_insertion_to, entity_copy, target_point, @insertion_point, @scale_axis)
+          edge_normal  = avg_face_normal_for_edge(edge)
+          place_with_insertion(entity_copy, target_point, edge_normal)
           @previous_entities << entity_copy
           @placement_map[entity_copy] = edge
         end
       end
+
     end
 
     def self.oevertex
@@ -1476,7 +1532,8 @@ module ASM_Extensions
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         midpoint = midpoint.offset(edge_vec.normalize, offset) unless edge_vec.length < 1e-6
         apply_roll(entity_copy)
-        OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+        edge_normal = avg_face_normal_for_edge(edge)
+        place_with_insertion(entity_copy, midpoint, edge_normal)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -2122,7 +2179,8 @@ module ASM_Extensions
             end
 
             apply_roll(entity_copy)
-            OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+            flow_normal = rep_edge ? avg_face_normal_for_edge(rep_edge) : nil
+            place_with_insertion(entity_copy, target, flow_normal)
             @previous_entities << entity_copy
             @placement_map[entity_copy] = vertex
           end
@@ -2400,22 +2458,7 @@ module ASM_Extensions
           OrienterExpress.orient_to_face_edge(entity_copy, face, @axis_idx, @scale_axis)
         end
         apply_roll(entity_copy)
-        # For base insertion, find which local axis is most aligned to the face
-        # normal after all orientation steps — orient_x can rotate the scale axis
-        # away from the normal (e.g. on near-horizontal faces with scale_axis :x).
-        base_axis = if @insertion_point == :base
-                      t2  = entity_copy.transformation
-                      n   = normal.normalize
-                      x_d = (t2.xaxis.normalize.dot(n)).abs
-                      y_d = (t2.yaxis.normalize.dot(n)).abs
-                      z_d = (t2.zaxis.normalize.dot(n)).abs
-                      if    x_d >= y_d && x_d >= z_d then :x
-                      elsif y_d >= z_d               then :y
-                      else                                nil
-                      end
-                    else
-                      @scale_axis
-                    end
+        base_axis = @insertion_point == :base ? axis_most_aligned_to(entity_copy, normal) : @scale_axis
         OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, base_axis)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = face
