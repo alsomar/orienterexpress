@@ -1016,12 +1016,27 @@ module ASM_Extensions
         entity_copy.transform!(Geom::Transformation.translation(target - base_pt))
       end
 
-      # For edge tools: when base + normal mode, use world-space projection so
-      # that the result is correct at all roll steps (sign-safe). Otherwise fall
-      # back to move_insertion_to with @scale_axis.
+      # For edge tools in base mode: use world-space OBB projection so the result
+      # is correct at all roll steps (sign-safe).
+      # - normal mode: project onto the face normal (component base touches the surface)
+      # - ground mode:  project onto world -Z (component base touches the floor)
+      # - flow mode:    project onto face normal when available, else world -Z
+      # Other insertion points fall back to move_insertion_to with @scale_axis.
       def place_with_insertion(entity_copy, target, edge_normal_vec = nil)
-        if @insertion_point == :base && @rotation_mode == :normal && edge_normal_vec
-          move_base_to_surface(entity_copy, target, edge_normal_vec)
+        if @insertion_point == :base
+          surface_dir = case @rotation_mode
+                        when :normal
+                          edge_normal_vec
+                        when :flow
+                          edge_normal_vec || Geom::Vector3d.new(0, 0, -1)
+                        else # ground
+                          Geom::Vector3d.new(0, 0, -1)
+                        end
+          if surface_dir
+            move_base_to_surface(entity_copy, target, surface_dir)
+          else
+            OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+          end
         else
           OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
         end
@@ -1791,15 +1806,9 @@ module ASM_Extensions
           end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
-        # For scaled tools, the scale axis runs along the edge (horizontal),
-        # so "base" must use the perpendicular vertical axis, not the scale axis itself.
-        base_axis = if @insertion_point == :base
-                      { z: :y, x: nil, y: :x }[@scale_axis]
-                    else
-                      @scale_axis
-                    end
         apply_roll(entity_copy)
-        OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, base_axis)
+        edge_normal = avg_face_normal_for_edge(edge)
+        place_with_insertion(entity_copy, midpoint, edge_normal)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end

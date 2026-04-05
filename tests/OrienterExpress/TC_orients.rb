@@ -102,8 +102,9 @@ module ASM_Extensions
         inst = make_instance
         edge = make_edge_between([0, 0, 0], [0, 100, 0])
         OE.orient_z(inst, edge)
-        assert_same_direction Y_AXIS, inst.transformation.zaxis,
-          'Z should align with edge direction (Y)'
+        # SketchUp may reverse start/end of a new edge, so accept ±Y
+        dot = inst.transformation.zaxis.normalize.dot(Y_AXIS)
+        assert_in_delta 1.0, dot.abs, TOL, 'Z should align with edge direction (±Y)'
       end
 
       def test_orient_z_already_along_z_is_noop
