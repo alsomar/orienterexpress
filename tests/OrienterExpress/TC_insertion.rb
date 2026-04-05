@@ -70,12 +70,18 @@ module ASM_Extensions
         world_corners(inst).map { |p| proj(p, vec) }.max
       end
 
-      # Apply N × 90° roll around the given world axis through bounds center.
+      # Apply N × 90° roll around the given world axis through bounds center,
+      # using the same canonical-sign logic as OEPlacementTool#apply_roll.
       def apply_roll(inst, steps, axis)
         return if steps == 0
         angle = steps * 90.degrees
+        n     = axis.normalize
+        sign  = if    n.x.abs >= n.y.abs && n.x.abs >= n.z.abs then n.x >= 0 ? 1 : -1
+                 elsif n.y.abs >= n.z.abs                         then n.y >= 0 ? 1 : -1
+                 else                                                  n.z >= 0 ? 1 : -1
+                 end
         inst.transform!(
-          Geom::Transformation.rotation(inst.bounds.center, axis, angle)
+          Geom::Transformation.rotation(inst.bounds.center, axis, angle * sign)
         )
       end
 
@@ -315,18 +321,18 @@ module ASM_Extensions
         end
       end
 
-      # One 90° roll around Z axis (= scale_axis :z after orient_z_to(X)):
-      # Y axis should become -Z (for a default-oriented component Z→X, Y→Y).
+      # One 90° roll around the edge axis (X_AXIS = scale_axis direction after orient_z_to):
+      # Y axis should rotate 90° around that axis (canonical sign = +1 for X_AXIS).
       def test_apply_roll_90_around_x_rotates_yaxis
         inst = make_instance
-        orient_z_to(inst, X_AXIS)        # Z→X
-        roll_axis_vec = inst.transformation.xaxis  # capture before rolling
+        orient_z_to(inst, X_AXIS)        # Z→X (edge direction)
+        roll_axis_vec = X_AXIS           # roll around the edge direction (canonical +X)
         y_before      = inst.transformation.yaxis
         apply_roll(inst, 1, roll_axis_vec)
-        y_after   = inst.transformation.yaxis
-        expected  = Geom::Transformation.rotation(ORIGIN, roll_axis_vec, 90.degrees) * y_before
+        y_after  = inst.transformation.yaxis
+        expected = Geom::Transformation.rotation(ORIGIN, roll_axis_vec, 90.degrees) * y_before
         assert_same_direction expected, y_after,
-          'Y axis should rotate 90° after one roll step around the instance xaxis'
+          'Y axis should rotate 90° after one roll step around the edge direction'
       end
 
       # =========================================================================
@@ -463,13 +469,45 @@ module ASM_Extensions
       end
 
       # =========================================================================
+      # apply_roll — canonical direction (antiparallel axes same visual result)
+      # =========================================================================
+
+      # Rolling from the same initial orientation around +X and -X (antiparallel)
+      # must produce identical final orientations.
+      def test_apply_roll_canonical_antiparallel_x
+        inst1 = make_instance
+        inst2 = make_instance
+        apply_roll(inst1, 1, X_AXIS)
+        apply_roll(inst2, 1, Geom::Vector3d.new(-1, 0, 0))
+        %i[xaxis yaxis zaxis].each do |ax|
+          assert_in_delta inst1.transformation.send(ax).x, inst2.transformation.send(ax).x, TOL
+          assert_in_delta inst1.transformation.send(ax).y, inst2.transformation.send(ax).y, TOL
+          assert_in_delta inst1.transformation.send(ax).z, inst2.transformation.send(ax).z, TOL
+        end
+      end
+
+      # Same for antiparallel Y axes.
+      def test_apply_roll_canonical_antiparallel_y
+        inst1 = make_instance
+        inst2 = make_instance
+        apply_roll(inst1, 1, Y_AXIS)
+        apply_roll(inst2, 1, Geom::Vector3d.new(0, -1, 0))
+        %i[xaxis yaxis zaxis].each do |ax|
+          assert_in_delta inst1.transformation.send(ax).x, inst2.transformation.send(ax).x, TOL
+          assert_in_delta inst1.transformation.send(ax).y, inst2.transformation.send(ax).y, TOL
+          assert_in_delta inst1.transformation.send(ax).z, inst2.transformation.send(ax).z, TOL
+        end
+      end
+
+      # =========================================================================
       # roll_angle — Up arrow advances to next 90° step
       # =========================================================================
 
       # Simulates the Up arrow logic from onKeyDown.
       def advance_roll(current_angle)
-        steps = ((current_angle / 90.degrees) + 1e-9).floor
-        ((steps + 1) % 4) * 90.degrees
+        steps   = ((current_angle / 90.degrees) + 1e-9).floor
+        on_step = (current_angle - steps * 90.degrees).abs < 1e-6
+        on_step ? ((steps + 1) % 4) * 90.degrees : 0.0
       end
 
       def test_up_arrow_from_0_goes_to_90
@@ -488,18 +526,24 @@ module ASM_Extensions
         assert_in_delta 0.0, advance_roll(270.degrees), TOL
       end
 
-      def test_up_arrow_from_arbitrary_angle_goes_to_next_90
-        # 72° → next 90° step is 90°
-        assert_in_delta 90.degrees, advance_roll(72.degrees), TOL
+      def test_up_arrow_from_arbitrary_angle_resets_to_0
+        # 72° is not on a 90° step → reset to 0°
+        assert_in_delta 0.0, advance_roll(72.degrees), TOL
       end
 
-      def test_up_arrow_from_just_below_180_goes_to_180
-        assert_in_delta 180.degrees, advance_roll(179.degrees), TOL
+      def test_up_arrow_from_just_below_180_resets_to_0
+        # 179° is not on a step → reset to 0°
+        assert_in_delta 0.0, advance_roll(179.degrees), TOL
       end
 
       def test_up_arrow_from_exactly_on_step_advances_to_next
         # 90° exactly → should go to 180°, not stay at 90°
         assert_in_delta 180.degrees, advance_roll(90.degrees), TOL
+      end
+
+      def test_up_arrow_from_5deg_resets_to_0
+        # Fine roll (5°) then Up → reset to 0°
+        assert_in_delta 0.0, advance_roll(5.degrees), TOL
       end
 
       # =========================================================================

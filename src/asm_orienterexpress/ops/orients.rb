@@ -635,6 +635,7 @@ module ASM_Extensions
         @lbutton_down  = false
         @drag_mode     = nil
         @arrow_key_dir = nil
+        @roll_key_dir  = nil
         @roll_angle    = 0.0
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
@@ -759,9 +760,19 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
-        when 38 # Up — advance to next 90° roll step
-          steps = ((@roll_angle / 90.degrees) + 1e-9).floor
-          @roll_angle = ((steps + 1) % 4) * 90.degrees
+        when 35, 36 # End/Home — fine-adjust roll by 5°
+          dir = key == 36 ? +1 : -1
+          unless @roll_key_dir == dir
+            scroll_roll(dir)
+            @roll_key_dir      = dir
+            @roll_key_rep_gen  = (@roll_key_rep_gen || 0) + 1
+            gen = @roll_key_rep_gen
+            UI.start_timer(0.7, false) { key_repeat_roll(dir, gen) }
+          end
+        when 38 # Up — advance to next 90° roll step, or reset to 0 if not on a step
+          steps     = ((@roll_angle / 90.degrees) + 1e-9).floor
+          on_step   = (@roll_angle - steps * 90.degrees).abs < 1e-6
+          @roll_angle = on_step ? ((steps + 1) % 4) * 90.degrees : 0.0
           apply(self.class.last_offset_str)
         when 45 # Ins — reset offset to zero
           apply(Sketchup.format_length(0))
@@ -779,6 +790,7 @@ module ASM_Extensions
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
         @arrow_key_dir = nil if key == 33 || key == 34
+        @roll_key_dir  = nil if key == 35 || key == 36
         update_cursor
         view.invalidate
       end
@@ -907,6 +919,17 @@ module ASM_Extensions
         UI.start_timer(0.03, false) { key_repeat(dir, gen) }
       end
 
+      def key_repeat_roll(dir, gen)
+        return unless @roll_key_dir == dir && @roll_key_rep_gen == gen
+        scroll_roll(dir)
+        UI.start_timer(0.03, false) { key_repeat_roll(dir, gen) }
+      end
+
+      def scroll_roll(direction)
+        @roll_angle = (@roll_angle + direction * 5.degrees) % 360.degrees
+        apply(self.class.last_offset_str)
+      end
+
       def scroll_offset(direction)
         current = OrienterExpress.send(:parse_length_safe, self.class.last_offset_str)
         return unless current
@@ -981,8 +1004,16 @@ module ASM_Extensions
       def apply_roll(entity_copy)
         return if @roll_angle.nil? || @roll_angle.abs < 1e-10
         axis = roll_axis(entity_copy)
+        # Canonicalize: always treat the axis as if its dominant component is positive.
+        # Rotating by -θ around -v = rotating by +θ around v, so the visual direction
+        # is the same for all edges regardless of which way SketchUp oriented them.
+        n    = axis.normalize
+        sign = if    n.x.abs >= n.y.abs && n.x.abs >= n.z.abs then n.x >= 0 ? 1 : -1
+                elsif n.y.abs >= n.z.abs                         then n.y >= 0 ? 1 : -1
+                else                                                  n.z >= 0 ? 1 : -1
+                end
         entity_copy.transform!(
-          Geom::Transformation.rotation(entity_copy.bounds.center, axis, @roll_angle)
+          Geom::Transformation.rotation(entity_copy.bounds.center, axis, @roll_angle * sign)
         )
       end
 
