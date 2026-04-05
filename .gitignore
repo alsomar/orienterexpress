@@ -13,6 +13,7 @@ vendor/bundle/
 
 # SketchUp
 *.skb
+AutoSave_*.skp
 snapshots/
 
 # OS

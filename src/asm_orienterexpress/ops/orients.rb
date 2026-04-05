@@ -638,8 +638,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity.definition
-        @entity_t          = entity.transformation
+        @entity_def        = entity&.definition
+        @entity_t          = entity&.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -658,7 +658,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEVertexTool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OEVertexTool.last_offset_str); sync_selection } if @entity_def
       end
 
       def deactivate(view)
@@ -698,6 +698,7 @@ module ASM_Extensions
       end
 
       def getExtents
+        return Geom::BoundingBox.new unless @entity_def && @entity_t
         bb = Geom::BoundingBox.new
         8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
         bb
@@ -940,13 +941,13 @@ module ASM_Extensions
 
       def on_external_selection_change
         return if @syncing
-        return if @model.selection.empty?
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
         return if new_edges.to_set == @edges.to_set
         old_set  = @edges.to_set
         new_set  = new_edges.to_set
         @edges   = new_edges
+        return unless @entity_def
         @syncing = true
         if @rotation_mode == :flow
           rebuild_flow_map
@@ -987,6 +988,12 @@ module ASM_Extensions
       end
 
       def update_vcb
+        unless @entity_def
+          Sketchup.set_status_text("", 1)
+          Sketchup.set_status_text("", 2)
+          Sketchup.set_status_text("Click a component to use as sample", 0)
+          return
+        end
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
@@ -1013,6 +1020,7 @@ module ASM_Extensions
       end
 
       def apply(text)
+        return unless @entity_def
         offset = OrienterExpress.send(:parse_length_safe, text)
         return if offset.nil?
 
@@ -1041,7 +1049,7 @@ module ASM_Extensions
       end
 
       def apply_diff(added, removed, offset)
-        return unless offset
+        return unless offset && @entity_def
         @model.start_operation("Orienter Express: Edge Vertex Placement", true, false, true)
         begin
           removed.each do |edge|
@@ -1107,7 +1115,6 @@ module ASM_Extensions
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
 
-      return unless check_targets(targets)
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -1176,8 +1183,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity.definition
-        @entity_t          = entity.transformation
+        @entity_def        = entity&.definition
+        @entity_t          = entity&.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -1196,7 +1203,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OECenterTool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OECenterTool.last_offset_str); sync_selection } if @entity_def
       end
 
       def deactivate(view)
@@ -1236,6 +1243,7 @@ module ASM_Extensions
       end
 
       def getExtents
+        return Geom::BoundingBox.new unless @entity_def && @entity_t
         bb = Geom::BoundingBox.new
         8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
         bb
@@ -1478,13 +1486,13 @@ module ASM_Extensions
 
       def on_external_selection_change
         return if @syncing
-        return if @model.selection.empty?
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
         return if new_edges.to_set == @edges.to_set
         old_set  = @edges.to_set
         new_set  = new_edges.to_set
         @edges   = new_edges
+        return unless @entity_def
         @syncing = true
         if @rotation_mode == :flow
           rebuild_flow_map
@@ -1525,6 +1533,12 @@ module ASM_Extensions
       end
 
       def update_vcb
+        unless @entity_def
+          Sketchup.set_status_text("", 1)
+          Sketchup.set_status_text("", 2)
+          Sketchup.set_status_text("Click a component to use as sample", 0)
+          return
+        end
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
@@ -1551,6 +1565,7 @@ module ASM_Extensions
       end
 
       def apply(text)
+        return unless @entity_def
         offset = OrienterExpress.send(:parse_length_safe, text)
         return if offset.nil?
 
@@ -1579,7 +1594,7 @@ module ASM_Extensions
       end
 
       def apply_diff(added, removed, offset)
-        return unless offset
+        return unless offset && @entity_def
         @model.start_operation("Orienter Express: Center Placement", true, false, true)
         begin
           removed.each do |edge|
@@ -1639,7 +1654,6 @@ module ASM_Extensions
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
 
-      return unless check_targets(targets)
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -1709,8 +1723,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity.definition
-        @entity_t          = entity.transformation
+        @entity_def        = entity&.definition
+        @entity_t          = entity&.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -1729,7 +1743,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEZScaleTool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OEZScaleTool.last_offset_str); sync_selection } if @entity_def
       end
 
       def deactivate(view)
@@ -1769,6 +1783,7 @@ module ASM_Extensions
       end
 
       def getExtents
+        return Geom::BoundingBox.new unless @entity_def && @entity_t
         bb = Geom::BoundingBox.new
         8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
         bb
@@ -2031,13 +2046,13 @@ module ASM_Extensions
 
       def on_external_selection_change
         return if @syncing
-        return if @model.selection.empty?
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
         return if new_edges.to_set == @edges.to_set
         old_set  = @edges.to_set
         new_set  = new_edges.to_set
         @edges   = new_edges
+        return unless @entity_def
         @syncing = true
         if @rotation_mode == :flow
           rebuild_flow_map
@@ -2078,6 +2093,12 @@ module ASM_Extensions
       end
 
       def update_vcb
+        unless @entity_def
+          Sketchup.set_status_text("", 1)
+          Sketchup.set_status_text("", 2)
+          Sketchup.set_status_text("Click a component to use as sample", 0)
+          return
+        end
         mode_key = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
@@ -2104,6 +2125,7 @@ module ASM_Extensions
       end
 
       def apply(text)
+        return unless @entity_def
         offset = OrienterExpress.send(:parse_length_safe, text)
         return if offset.nil?
 
@@ -2133,7 +2155,7 @@ module ASM_Extensions
       end
 
       def apply_diff(added, removed, offset)
-        return unless offset
+        return unless offset && @entity_def
         @model.start_operation("Orienter Express: Z-Scaling", true, false, true)
         begin
           removed.each do |edge|
@@ -2202,7 +2224,6 @@ module ASM_Extensions
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
 
-      return unless check_targets(targets)
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -2330,8 +2351,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity.definition
-        @entity_t          = entity.transformation
+        @entity_def        = entity&.definition
+        @entity_t          = entity&.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -2352,7 +2373,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEFlowTool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OEFlowTool.last_offset_str); sync_selection } if @entity_def
       end
 
       def deactivate(view)
@@ -2378,6 +2399,7 @@ module ASM_Extensions
       end
 
       def getExtents
+        return Geom::BoundingBox.new unless @entity_def && @entity_t
         bb = Geom::BoundingBox.new
         8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
         bb
@@ -2612,12 +2634,11 @@ module ASM_Extensions
 
       def on_external_selection_change
         return if @syncing
-        return if @model.selection.empty?
         new_edges = (@model.selection.grep(Sketchup::Edge) +
                      @model.selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
-        return if new_edges.empty?
         return if new_edges.to_set == @edges.to_set
         @edges = new_edges
+        return unless @entity_def
         @syncing = true
         apply(OEFlowTool.last_offset_str)
         sync_selection
@@ -2651,6 +2672,12 @@ module ASM_Extensions
       end
 
       def update_vcb
+        unless @entity_def
+          Sketchup.set_status_text("", 1)
+          Sketchup.set_status_text("", 2)
+          Sketchup.set_status_text("Click a component to use as sample", 0)
+          return
+        end
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
@@ -2662,6 +2689,7 @@ module ASM_Extensions
       end
 
       def apply(text)
+        return unless @entity_def
         offset = OrienterExpress.send(:parse_length_safe, text)
         return unless offset
 
@@ -2776,7 +2804,6 @@ module ASM_Extensions
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
 
-      return unless check_targets(targets)
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
       rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
@@ -2843,8 +2870,8 @@ module ASM_Extensions
       def initialize(faces, entity)
         @faces             = faces
         @source_entity     = entity
-        @entity_def        = entity.definition
-        @entity_t          = entity.transformation
+        @entity_def        = entity&.definition
+        @entity_t          = entity&.transformation
         @model             = Sketchup.active_model
         @applied           = false
         @first_apply       = true
@@ -2864,7 +2891,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
-        UI.start_timer(0, false) { apply(OEFaceTool.last_offset_str); sync_selection }
+        UI.start_timer(0, false) { apply(OEFaceTool.last_offset_str); sync_selection } if @entity_def
       end
 
       def deactivate(view)
@@ -2890,6 +2917,7 @@ module ASM_Extensions
       end
 
       def getExtents
+        return Geom::BoundingBox.new unless @entity_def && @entity_t
         bb = Geom::BoundingBox.new
         8.times { |i| bb.add(@entity_t * @entity_def.bounds.corner(i)) }
         bb
@@ -3125,14 +3153,13 @@ module ASM_Extensions
 
       def on_external_selection_change
         return if @syncing
-        return if @model.selection.empty?
         new_faces = (@model.selection.grep(Sketchup::Face) +
                      @model.selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
-        return if new_faces.empty?
         return if new_faces.to_set == @faces.to_set
         old_set  = @faces.to_set
         new_set  = new_faces.to_set
         @faces   = new_faces
+        return unless @entity_def
         @syncing = true
         offset = OrienterExpress.send(:parse_length_safe, OEFaceTool.last_offset_str)
         apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
@@ -3152,6 +3179,12 @@ module ASM_Extensions
       end
 
       def update_vcb
+        unless @entity_def
+          Sketchup.set_status_text("", 1)
+          Sketchup.set_status_text("", 2)
+          Sketchup.set_status_text("Click a component to use as sample", 0)
+          return
+        end
         scale_label  = @scale_axis.to_s.upcase
         orient_label = [
           Lang.commands.oeface.axis_parallel,
@@ -3166,6 +3199,7 @@ module ASM_Extensions
       end
 
       def apply(text)
+        return unless @entity_def
         offset = OrienterExpress.send(:parse_length_safe, text)
         return unless offset
 
@@ -3193,7 +3227,7 @@ module ASM_Extensions
       end
 
       def apply_diff(added, removed, offset)
-        return unless offset
+        return unless offset && @entity_def
         @model.start_operation("Orienter Express: Face Placement", true, false, true)
         begin
           removed.each do |face|
@@ -3255,7 +3289,6 @@ module ASM_Extensions
       faces   = (faces(model.selection) + edges(model.selection).flat_map(&:faces)).uniq
       targets = instances(model.selection)
 
-      return unless check_targets(targets)
 
       entity = targets.first
       model.select_tool(

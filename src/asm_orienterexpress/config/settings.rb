@@ -81,10 +81,7 @@ module ASM_Extensions
         changed[key] = new_value
       end
 
-      if changed.empty?
-        Debug.log(self, method_id, "All values already up-to-date.")
-        return
-      end
+      return if changed.empty?
 
       merged = current.merge(changed)
       save_config(merged)
