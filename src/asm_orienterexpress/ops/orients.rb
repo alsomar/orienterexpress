@@ -638,8 +638,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity&.definition
-        @entity_t          = entity&.transformation
+        @entity_def        = entity && entity.definition
+        @entity_t          = entity && entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -1183,8 +1183,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity&.definition
-        @entity_t          = entity&.transformation
+        @entity_def        = entity && entity.definition
+        @entity_t          = entity && entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -1723,8 +1723,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity&.definition
-        @entity_t          = entity&.transformation
+        @entity_def        = entity && entity.definition
+        @entity_t          = entity && entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -2351,8 +2351,8 @@ module ASM_Extensions
       def initialize(edges, entity, flow_map, rotation_mode)
         @edges             = edges
         @source_entity     = entity
-        @entity_def        = entity&.definition
-        @entity_t          = entity&.transformation
+        @entity_def        = entity && entity.definition
+        @entity_t          = entity && entity.transformation
         @flow_map          = flow_map
         @rotation_mode     = rotation_mode
         @scale_axis        = :z
@@ -2870,8 +2870,8 @@ module ASM_Extensions
       def initialize(faces, entity)
         @faces             = faces
         @source_entity     = entity
-        @entity_def        = entity&.definition
-        @entity_t          = entity&.transformation
+        @entity_def        = entity && entity.definition
+        @entity_t          = entity && entity.transformation
         @model             = Sketchup.active_model
         @applied           = false
         @first_apply       = true
