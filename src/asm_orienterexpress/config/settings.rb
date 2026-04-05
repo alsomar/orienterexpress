@@ -12,11 +12,12 @@ module ASM_Extensions
       # Entity Options
       rotation_mode: "ground",
       insertion_point_custom: {
-        oevertex: "origin",
-        oecenter: "center",
-        oeflow:   "center",
-        oeface:   "base",
-        oereset:  "base"
+        oevertex:  "origin",
+        oecenter:  "center",
+        oezscale:  "center",
+        oeflow:    "center",
+        oeface:    "base",
+        oereset:   "base"
       },
 
       # Inner Options

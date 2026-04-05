@@ -1513,7 +1513,8 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        @insertion_point = :center
+        ip = OrienterExpress.send(:resolved_insertion_point, :oezscale).to_sym
+        @insertion_point = [:center, :base].include?(ip) ? ip : :center
       end
 
       def activate
@@ -1598,6 +1599,13 @@ module ASM_Extensions
           rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
           update_vcb
           apply(OEZScaleTool.last_offset_str)
+        when 36 # Home — toggle insertion point center ↔ base
+          @insertion_point = @insertion_point == :center ? :base : :center
+          custom = CONFIG[:insertion_point_custom].dup
+          custom[:oezscale] = @insertion_point.to_s
+          OrienterExpress.user_settings(insertion_point_custom: custom)
+          update_vcb
+          apply(OEZScaleTool.last_offset_str)
         end
       end
 
@@ -1605,9 +1613,11 @@ module ASM_Extensions
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
+        ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
+        ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
       end
 
       def apply(text)
@@ -1699,7 +1709,14 @@ module ASM_Extensions
           end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
-        OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+        # For scaled tools, the scale axis runs along the edge (horizontal),
+        # so "base" must use the perpendicular vertical axis, not the scale axis itself.
+        base_axis = if @insertion_point == :base
+                      { z: :y, x: nil, y: :x }[@scale_axis]
+                    else
+                      @scale_axis
+                    end
+        OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, base_axis)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -1730,27 +1747,156 @@ module ASM_Extensions
       )
     end
 
+    class OEUScaleTool < OEPlacementTool
+
+      def self.cursor_id(variant = :default)
+        @@cursor_ids ||= {}
+        @@cursor_ids[variant] ||= begin
+          ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
+          filename = variant == :default ? "oe_uscale_32" : "oe_uscale_#{variant}_32"
+          UI.create_cursor(File.join(PATH_CURSORS, "#{filename}.#{ext}"), 5, 5)
+        end
+      end
+
+      # No persistent offset — always zero, setter is a no-op
+      def self.last_offset_str
+        Sketchup.format_length(0)
+      end
+
+      def self.last_offset_str=(_val); end
+
+      def initialize(edges, entity, flow_map, rotation_mode)
+        super(edges, entity)
+        @flow_map      = flow_map
+        @rotation_mode = rotation_mode
+      end
+
+      private
+
+      def scroll_offset(_dir); end  # no offset concept for uniform scale
+
+      def on_drag(ctrl, shift, view, x, y)
+        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        entity = pick_entity(view, x, y, 16)
+        entity = @placement_map[entity] if entity && @placement_map.key?(entity)
+        picked = pick_geometry_from_entity(entity)
+        modify_geometry(@drag_mode, picked) if picked
+      end
+
+      def on_geometry_changed
+        rebuild_flow_map if @rotation_mode == :flow
+      end
+
+      def on_selection_changed(new_set, old_set)
+        if @rotation_mode == :flow
+          rebuild_flow_map
+          apply(nil)
+        else
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
+        end
+      end
+
+      def sync_selection
+        valid_edges = @geometry.select(&:valid?)
+        edge_set    = valid_edges.to_set
+        full_faces  = valid_edges.flat_map(&:faces).uniq.select { |f|
+          f.valid? && f.edges.all? { |e| edge_set.include?(e) }
+        }
+        source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
+        target    = (valid_edges + full_faces + source).to_set
+        current   = @model.selection.to_a.to_set
+        to_remove = (current - target).to_a
+        to_add    = (target - current).to_a
+        @model.selection.remove(to_remove) unless to_remove.empty?
+        @model.selection.add(to_add)       unless to_add.empty?
+      end
+
+      def cancel_op_name
+        "Cancel Uniform Scaling"
+      end
+
+      def handle_key(key)
+        case key
+        when 35 # End — toggle rotation mode ground ↔ flow
+          @rotation_mode = @rotation_mode == :flow ? :ground : :flow
+          rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+          update_vcb
+          apply(nil)
+        end
+      end
+
+      def render_vcb
+        mode_key   = @rotation_mode == :flow ? :rotation_flow : :rotation_ground
+        mode_label = Lang.t(:html, :settings, mode_key)
+        Sketchup.set_status_text("", 1)
+        Sketchup.set_status_text("", 2)
+        Sketchup.set_status_text("#{Lang.commands.oeuscale.vcb_hint}  |  #{mode_label}", 0)
+      end
+
+      def apply(_text)
+        return unless @entity_def
+        transparent = !@first_apply
+        @model.start_operation("Orienter Express: Uniform Scaling", true, false, transparent)
+        begin
+          @previous_entities.each { |e| e.erase! if e.valid? }
+          @previous_entities = []
+          @placement_map     = {}
+          @geometry.each { |edge| place_for_edge(edge) }
+          @model.commit_operation
+          @first_apply = false
+          @applied     = true
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
+        end
+      end
+
+      def apply_diff(added, removed)
+        return unless @entity_def
+        @model.start_operation("Orienter Express: Uniform Scaling", true, false, true)
+        begin
+          removed.each do |edge|
+            to_erase = @placement_map.select { |_, e| e == edge }.keys
+            to_erase.each { |ent| ent.erase! if ent.valid? }
+            to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
+          end
+          added.each { |edge| place_for_edge(edge) }
+          @model.commit_operation
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
+        end
+      end
+
+      def place_for_edge(edge)
+        return if edge.length.zero?
+        entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
+        OrienterExpress.uniform_scale(entity_copy, edge)
+        OrienterExpress.orient_z(entity_copy, edge)
+        if @rotation_mode == :flow
+          OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+        else
+          OrienterExpress.orient_x(entity_copy)
+        end
+        midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+        entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
+        @previous_entities << entity_copy
+        @placement_map[entity_copy] = edge
+      end
+
+    end
+
     def self.oeuscale
-      model     = Sketchup.active_model
-      selection = model.selection
-      method_id = __method__
+      model  = Sketchup.active_model
+      edges  = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
+      entity = instances(model.selection).first
 
-      edges   = edges(selection)
-      targets = instances(selection)
-
-      return unless check_selection(edges, targets)
-
-      entity     = targets.first
-      entity_def = entity.definition
-      entity_t   = entity.transformation
-
-      start_time = Time.now if Debug.enabled
-      Debug.separator
-      Debug.log(self, method_id, "Selection: #{selection.size} element(s)")
-
-      use_flow = CONFIG[:rotation_mode] == 'flow'
+      rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
+      rotation_mode = :ground unless %i[ground flow].include?(rotation_mode)
       flow_map = {}
-      if use_flow
+      if rotation_mode == :flow
         vertex_edges = {}
         edges.each do |edge|
           [edge.start, edge.end].each do |v|
@@ -1761,34 +1907,7 @@ module ASM_Extensions
         flow_map = all_vertex_flow_directions(vertex_edges)
       end
 
-      op_name = "Orienter Express: Uniform Scaling"
-      model.start_operation(op_name, true)
-      Debug.log(self, method_id, "Process START")
-
-      begin
-        edges.each do |edge|
-          next if edge.length.zero?
-          entity_copy = create_entity_copy(entity_def, entity_t)
-          uniform_scale(entity_copy, edge)
-          orient_z(entity_copy, edge)
-          use_flow ? orient_to_flow(entity_copy, edge, flow_map) : orient_x(entity_copy)
-          midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
-          entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
-        end
-        model.commit_operation
-        Debug.log(self, method_id, "Process DONE!")
-      rescue => e
-        model.abort_operation
-        UI.messagebox("Error: #{e.message}")
-        Debug.log(self, method_id, "ERROR #{e.class}: #{e.message}")
-        Debug.log(self, method_id, e.backtrace.join("\n"))
-      ensure
-        model.active_view.refresh
-        if Debug.enabled
-          elapsed = Time.now - start_time
-          Debug.log(self, method_id, "Process DONE! Elapsed #{format('%.3f', elapsed)} sec.")
-        end
-      end
+      model.select_tool(OEUScaleTool.new(edges, entity, flow_map, rotation_mode))
     end
 
     # Tool class for interactive Flow Placement.

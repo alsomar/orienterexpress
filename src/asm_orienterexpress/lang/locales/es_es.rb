@@ -25,12 +25,13 @@ module ASM_Extensions
               tooltip:        "Escalado en Z",
               status:         "Escala y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
               offset_prompt:  "Desfase",
-              vcb_hint:       "Enter: actualizar  |  Tab: eje  |  End: modo  |  ←→: ajustar  |  ↓: reiniciar  |  Esc: cancelar"
+              vcb_hint:       "Enter: actualizar  |  Tab: eje  |  End: modo  |  Home: inserción  |  ←→: ajustar  |  ↓: reiniciar  |  Esc: cancelar"
             },
             oeuscale: {
-              label:   "Escalado uniforme",
-              tooltip: "Escalado uniforme",
-              status:  "Escala uniformemente y coloca copias a lo largo de las aristas."
+              label:    "Escalado uniforme",
+              tooltip:  "Escalado uniforme",
+              status:   "Escala uniformemente y coloca copias a lo largo de las aristas.",
+              vcb_hint: "End: modo  |  Esc: cancelar"
             },
             oeflow: {
               label:          "Colocación según flujo de vértices",
