@@ -635,7 +635,7 @@ module ASM_Extensions
         @lbutton_down  = false
         @drag_mode     = nil
         @arrow_key_dir = nil
-        @roll_steps    = 0
+        @roll_angle    = 0.0
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         update_vcb
@@ -716,8 +716,16 @@ module ASM_Extensions
       end
 
       def onUserText(text, _view)
-        return if text.strip.empty?
-        apply(text.strip)
+        stripped = text.strip
+        return if stripped.empty?
+        if stripped =~ /\A-?\d+([.,]\d+)?\s*(deg|°)\z/i
+          deg = stripped.gsub(',', '.').to_f
+          @roll_angle = deg * Math::PI / 180.0
+          apply(self.class.last_offset_str)
+          update_vcb
+        else
+          apply(stripped)
+        end
       end
 
       def onKeyDown(key, _repeat, flags, view)
@@ -731,6 +739,8 @@ module ASM_Extensions
         update_cursor
         view.invalidate
         case key
+        when 16 # Shift — cycle mode (only when not clicking or combining with Ctrl)
+          handle_mode_key unless @lbutton_down || @mod_ctrl
         when 27 # Esc
           if @applied
             @model.start_operation(cancel_op_name, true)
@@ -740,8 +750,8 @@ module ASM_Extensions
             @applied = false
           end
           @model.select_tool(nil)
-        when 37, 39 # Left/Right — adjust offset
-          dir = key == 39 ? +1 : -1
+        when 33, 34 # PgUp/PgDn — adjust offset
+          dir = key == 33 ? +1 : -1
           unless @arrow_key_dir == dir
             scroll_offset(dir)
             @arrow_key_dir  = dir
@@ -749,10 +759,11 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
-        when 38 # Up — roll 90°
-          @roll_steps = (@roll_steps + 1) % 4
+        when 38 # Up — advance to next 90° roll step
+          steps = ((@roll_angle / 90.degrees) + 1e-9).floor
+          @roll_angle = ((steps + 1) % 4) * 90.degrees
           apply(self.class.last_offset_str)
-        when 40 # Down — reset offset to zero
+        when 45 # Ins — reset offset to zero
           apply(Sketchup.format_length(0))
         else
           handle_key(key)
@@ -767,7 +778,7 @@ module ASM_Extensions
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
-        @arrow_key_dir = nil if key == 37 || key == 39
+        @arrow_key_dir = nil if key == 33 || key == 34
         update_cursor
         view.invalidate
       end
@@ -777,8 +788,11 @@ module ASM_Extensions
       # Hook: tool-specific cleanup on deactivate (e.g. clear @skipped_edges)
       def on_deactivate; end
 
-      # Hook: tool-specific key handling (Tab, End, Home, etc.)
+      # Hook: tool-specific key handling (Tab, Down, etc.)
       def handle_key(_key); end
+
+      # Hook: Shift keypress without mouse button — cycle rotation mode or equivalent
+      def handle_mode_key; end
 
       # Hook: drag behaviour in onMouseMove
       def on_drag(_ctrl, _shift, _view, _x, _y); end
@@ -793,8 +807,6 @@ module ASM_Extensions
                     :minus
                   elsif @mod_ctrl
                     :plus
-                  elsif @mod_shift
-                    :toggle
                   else
                     :default
                   end
@@ -857,11 +869,6 @@ module ASM_Extensions
       def handle_geometry_click(ctrl, shift, view, x, y, click_type)
         raw  = pick_entity(view, x, y)
         best = @placement_map.key?(raw) ? @placement_map[raw] : raw
-        if shift && best.is_a?(Sketchup::Edge)
-          @drag_mode = :remove
-          modify_geometry(:remove, [best])
-          return
-        end
         picked = case click_type
                  when :single then pick_geometry_from_entity(best)
                  when :double then connected_geometry(best)
@@ -870,8 +877,6 @@ module ASM_Extensions
                  :remove
                elsif ctrl
                  :add
-               elsif shift
-                 (picked && picked.all? { |e| @geometry.include?(e) }) ? :remove : :add
                else
                  :replace
                end
@@ -974,11 +979,17 @@ module ASM_Extensions
       end
 
       def apply_roll(entity_copy)
-        return if @roll_steps == 0
+        return if @roll_angle.nil? || @roll_angle.abs < 1e-10
         axis = roll_axis(entity_copy)
         entity_copy.transform!(
-          Geom::Transformation.rotation(entity_copy.bounds.center, axis, @roll_steps * 90.degrees)
+          Geom::Transformation.rotation(entity_copy.bounds.center, axis, @roll_angle)
         )
+      end
+
+      def roll_label
+        deg = (@roll_angle * 180.0 / Math::PI) % 360.0
+        deg_str = (deg % 1.0).abs < 0.05 ? deg.round.to_s : format('%.1f', deg)
+        "#{deg_str}\xC2\xB0"
       end
 
       # Returns which local axis symbol (:x, :y, or nil=z) of entity_copy is
@@ -1141,7 +1152,7 @@ module ASM_Extensions
       end
 
       def on_drag(ctrl, shift, view, x, y)
-        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        return unless @lbutton_down && @drag_mode && ctrl
         entity = pick_entity(view, x, y, 16)
         entity = @placement_map[entity] if entity && @placement_map.key?(entity)
         picked = pick_geometry_from_entity(entity)
@@ -1183,24 +1194,26 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEVertexTool.last_offset_str)
-        when 35 # End — cycle rotation mode
-          @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-          rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
-          update_vcb
-          apply(OEVertexTool.last_offset_str)
-        when 36 # Home — cycle insertion point
+        when 9 # Tab — cycle insertion point
           @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom].dup
           custom[:oevertex] = @insertion_point.to_s
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEVertexTool.last_offset_str)
+        when 40 # Down — cycle axis Z → X → Y
+          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+          @first_apply = true
+          update_vcb
+          apply(OEVertexTool.last_offset_str)
         end
+      end
+
+      def handle_mode_key
+        @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
+        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        update_vcb
+        apply(OEVertexTool.last_offset_str)
       end
 
       def render_vcb
@@ -1211,7 +1224,7 @@ module ASM_Extensions
         ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oevertex.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oevertex.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
       end
 
       def apply(text)
@@ -1395,7 +1408,7 @@ module ASM_Extensions
       end
 
       def on_drag(ctrl, shift, view, x, y)
-        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        return unless @lbutton_down && @drag_mode && ctrl
         entity = pick_entity(view, x, y, 16)
         entity = @placement_map[entity] if entity && @placement_map.key?(entity)
         picked = pick_geometry_from_entity(entity)
@@ -1437,24 +1450,26 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OECenterTool.last_offset_str)
-        when 35 # End — cycle rotation mode
-          @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-          rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
-          update_vcb
-          apply(OECenterTool.last_offset_str)
-        when 36 # Home — cycle insertion point
+        when 9 # Tab — cycle insertion point
           @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom].dup
           custom[:oecenter] = @insertion_point.to_s
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OECenterTool.last_offset_str)
+        when 40 # Down — cycle axis Z → X → Y
+          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+          @first_apply = true
+          update_vcb
+          apply(OECenterTool.last_offset_str)
         end
+      end
+
+      def handle_mode_key
+        @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
+        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        update_vcb
+        apply(OECenterTool.last_offset_str)
       end
 
       def render_vcb
@@ -1465,7 +1480,7 @@ module ASM_Extensions
         ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OECenterTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oecenter.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oecenter.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
       end
 
       def apply(text)
@@ -1644,7 +1659,7 @@ module ASM_Extensions
       end
 
       def on_drag(ctrl, shift, view, x, y)
-        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        return unless @lbutton_down && @drag_mode && ctrl
         entity = pick_entity(view, x, y, 16)
         entity = @placement_map[entity] if entity && @placement_map.key?(entity)
         picked = pick_geometry_from_entity(entity)
@@ -1686,24 +1701,26 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle scale axis X → Y → Z
-          @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEZScaleTool.last_offset_str)
-        when 35 # End — cycle rotation mode
-          @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-          rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
-          update_vcb
-          apply(OEZScaleTool.last_offset_str)
-        when 36 # Home — toggle insertion point center ↔ base
+        when 9 # Tab — toggle insertion point center ↔ base
           @insertion_point = @insertion_point == :center ? :base : :center
           custom = CONFIG[:insertion_point_custom].dup
           custom[:oezscale] = @insertion_point.to_s
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEZScaleTool.last_offset_str)
+        when 40 # Down — cycle scale axis X → Y → Z
+          @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
+          @first_apply = true
+          update_vcb
+          apply(OEZScaleTool.last_offset_str)
         end
+      end
+
+      def handle_mode_key
+        @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
+        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        update_vcb
+        apply(OEZScaleTool.last_offset_str)
       end
 
       def render_vcb
@@ -1714,7 +1731,7 @@ module ASM_Extensions
         ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
       end
 
       def apply(text)
@@ -1807,8 +1824,27 @@ module ASM_Extensions
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         apply_roll(entity_copy)
-        edge_normal = avg_face_normal_for_edge(edge)
-        place_with_insertion(entity_copy, midpoint, edge_normal)
+        if @insertion_point == :base
+          # Step 1 — center the component along the scale axis (same as :center mode).
+          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, :center, @scale_axis)
+          # Step 2 — project world "up" onto the cross-section plane (⊥ to scale axis).
+          # For normal mode use the face normal; ground/flow use world +Z.
+          scale_axis_world = roll_axis(entity_copy).normalize
+          ref_up = @rotation_mode == :normal ? avg_face_normal_for_edge(edge) : nil
+          ref_up ||= Geom::Vector3d.new(0, 0, 1)
+          s       = ref_up.dot(scale_axis_world)
+          up_perp = Geom::Vector3d.new(
+            ref_up.x - scale_axis_world.x * s,
+            ref_up.y - scale_axis_world.y * s,
+            ref_up.z - scale_axis_world.z * s
+          )
+          # Step 3 — shift in the cross-section plane so the "base" face (lowest in
+          # the up_perp direction) lands at midpoint. Skipped for vertical edges where
+          # up_perp degenerates to zero (cross-section has no defined "down").
+          move_base_to_surface(entity_copy, midpoint, up_perp) if up_perp.length > 1e-6
+        else
+          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+        end
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -1868,7 +1904,7 @@ module ASM_Extensions
       def scroll_offset(_dir); end  # no offset concept for uniform scale
 
       def on_drag(ctrl, shift, view, x, y)
-        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        return unless @lbutton_down && @drag_mode && ctrl
         entity = pick_entity(view, x, y, 16)
         entity = @placement_map[entity] if entity && @placement_map.key?(entity)
         picked = pick_geometry_from_entity(entity)
@@ -1907,14 +1943,11 @@ module ASM_Extensions
         "Cancel Uniform Scaling"
       end
 
-      def handle_key(key)
-        case key
-        when 35 # End — toggle rotation mode ground ↔ flow
-          @rotation_mode = @rotation_mode == :flow ? :ground : :flow
-          rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
-          update_vcb
-          apply(nil)
-        end
+      def handle_mode_key
+        @rotation_mode = @rotation_mode == :flow ? :ground : :flow
+        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        update_vcb
+        apply(nil)
       end
 
       def render_vcb
@@ -1922,7 +1955,7 @@ module ASM_Extensions
         mode_label = Lang.t(:html, :settings, mode_key)
         Sketchup.set_status_text("", 1)
         Sketchup.set_status_text("", 2)
-        Sketchup.set_status_text("#{Lang.commands.oeuscale.vcb_hint}  |  #{mode_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oeuscale.vcb_hint}  |  #{mode_label}  |  #{roll_label}", 0)
       end
 
       def apply(_text)
@@ -2037,7 +2070,7 @@ module ASM_Extensions
       private
 
       def on_drag(ctrl, shift, view, x, y)
-        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        return unless @lbutton_down && @drag_mode && ctrl
         entity = pick_entity(view, x, y)
         picked = pick_geometry_from_entity(entity)
         modify_geometry(@drag_mode, picked) if picked
@@ -2065,23 +2098,25 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEFlowTool.last_offset_str)
-        when 35 # End — cycle rotation mode
-          @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-          update_vcb
-          apply(OEFlowTool.last_offset_str)
-        when 36 # Home — cycle insertion point
+        when 9 # Tab — cycle insertion point
           @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom].dup
           custom[:oeflow] = @insertion_point.to_s
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEFlowTool.last_offset_str)
+        when 40 # Down — cycle axis Z → X → Y
+          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+          @first_apply = true
+          update_vcb
+          apply(OEFlowTool.last_offset_str)
         end
+      end
+
+      def handle_mode_key
+        @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
+        update_vcb
+        apply(OEFlowTool.last_offset_str)
       end
 
       def render_vcb
@@ -2092,7 +2127,7 @@ module ASM_Extensions
         ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
       end
 
       def apply(text)
@@ -2294,14 +2329,7 @@ module ASM_Extensions
       def handle_geometry_click(ctrl, shift, view, x, y, click_type)
         ph = view.pick_helper
         ph.do_pick(x, y)
-        raw = ph.best_picked
-
-        if shift && raw && @placement_map.key?(raw)
-          @drag_mode = :remove
-          modify_geometry(:remove, [@placement_map[raw]])
-          return
-        end
-
+        raw  = ph.best_picked
         best = @placement_map.key?(raw) ? @placement_map[raw] : raw
 
         picked = case click_type
@@ -2309,32 +2337,21 @@ module ASM_Extensions
                  when :double then connected_geometry(best)
                  end
 
-        if ctrl && shift
-          @drag_mode = :remove
-        elsif ctrl
-          @drag_mode = :add
-        elsif shift
-          @drag_mode = :add
-        end
-
-        return unless picked
-
         mode = if ctrl && shift
                  :remove
                elsif ctrl
                  :add
-               elsif shift
-                 picked.all? { |f| @geometry.include?(f) } ? :remove : :add
                else
                  :replace
                end
 
         @drag_mode = mode unless mode == :replace
+        return unless picked
         modify_geometry(mode, picked)
       end
 
       def on_drag(ctrl, shift, view, x, y)
-        return unless @lbutton_down && @drag_mode && (ctrl || shift)
+        return unless @lbutton_down && @drag_mode && ctrl
         ph = view.pick_helper
         ph.do_pick(x, y)
         picked = pick_geometry_from_entity(ph.best_picked)
@@ -2369,23 +2386,25 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEFaceTool.last_offset_str)
-        when 35 # End — cycle face orientation
-          @axis_idx = (@axis_idx + 1) % 3
-          update_vcb
-          apply(OEFaceTool.last_offset_str)
-        when 36 # Home — cycle insertion point
+        when 9 # Tab — cycle insertion point
           @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom].dup
           custom[:oeface] = @insertion_point.to_s
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEFaceTool.last_offset_str)
+        when 40 # Down — cycle axis Z → X → Y
+          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+          @first_apply = true
+          update_vcb
+          apply(OEFaceTool.last_offset_str)
         end
+      end
+
+      def handle_mode_key
+        @axis_idx = (@axis_idx + 1) % 3
+        update_vcb
+        apply(OEFaceTool.last_offset_str)
       end
 
       def render_vcb
@@ -2399,7 +2418,7 @@ module ASM_Extensions
         ip_label   = Lang.t(:html, :settings, ip_key)
         Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{scale_label}  |  #{orient_label}  |  #{ip_label}", 0)
+        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{scale_label}  |  #{orient_label}  |  #{ip_label}  |  #{roll_label}", 0)
       end
 
       def apply(text)

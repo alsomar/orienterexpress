@@ -462,6 +462,218 @@ module ASM_Extensions
         assert_in_delta inst2.transformation.origin.z, inst.transformation.origin.z, TOL
       end
 
+      # =========================================================================
+      # roll_angle — Up arrow advances to next 90° step
+      # =========================================================================
+
+      # Simulates the Up arrow logic from onKeyDown.
+      def advance_roll(current_angle)
+        steps = ((current_angle / 90.degrees) + 1e-9).floor
+        ((steps + 1) % 4) * 90.degrees
+      end
+
+      def test_up_arrow_from_0_goes_to_90
+        assert_in_delta 90.degrees, advance_roll(0.0), TOL
+      end
+
+      def test_up_arrow_from_90_goes_to_180
+        assert_in_delta 180.degrees, advance_roll(90.degrees), TOL
+      end
+
+      def test_up_arrow_from_180_goes_to_270
+        assert_in_delta 270.degrees, advance_roll(180.degrees), TOL
+      end
+
+      def test_up_arrow_from_270_wraps_to_0
+        assert_in_delta 0.0, advance_roll(270.degrees), TOL
+      end
+
+      def test_up_arrow_from_arbitrary_angle_goes_to_next_90
+        # 72° → next 90° step is 90°
+        assert_in_delta 90.degrees, advance_roll(72.degrees), TOL
+      end
+
+      def test_up_arrow_from_just_below_180_goes_to_180
+        assert_in_delta 180.degrees, advance_roll(179.degrees), TOL
+      end
+
+      def test_up_arrow_from_exactly_on_step_advances_to_next
+        # 90° exactly → should go to 180°, not stay at 90°
+        assert_in_delta 180.degrees, advance_roll(90.degrees), TOL
+      end
+
+      # =========================================================================
+      # onUserText — degree input parsing
+      # =========================================================================
+
+      # Simulates the parsing logic from onUserText.
+      def parse_roll_input(text)
+        stripped = text.strip
+        if stripped =~ /\A-?\d+([.,]\d+)?\s*(deg|°)\z/i
+          stripped.gsub(',', '.').to_f * Math::PI / 180.0
+        else
+          nil  # not a roll input
+        end
+      end
+
+      def test_parse_roll_integer_deg
+        result = parse_roll_input('72deg')
+        assert_in_delta 72.degrees, result, TOL
+      end
+
+      def test_parse_roll_float_dot_deg
+        result = parse_roll_input('22.5deg')
+        assert_in_delta 22.5.degrees, result, TOL
+      end
+
+      def test_parse_roll_float_comma_deg
+        result = parse_roll_input('22,5deg')
+        assert_in_delta 22.5.degrees, result, TOL
+      end
+
+      def test_parse_roll_degree_symbol
+        result = parse_roll_input("45\xC2\xB0")
+        assert_in_delta 45.degrees, result, TOL
+      end
+
+      def test_parse_roll_zero_resets
+        result = parse_roll_input('0deg')
+        assert_in_delta 0.0, result, TOL
+      end
+
+      def test_parse_roll_negative
+        result = parse_roll_input('-90deg')
+        assert_in_delta(-90.degrees, result, TOL)
+      end
+
+      def test_parse_roll_uppercase_DEG
+        result = parse_roll_input('45DEG')
+        assert_in_delta 45.degrees, result, TOL
+      end
+
+      def test_parse_roll_with_spaces
+        result = parse_roll_input('45 deg')
+        assert_in_delta 45.degrees, result, TOL
+      end
+
+      def test_parse_roll_plain_number_is_not_roll
+        result = parse_roll_input('45')
+        assert_nil result, 'Plain number without deg/° should not be parsed as roll'
+      end
+
+      def test_parse_roll_offset_string_is_not_roll
+        result = parse_roll_input('10cm')
+        assert_nil result, 'Offset string should not be parsed as roll'
+      end
+
+      def test_parse_roll_empty_is_not_roll
+        result = parse_roll_input('')
+        assert_nil result
+      end
+
+      # =========================================================================
+      # roll_label — display formatting
+      # =========================================================================
+
+      def simulate_roll_label(angle_rad)
+        deg = (angle_rad * 180.0 / Math::PI) % 360.0
+        deg_str = (deg % 1.0).abs < 0.05 ? deg.round.to_s : format('%.1f', deg)
+        "#{deg_str}\xC2\xB0"
+      end
+
+      def test_roll_label_zero
+        assert_equal "0\xC2\xB0", simulate_roll_label(0.0)
+      end
+
+      def test_roll_label_90
+        assert_equal "90\xC2\xB0", simulate_roll_label(90.degrees)
+      end
+
+      def test_roll_label_180
+        assert_equal "180\xC2\xB0", simulate_roll_label(180.degrees)
+      end
+
+      def test_roll_label_270
+        assert_equal "270\xC2\xB0", simulate_roll_label(270.degrees)
+      end
+
+      def test_roll_label_fractional
+        assert_equal "22.5\xC2\xB0", simulate_roll_label(22.5.degrees)
+      end
+
+      def test_roll_label_wraps_360_to_0
+        assert_equal "0\xC2\xB0", simulate_roll_label(360.degrees)
+      end
+
+      def test_roll_label_72
+        assert_equal "72\xC2\xB0", simulate_roll_label(72.degrees)
+      end
+
+      # =========================================================================
+      # OEZScaleTool base placement — center + cross-section OBB shift
+      # =========================================================================
+
+      # Simulate the OEZScaleTool base placement:
+      #   1. Center the instance at target.
+      #   2. Project world_up ⊥ to scale_axis_vec to get cross-section "up".
+      #   3. Shift via move_base_to_surface in that direction.
+      # Returns the proxy used for step 3 (so callers can inspect).
+      def zscale_base_place(inst, target, scale_axis_vec, world_up = nil)
+        world_up ||= Geom::Vector3d.new(0, 0, 1)
+        OE.send(:move_insertion_to, inst, target, :center, :z)
+        scale_n = scale_axis_vec.normalize
+        s_dot   = world_up.dot(scale_n)
+        up_perp = Geom::Vector3d.new(
+          world_up.x - scale_n.x * s_dot,
+          world_up.y - scale_n.y * s_dot,
+          world_up.z - scale_n.z * s_dot
+        )
+        return unless up_perp.length > 1e-6
+        proxy = make_tool_proxy
+        proxy.move_base_to_surface(inst, target, up_perp)
+      end
+
+      # At every 90° roll step, the world-space base face (lowest Z) must land at target.z.
+      [0, 1, 2, 3].each do |steps|
+        define_method("test_zscale_base_ground_base_face_at_target_roll_#{steps * 90}deg") do
+          inst   = make_instance
+          target = Geom::Point3d.new(0, 0, 100)
+          orient_z_to(inst, X_AXIS)         # Z along horizontal edge (+X)
+          apply_roll(inst, steps, X_AXIS)   # roll around scale axis
+          zscale_base_place(inst, target, X_AXIS)
+
+          up_perp = Geom::Vector3d.new(0, 0, 1)
+          actual_min = world_corners(inst).map { |p| proj(p, up_perp) }.min
+          assert_in_delta proj(target, up_perp), actual_min, TOL,
+            "Roll #{steps * 90}°: base face (min Z) should be at target.z"
+        end
+      end
+
+      # Vertical edge (scale_axis_vec = world Z): up_perp degenerates to zero,
+      # so no base shift — component center stays at midpoint.
+      def test_zscale_base_vertical_edge_center_at_midpoint
+        inst   = make_instance
+        target = Geom::Point3d.new(10, 20, 50)
+        orient_z_to(inst, Z_AXIS)   # Z along vertical edge
+        OE.send(:move_insertion_to, inst, target, :center, :z)
+        # No up_perp for vertical edge — center must stay at target
+        ctr = inst.bounds.center
+        assert_in_delta target.x, ctr.x, TOL
+        assert_in_delta target.y, ctr.y, TOL
+        assert_in_delta target.z, ctr.z, TOL
+      end
+
+      # After the base shift, center must be ABOVE the target (not below),
+      # meaning the base face is at target and the rest of the component extends up.
+      def test_zscale_base_center_above_target_after_base_shift
+        inst   = make_instance
+        target = Geom::Point3d.new(0, 0, 100)
+        orient_z_to(inst, X_AXIS)
+        zscale_base_place(inst, target, X_AXIS)
+        assert inst.bounds.center.z > target.z - TOL,
+               'Component center should be at or above target after base shift'
+      end
+
     end
   end
 end
