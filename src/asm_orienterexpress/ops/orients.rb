@@ -348,6 +348,141 @@ module ASM_Extensions
       end
     end
 
+    # For a vertical edge (local Z ≈ world Z) in ground mode, orient_x is a no-op
+    # because every horizontal direction is already ground-parallel.  This method
+    # calls orient_x first, then — for vertical edges — tries to find a meaningful
+    # horizontal reference for local X:
+    #   1. Average face normal projected onto XY.
+    #   2. Average of connected-edge XY directions (geometric flow).
+    #   3. No rotation (world X remains — current default).
+    def self.orient_x_ground(entity, edge = nil, h_dir_map = nil)
+      orient_x(entity)
+      return unless edge
+      z = entity.transformation.zaxis.normalize
+      return unless (z.z.abs - 1.0).abs < 1e-3   # only for near-vertical edges
+      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
+      orient_x_to_horizontal(entity, ref) if ref
+    end
+
+    # Returns a normalised horizontal (XY) reference vector for a vertical edge.
+    # Priority:
+    #   0. Propagated map built from full geometry (h_dir_map) — most reliable,
+    #      handles symmetric naked-edge meshes where simple averaging cancels.
+    #   1. Face normal XY projection.
+    #   2. XY average of connected non-self edges (local geometric flow).
+    #   Returns nil when all strategies are degenerate.
+    def self.horizontal_ref_for_vertical_edge(edge, h_dir_map = nil)
+      # 0. Propagated map
+      if h_dir_map
+        [edge.start, edge.end].each do |v|
+          d = h_dir_map[v]
+          return d if d   # already normalised XY
+        end
+      end
+      # 1. Face normal XY projection
+      normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }
+      unless normals.empty?
+        avg = normals.reduce(Geom::Vector3d.new(0, 0, 0)) { |s, n| s + n }
+        ref = Geom::Vector3d.new(avg.x, avg.y, 0)
+        return ref.normalize if ref.length > 1e-6
+      end
+      # 2. XY average of connected non-self edges at both vertices
+      sum = Geom::Vector3d.new(0, 0, 0)
+      [edge.start, edge.end].each do |vertex|
+        vertex.edges.each do |e|
+          next if e.equal?(edge)
+          other = (e.start == vertex) ? e.end.position : e.start.position
+          v     = other - vertex.position
+          xy    = Geom::Vector3d.new(v.x, v.y, 0)
+          sum   = sum + xy if xy.length > 1e-6
+        end
+      end
+      ref = Geom::Vector3d.new(sum.x, sum.y, 0)
+      ref.length > 1e-6 ? ref.normalize : nil
+    end
+
+    # Rotates entity around its current Z axis to align local X toward ref_h
+    # (only the XY component of ref_h is used).
+    def self.orient_x_to_horizontal(entity, ref_h)
+      ref_xy = Geom::Vector3d.new(ref_h.x, ref_h.y, 0)
+      return if ref_xy.length < 1e-6
+      z      = entity.transformation.zaxis.normalize
+      x      = entity.transformation.xaxis.normalize
+      target = ref_xy.normalize
+      angle  = Math.atan2(x.cross(target).dot(z), x.dot(target))
+      return if angle.abs < 1e-6
+      entity.transform!(Geom::Transformation.rotation(entity.bounds.center, z, angle))
+    end
+    private_class_method :horizontal_ref_for_vertical_edge, :orient_x_to_horizontal
+
+    # Builds a vertex → normalised XY direction map from a vertex_edges hash.
+    # Mirrors all_vertex_flow_directions (same three strategies + BFS sign fix)
+    # but projects the final 3D directions onto XY, discarding any result whose
+    # XY component is negligible (e.g. vertical normals from flat floor meshes).
+    def self.horizontal_flow_directions(vertex_edges)
+      reliable   = {}
+      candidates = {}
+
+      # Use ALL edges connected to each vertex (not just selected ones) so
+      # that corner vertices get their true outward direction from face edges,
+      # and strategy 3 can find non-parallel pairs even when only vertical
+      # edges were selected.
+      vertex_edges.each_key do |vertex|
+        all_edges = vertex.edges.to_a
+        d = vertex_flow_direction(vertex, all_edges)
+        if d
+          reliable[vertex] = d
+        else
+          dirs = []
+          all_edges.each do |edge|
+            other = (edge.start == vertex) ? edge.end.position : edge.start.position
+            dir   = vertex.position - other
+            next if dir.length < 1e-6
+            dirs << dir.normalize
+          end
+          dirs.combination(2) do |a, b|
+            cross = a.cross(b)
+            if cross.length > 1e-3
+              candidates[vertex] = cross.normalize
+              break
+            end
+          end
+        end
+      end
+
+      # BFS: propagate sign from reliable to candidates.
+      # Traverse ALL edges connected to each vertex so the signal can reach
+      # inner vertices even when only a subset of edges is selected.
+      # Only candidates (vertices from the selected geometry) are updated.
+      visited = reliable.keys.dup
+      queue   = reliable.keys.dup
+      until queue.empty?
+        v   = queue.shift
+        dir = reliable[v]
+        v.edges.each do |edge|
+          neighbor = (edge.start == v) ? edge.end : edge.start
+          next if visited.include?(neighbor)
+          next unless candidates.key?(neighbor)
+          cross = candidates[neighbor]
+          dot   = dir.dot(cross)
+          next if dot.abs < 0.1
+          reliable[neighbor] = dot >= 0 ? cross : cross.reverse
+          candidates.delete(neighbor)
+          visited << neighbor
+          queue   << neighbor
+        end
+      end
+
+      # Project to XY; discard entries with negligible horizontal component.
+      result = {}
+      reliable.merge(candidates).each do |vertex, dir|
+        xy = Geom::Vector3d.new(dir.x, dir.y, 0)
+        result[vertex] = xy.normalize if xy.length > 1e-6
+      end
+      result
+    end
+    private_class_method :horizontal_flow_directions
+
     # Returns [along, perp]: the longest edge direction and its perpendicular,
     # both lying in the face plane. Returns nil if the face is degenerate.
     def self.face_longest_edge_axes(face)
@@ -639,6 +774,7 @@ module ASM_Extensions
         @roll_angle    = 0.0
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
+        rebuild_h_dir_map if @rotation_mode == :ground
         update_vcb
         UI.start_timer(0, false) { apply(self.class.last_offset_str); sync_selection } if @entity_def
       end
@@ -911,8 +1047,11 @@ module ASM_Extensions
         sync_selection
       end
 
-      # Hook: called after geometry set changes (e.g. rebuild flow map)
-      def on_geometry_changed; end
+      # Hook: called after geometry set changes (e.g. rebuild flow map).
+      # Base implementation rebuilds the horizontal-direction map for ground mode.
+      def on_geometry_changed
+        rebuild_h_dir_map if @rotation_mode == :ground
+      end
 
       def key_repeat(dir, gen)
         return unless @arrow_key_dir == dir && @key_repeat_gen == gen
@@ -1152,6 +1291,22 @@ module ASM_Extensions
         @flow_map = OrienterExpress.send(:all_vertex_flow_directions, vertex_edges)
       end
 
+      # Builds @h_dir_map: vertex → normalised XY direction for ground-mode
+      # orientation of vertical edges.  Uses horizontal_flow_directions which
+      # works purely in XY and propagates reliable directions via BFS to
+      # symmetric vertices where simple averaging cancels.
+      def rebuild_h_dir_map
+        return unless @geometry
+        vertex_edges = {}
+        @geometry.each do |edge|
+          [edge.start, edge.end].each do |v|
+            vertex_edges[v] ||= []
+            vertex_edges[v] << edge
+          end
+        end
+        @h_dir_map = OrienterExpress.send(:horizontal_flow_directions, vertex_edges)
+      end
+
     end
 
     # Interactive tool for Edge Vertex Placement.
@@ -1225,6 +1380,7 @@ module ASM_Extensions
 
       def on_geometry_changed
         rebuild_flow_map if @rotation_mode == :flow
+        super
       end
 
       def on_selection_changed(new_set, old_set)
@@ -1232,6 +1388,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply(OEVertexTool.last_offset_str)
         else
+          rebuild_h_dir_map if @rotation_mode == :ground
           offset = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
@@ -1275,7 +1432,8 @@ module ASM_Extensions
 
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
+        rebuild_h_dir_map  if @rotation_mode == :ground
         update_vcb
         apply(OEVertexTool.last_offset_str)
       end
@@ -1377,7 +1535,7 @@ module ASM_Extensions
             case @scale_axis
             when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
             when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-            else         OrienterExpress.orient_x(entity_copy)
+            else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
             end
           end
           target_point = vertex_pos.offset(inward_dir, offset)
@@ -1487,6 +1645,7 @@ module ASM_Extensions
 
       def on_geometry_changed
         rebuild_flow_map if @rotation_mode == :flow
+        super
       end
 
       def on_selection_changed(new_set, old_set)
@@ -1494,6 +1653,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply(OECenterTool.last_offset_str)
         else
+          rebuild_h_dir_map if @rotation_mode == :ground
           offset = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
@@ -1537,7 +1697,8 @@ module ASM_Extensions
 
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
+        rebuild_h_dir_map  if @rotation_mode == :ground
         update_vcb
         apply(OECenterTool.last_offset_str)
       end
@@ -1631,7 +1792,7 @@ module ASM_Extensions
           case @scale_axis
           when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
           when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-          else         OrienterExpress.orient_x(entity_copy)
+          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
           end
         end
         edge_vec = edge.end.position - edge.start.position
@@ -1744,6 +1905,7 @@ module ASM_Extensions
 
       def on_geometry_changed
         rebuild_flow_map if @rotation_mode == :flow
+        super
       end
 
       def on_selection_changed(new_set, old_set)
@@ -1751,6 +1913,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply(OEZScaleTool.last_offset_str)
         else
+          rebuild_h_dir_map if @rotation_mode == :ground
           offset = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
@@ -1794,7 +1957,8 @@ module ASM_Extensions
 
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
+        rebuild_h_dir_map  if @rotation_mode == :ground
         update_vcb
         apply(OEZScaleTool.last_offset_str)
       end
@@ -1901,7 +2065,7 @@ module ASM_Extensions
           case @scale_axis
           when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
           when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-          else         OrienterExpress.orient_x(entity_copy)
+          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
           end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
@@ -2313,7 +2477,7 @@ module ASM_Extensions
                                      entity_copy.transformation.yaxis,
                                      entity_copy.transformation.zaxis)
               else
-                OrienterExpress.orient_x(entity_copy)
+                OrienterExpress.send(:orient_x_ground, entity_copy, rep_edge, @h_dir_map)
               end
             end
 
