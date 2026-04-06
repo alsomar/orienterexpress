@@ -456,8 +456,72 @@ module ASM_Extensions
       end
     end
 
+    # Infers a surface normal for a naked edge (no face) for base placement.
+    #
+    # Near-vertical edges (walls): returns the horizontal XY reference from
+    # h_dir_map / connected edges (same direction used for X-axis orientation).
+    #
+    # Horizontal/oblique edges (floor/ceiling): uses the Z component of the 3D
+    # vertex flow direction to determine sign.  A vertex whose connected vertical
+    # edges point downward (neighbor above) lies on a bottom surface → normal -Z;
+    # one whose vertical edges point upward (neighbor below) lies on a top surface
+    # → normal +Z.  Returns nil when the sign is indeterminate (no vertical
+    # connectivity), so callers fall back to world +Z.
+    def self.naked_edge_surface_normal(edge, h_dir_map = nil, z_sign_map = nil)
+      dir = (edge.end.position - edge.start.position).normalize
+      if dir.z.abs > 0.7
+        horizontal_ref_for_vertical_edge(edge, h_dir_map)
+      else
+        # Check propagated sign map first.
+        if z_sign_map
+          [edge.start, edge.end].each do |v|
+            d = z_sign_map[v]
+            return d if d
+          end
+        end
+        # Fallback: Z component of 3D flow at the edge's own vertices.
+        z_sum = 0.0
+        [edge.start, edge.end].each do |vertex|
+          d = vertex_flow_direction(vertex, vertex.edges.to_a)
+          z_sum += d.z if d
+        end
+        return nil if z_sum.abs < 1e-6
+        Geom::Vector3d.new(0, 0, z_sum > 0 ? 1 : -1)
+      end
+    end
+
+    # Builds a vertex → (0,0,±1) map for horizontal-surface base placement.
+    # Vertices connected to vertical edges get their ±Z sign from the 3D flow
+    # direction; interior vertices (no vertical connectivity) receive the sign
+    # via BFS propagation along all connected edges.
+    def self.vertical_surface_directions(vertex_edges)
+      reliable = {}
+      pending  = {}
+      vertex_edges.each_key do |vertex|
+        d = vertex_flow_direction(vertex, vertex.edges.to_a)
+        if d && d.z.abs > 1e-6
+          reliable[vertex] = Geom::Vector3d.new(0, 0, d.z > 0 ? 1 : -1)
+        else
+          pending[vertex] = true
+        end
+      end
+      queue = reliable.keys.dup
+      until queue.empty?
+        v   = queue.shift
+        dir = reliable[v]
+        v.edges.each do |edge|
+          neighbor = (edge.start == v) ? edge.end : edge.start
+          next unless pending.delete(neighbor)
+          reliable[neighbor] = dir
+          queue << neighbor
+        end
+      end
+      reliable
+    end
+
     private_class_method :horizontal_ref_for_vertical_edge, :orient_x_to_horizontal,
-                         :orient_z_to_horizontal, :orient_z_ground, :orient_y_ground
+                         :orient_z_to_horizontal, :orient_z_ground, :orient_y_ground,
+                         :naked_edge_surface_normal, :vertical_surface_directions
 
     # Builds a vertex → normalised XY direction map from a vertex_edges hash.
     # Mirrors all_vertex_flow_directions (same three strategies + BFS sign fix)
@@ -776,6 +840,29 @@ module ASM_Extensions
     # via hook methods: apply, render_vcb, handle_key, on_drag, and others.
     class OEPlacementTool
 
+      # Tracks the currently active placement tool instance so that
+      # user_settings changes (e.g. insertion_point from the settings dialog)
+      # can be pushed to the running tool without requiring a restart.
+      @active_instance = nil
+      class << self
+        attr_accessor :active_instance
+      end
+
+      # Called by OrienterExpress.user_settings when config changes while the
+      # tool is running.  Re-reads insertion_point from config if it changed.
+      def on_config_changed(changed)
+        return unless changed.key?(:insertion_point_custom)
+        key = debug_tool_name.to_sym
+        new_ip = OrienterExpress.send(:resolved_insertion_point, key).to_sym
+        new_ip = :center unless respond_to?(:valid_insertion_points) ?
+                                  valid_insertion_points.include?(new_ip) :
+                                  %i[center base origin].include?(new_ip)
+        return if new_ip == @insertion_point
+        @insertion_point = new_ip
+        update_vcb
+        apply(self.class.last_offset_str)
+      end
+
       class SelectionWatcher < Sketchup::SelectionObserver
         def initialize(&block)
           @callback = block
@@ -818,12 +905,14 @@ module ASM_Extensions
         @roll_angle    = 0.0
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
+        OEPlacementTool.active_instance = self
         rebuild_h_dir_map if @rotation_mode == :ground
         update_vcb
         UI.start_timer(0, false) { apply(self.class.last_offset_str); sync_selection } if @entity_def
       end
 
       def deactivate(view)
+        OEPlacementTool.active_instance = nil if OEPlacementTool.active_instance.equal?(self)
         @model.selection.remove_observer(@watcher) if @watcher
         @watcher           = nil
         @applied           = false
@@ -1280,15 +1369,19 @@ module ASM_Extensions
       # (floor, ceiling, vertical wall). Ground/flow fall back to +Z for naked edges.
       # Normal mode falls back to move_insertion_to when there is no face normal.
       # Other insertion points fall back to move_insertion_to with @scale_axis.
-      def place_with_insertion(entity_copy, target, edge_normal_vec = nil)
+      def place_with_insertion(entity_copy, target, edge_normal_vec = nil, edge = nil)
         if @insertion_point == :base
           surface_dir = case @rotation_mode
                         when :normal
                           edge_normal_vec
                         when :flow
-                          edge_normal_vec || Geom::Vector3d.new(0, 0, 1)
+                          edge_normal_vec ||
+                            (edge && OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)) ||
+                            Geom::Vector3d.new(0, 0, 1)
                         else # ground
-                          edge_normal_vec || Geom::Vector3d.new(0, 0, 1)
+                          edge_normal_vec ||
+                            (edge && OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)) ||
+                            Geom::Vector3d.new(0, 0, 1)
                         end
           if surface_dir
             move_base_to_surface(entity_copy, target, surface_dir)
@@ -1348,7 +1441,8 @@ module ASM_Extensions
             vertex_edges[v] << edge
           end
         end
-        @h_dir_map = OrienterExpress.send(:horizontal_flow_directions, vertex_edges)
+        @h_dir_map   = OrienterExpress.send(:horizontal_flow_directions,   vertex_edges)
+        @z_sign_map  = OrienterExpress.send(:vertical_surface_directions,  vertex_edges)
       end
 
     end
@@ -1585,7 +1679,7 @@ module ASM_Extensions
           target_point = vertex_pos.offset(inward_dir, offset)
           apply_roll(entity_copy)
           edge_normal  = avg_face_normal_for_edge(edge)
-          place_with_insertion(entity_copy, target_point, edge_normal)
+          place_with_insertion(entity_copy, target_point, edge_normal, edge)
           @previous_entities << entity_copy
           @placement_map[entity_copy] = edge
         end
@@ -1844,7 +1938,7 @@ module ASM_Extensions
         midpoint = midpoint.offset(edge_vec.normalize, offset) unless edge_vec.length < 1e-6
         apply_roll(entity_copy)
         edge_normal = avg_face_normal_for_edge(edge)
-        place_with_insertion(entity_copy, midpoint, edge_normal)
+        place_with_insertion(entity_copy, midpoint, edge_normal, edge)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -2007,7 +2101,8 @@ module ASM_Extensions
         apply(OEZScaleTool.last_offset_str)
       end
 
-      def debug_tool_name;  "oezscale"; end
+      def debug_tool_name;        "oezscale"; end
+      def valid_insertion_points; %i[center base]; end
       def no_sample_hint;   Lang.commands.oezscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oezscale.no_geometry_hint.to_s; end
 
@@ -2121,7 +2216,8 @@ module ASM_Extensions
           # All modes use the face normal when available so the base lands on the correct side
           # of the surface (floor, ceiling, wall). Falls back to world +Z for naked edges.
           scale_axis_world = roll_axis(entity_copy).normalize
-          ref_up = avg_face_normal_for_edge(edge)
+          ref_up  = avg_face_normal_for_edge(edge)
+          ref_up ||= OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)
           ref_up ||= Geom::Vector3d.new(0, 0, 1)
           s       = ref_up.dot(scale_axis_world)
           up_perp = Geom::Vector3d.new(
@@ -2186,8 +2282,11 @@ module ASM_Extensions
 
       def initialize(edges, entity, flow_map, rotation_mode)
         super(edges, entity)
-        @flow_map      = flow_map
-        @rotation_mode = rotation_mode
+        @flow_map        = flow_map
+        @rotation_mode   = rotation_mode
+        @scale_axis      = :z
+        ip = OrienterExpress.send(:resolved_insertion_point, :oeuscale).to_sym
+        @insertion_point = %i[center base].include?(ip) ? ip : :center
       end
 
       private
@@ -2241,13 +2340,28 @@ module ASM_Extensions
         apply(nil)
       end
 
-      def debug_tool_name;  "oeuscale"; end
+      def handle_key(key)
+        case key
+        when 9 # Tab — cycle insertion point
+          @insertion_point = @insertion_point == :center ? :base : :center
+          custom = CONFIG[:insertion_point_custom].dup
+          custom[:oeuscale] = @insertion_point.to_s
+          OrienterExpress.user_settings(insertion_point_custom: custom)
+          update_vcb
+          apply(nil)
+        end
+      end
+
+      def debug_tool_name;        "oeuscale"; end
+      def valid_insertion_points; %i[center base]; end
       def no_sample_hint;   Lang.commands.oeuscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeuscale.no_geometry_hint.to_s; end
 
       def render_vcb
         mode_key   = @rotation_mode == :flow ? :rotation_flow : :rotation_ground
         mode_label = Lang.t(:html, :settings, mode_key)
+        ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
+        ip_label   = Lang.t(:html, :settings, ip_key)
         hint = format(Lang.commands.oeuscale.vcb_hint.to_s, mode: mode_label, roll: roll_label)
         Sketchup.set_status_text("", 1)
         Sketchup.set_status_text("", 2)
@@ -2304,7 +2418,8 @@ module ASM_Extensions
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         apply_roll(entity_copy)
-        entity_copy.transform!(Geom::Transformation.translation(midpoint - entity_copy.bounds.center))
+        edge_normal = avg_face_normal_for_edge(edge)
+        place_with_insertion(entity_copy, midpoint, edge_normal, edge)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -2527,7 +2642,7 @@ module ASM_Extensions
 
             apply_roll(entity_copy)
             flow_normal = rep_edge ? avg_face_normal_for_edge(rep_edge) : nil
-            place_with_insertion(entity_copy, target, flow_normal)
+            place_with_insertion(entity_copy, target, flow_normal, rep_edge)
             @previous_entities << entity_copy
             @placement_map[entity_copy] = vertex
           end

@@ -15,6 +15,7 @@ module ASM_Extensions
         oevertex:  "origin",
         oecenter:  "center",
         oezscale:  "center",
+        oeuscale:  "center",
         oeflow:    "center",
         oeface:    "base",
         oereset:   "base"
@@ -98,6 +99,9 @@ module ASM_Extensions
         next if key == :debug_mode
         Debug.log(self, method_id, "#{key}: #{new_value.inspect}")
       end
+
+      Dialogs.refresh_settings_dialog
+      OEPlacementTool.active_instance&.on_config_changed(changed)
     end
 
   end # module OrienterExpress

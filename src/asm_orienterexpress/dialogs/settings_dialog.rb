@@ -64,6 +64,13 @@ module ASM_Extensions
         dialog.execute_script("i18nJSON(#{payload.inspect})")
       end
 
+      # Called by user_settings whenever config changes so an open dialog stays
+      # in sync with changes made during tool execution (e.g. insertion point).
+      def self.refresh_settings_dialog
+        return unless @settings && @settings.visible?
+        push_initial_data(@settings)
+      end
+
       private_class_method :push_initial_data
 
     end # module Dialogs

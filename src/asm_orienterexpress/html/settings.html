@@ -115,8 +115,9 @@
                     <div v-for="tool in customTools" :key="tool" class="mb-2">
                       <div class="form-label mb-1">{{ t('commands.' + tool + '.label') }}</div>
                       <div class="btn-group w-100" role="group">
-                        <button v-for="mode in insertionModes" :key="mode" type="button"
-                          :class="['btn', settingsInsertionPointCustom[tool] === mode ? 'btn-primary' : 'btn-outline-secondary']"
+                        <button v-for="mode in (toolModesMap[tool] || insertionModes)" :key="mode" type="button"
+                          :class="['btn', 'btn-sm', settingsInsertionPointCustom[tool] === mode ? 'btn-primary' : 'btn-outline-secondary']"
+                          :style="Object.assign({ fontSize: 'inherit' }, toolModesMap[tool] ? { flex: '0 0 33.333%', maxWidth: '33.333%' } : {})"
                           @click="setCustomPoint(tool, mode)">
                           {{ t('html.settings.insertion_' + mode + '_short') }}
                         </button>
@@ -302,12 +303,18 @@
           rotationModes: ['ground', 'flow', 'normal'],
           settingsInsertionPointCustom: {
             oevertex: 'origin',
-            oecenter:     'center',
-            oeflow:       'center',
-            oeface:       'base'
+            oecenter: 'center',
+            oezscale: 'center',
+            oeuscale: 'center',
+            oeflow:   'center',
+            oeface:   'base'
           },
-          customTools:    ['oevertex', 'oecenter', 'oeflow', 'oeface'],
+          customTools:    ['oevertex', 'oecenter', 'oeflow', 'oeface', 'oezscale', 'oeuscale'],
           insertionModes: ['base', 'center', 'origin'],
+          toolModesMap: {
+            oezscale: ['base', 'center'],
+            oeuscale: ['base', 'center']
+          },
 
           // Dark mode
           darkMode: false,
@@ -388,7 +395,7 @@
           this.settingsLanguage             = 'auto';
           this.settingsContextMenu          = false;
           this.rotationMode                 = 'ground';
-          this.settingsInsertionPointCustom = { oevertex: 'origin', oecenter: 'center', oeflow: 'center', oeface: 'base' };
+          this.settingsInsertionPointCustom = { oevertex: 'origin', oecenter: 'center', oezscale: 'center', oeuscale: 'center', oeflow: 'center', oeface: 'base' };
           this.darkMode                     = false;
           this.showReset                    = false;
 
