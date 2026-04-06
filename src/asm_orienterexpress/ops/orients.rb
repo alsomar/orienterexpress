@@ -470,23 +470,34 @@ module ASM_Extensions
     def self.naked_edge_surface_normal(edge, h_dir_map = nil, z_sign_map = nil)
       dir = (edge.end.position - edge.start.position).normalize
       if dir.z.abs > 0.7
+        # Near-vertical edge → surface is a wall → use horizontal reference.
         horizontal_ref_for_vertical_edge(edge, h_dir_map)
       else
-        # Check propagated sign map first.
-        if z_sign_map
-          [edge.start, edge.end].each do |v|
-            d = z_sign_map[v]
-            return d if d
-          end
-        end
-        # Fallback: Z component of 3D flow at the edge's own vertices.
-        z_sum = 0.0
+        # Horizontal/oblique edge. Determine whether it belongs to a cap
+        # (floor/ceiling) or a lateral ring (vertical wall):
+        #   - Cap vertex:    3D flow has significant Z → use ±Z.
+        #   - Lateral vertex: 3D flow Z ≈ 0 → surface normal is horizontal
+        #                     → use h_dir_map or connected-edge XY average.
+        # We compute the DIRECT (non-propagated) flow for both endpoints and
+        # pick the first one that gives a clear answer.
         [edge.start, edge.end].each do |vertex|
           d = vertex_flow_direction(vertex, vertex.edges.to_a)
-          z_sum += d.z if d
+          if d && d.z.abs > 0.3
+            # Border cap vertex with clear vertical flow → ±Z.
+            return Geom::Vector3d.new(0, 0, d.z > 0 ? 1 : -1)
+          end
+          # Lateral wall vertex or no flow → prefer horizontal reference.
+          ref = h_dir_map && h_dir_map[vertex]
+          return ref if ref
+          # No h_dir_map entry: use propagated ±Z from z_sign_map only when
+          # the vertex has no horizontal reference (avoids giving ±Z to wall
+          # ring vertices that have an h_dir_map entry).
+          next if d && d.z.abs <= 0.3  # has flow but it's lateral — skip z_sign
+          ref = z_sign_map && z_sign_map[vertex]
+          return ref if ref
         end
-        return nil if z_sum.abs < 1e-6
-        Geom::Vector3d.new(0, 0, z_sum > 0 ? 1 : -1)
+        # Last resort: XY geometry of connected edges (works for wall edges).
+        horizontal_ref_for_vertical_edge(edge, h_dir_map)
       end
     end
 
@@ -1441,8 +1452,8 @@ module ASM_Extensions
             vertex_edges[v] << edge
           end
         end
-        @h_dir_map   = OrienterExpress.send(:horizontal_flow_directions,   vertex_edges)
-        @z_sign_map  = OrienterExpress.send(:vertical_surface_directions,  vertex_edges)
+        @h_dir_map  = OrienterExpress.send(:horizontal_flow_directions, vertex_edges)
+        @z_sign_map = OrienterExpress.send(:vertical_surface_directions, vertex_edges)
       end
 
     end

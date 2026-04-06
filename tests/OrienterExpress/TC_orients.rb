@@ -727,6 +727,103 @@ module ASM_Extensions
           'Rotation axis (X→edge) must not change after orient_to_face_normal_around'
       end
 
+
+      # =========================================================================
+      # naked_edge_surface_normal — cap vs lateral ring detection
+      # =========================================================================
+      #
+      # Geometry: a naked-edge box with one intermediate ring at z=50.
+      # Bottom cap  z=0:   4 edges (horizontal) → normal should be (0,0,-1)
+      # Top cap     z=100: 4 edges (horizontal) → normal should be (0,0,+1)
+      # Mid ring    z=50:  4 edges (horizontal) → normal should be horizontal
+      # Vertical    edges: normal should be horizontal
+      #
+      # Helper: builds an axis-aligned square ring of 4 naked edges at height z.
+      def make_ring(z)
+        corners = [[0,0,z],[100,0,z],[100,100,z],[0,100,z]]
+        edges = []
+        4.times do |i|
+          a = corners[i]
+          b = corners[(i+1) % 4]
+          e = @entities.add_line(a, b)
+          @to_erase << e
+          edges << e
+        end
+        edges
+      end
+
+      # Helper: adds the 4 vertical edges connecting two rings.
+      def make_verticals(z0, z1)
+        xs = [[0,0],[100,0],[100,100],[0,100]]
+        edges = []
+        xs.each do |(x,y)|
+          e = @entities.add_line([x,y,z0],[x,y,z1])
+          @to_erase << e
+          edges << e
+        end
+        edges
+      end
+
+      def setup_naked_box
+        @bottom_edges   = make_ring(0)
+        @mid_edges      = make_ring(50)
+        @top_edges      = make_ring(100)
+        @vert_lower     = make_verticals(0, 50)
+        @vert_upper     = make_verticals(50, 100)
+      end
+
+      def build_h_dir_map
+        all = @bottom_edges + @mid_edges + @top_edges + @vert_lower + @vert_upper
+        vertex_edges = {}
+        all.each do |edge|
+          [edge.start, edge.end].each do |v|
+            vertex_edges[v] ||= []
+            vertex_edges[v] << edge
+          end
+        end
+        OE.send(:horizontal_flow_directions, vertex_edges)
+      end
+
+      # Bottom cap edges should get a downward normal (component goes below the floor).
+      def test_naked_edge_surface_normal_bottom_cap_is_minus_z
+        setup_naked_box
+        h = build_h_dir_map
+        @bottom_edges.each do |edge|
+          n = OE.send(:naked_edge_surface_normal, edge, h)
+          refute_nil n, "Bottom cap edge should have a surface normal"
+          assert_in_delta 0.0, n.x.abs, TOL, "Bottom cap normal X should be 0"
+          assert_in_delta 0.0, n.y.abs, TOL, "Bottom cap normal Y should be 0"
+          assert n.z < 0, "Bottom cap normal should point down (-Z), got #{n.inspect}"
+        end
+      end
+
+      # Top cap edges should get an upward normal.
+      def test_naked_edge_surface_normal_top_cap_is_plus_z
+        setup_naked_box
+        h = build_h_dir_map
+        @top_edges.each do |edge|
+          n = OE.send(:naked_edge_surface_normal, edge, h)
+          refute_nil n, "Top cap edge should have a surface normal"
+          assert_in_delta 0.0, n.x.abs, TOL, "Top cap normal X should be 0"
+          assert_in_delta 0.0, n.y.abs, TOL, "Top cap normal Y should be 0"
+          assert n.z > 0, "Top cap normal should point up (+Z), got #{n.inspect}"
+        end
+      end
+
+      # Mid-ring edges are on a vertical wall → normal must be horizontal (Z≈0).
+      def test_naked_edge_surface_normal_mid_ring_is_horizontal
+        setup_naked_box
+        h = build_h_dir_map
+        @mid_edges.each do |edge|
+          n = OE.send(:naked_edge_surface_normal, edge, h)
+          refute_nil n, "Mid-ring edge should have a surface normal"
+          assert_in_delta 0.0, n.z.abs, TOL,
+            "Mid-ring (lateral wall) normal must be horizontal (Z≈0), got #{n.inspect}"
+          assert n.x.abs + n.y.abs > 0.5,
+            "Mid-ring normal must have a significant XY component, got #{n.inspect}"
+        end
+      end
+
     end
   end
 end
