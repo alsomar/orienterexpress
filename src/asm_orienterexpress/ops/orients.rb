@@ -413,7 +413,51 @@ module ASM_Extensions
       return if angle.abs < 1e-6
       entity.transform!(Geom::Transformation.rotation(entity.bounds.center, z, angle))
     end
-    private_class_method :horizontal_ref_for_vertical_edge, :orient_x_to_horizontal
+
+    # Rotates entity around its current X axis to align local Z toward ref_h
+    # (only the XY component of ref_h is used). Analogue of orient_x_to_horizontal
+    # for scale_axis=X.
+    def self.orient_z_to_horizontal(entity, ref_h)
+      ref_xy = Geom::Vector3d.new(ref_h.x, ref_h.y, 0)
+      return if ref_xy.length < 1e-6
+      x      = entity.transformation.xaxis.normalize
+      z      = entity.transformation.zaxis.normalize
+      target = ref_xy.normalize
+      angle  = Math.atan2(z.cross(target).dot(x), z.dot(target))
+      return if angle.abs < 1e-6
+      entity.transform!(Geom::Transformation.rotation(entity.bounds.center, x, angle))
+    end
+
+    # For scale_axis=X in ground mode: makes local Z ground-parallel (by rotating
+    # around X), then orients Z toward the face normal / h_dir_map reference.
+    # Analogue of orient_x_ground for the X-axis scale case.
+    def self.orient_z_ground(entity, edge = nil, h_dir_map = nil)
+      orient_ground_around(entity, entity.transformation.xaxis, entity.transformation.zaxis)
+      return unless edge
+      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
+      orient_z_to_horizontal(entity, ref) if ref
+    end
+
+    # For scale_axis=Y in ground mode: makes local Z ground-parallel (by rotating
+    # around Y), then orients Z toward the face normal / h_dir_map reference.
+    # Analogue of orient_z_ground but rotates around Y instead of X.
+    def self.orient_y_ground(entity, edge = nil, h_dir_map = nil)
+      orient_ground_around(entity, entity.transformation.yaxis, entity.transformation.zaxis)
+      return unless edge
+      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
+      if ref
+        ref_xy = Geom::Vector3d.new(ref.x, ref.y, 0)
+        return if ref_xy.length < 1e-6
+        y      = entity.transformation.yaxis.normalize
+        z      = entity.transformation.zaxis.normalize
+        target = ref_xy.normalize
+        angle  = Math.atan2(z.cross(target).dot(y), z.dot(target))
+        entity.transform!(Geom::Transformation.rotation(entity.bounds.center, y, angle)) if angle.abs > 1e-6
+      end
+    end
+
+    private_class_method :horizontal_ref_for_vertical_edge, :orient_x_to_horizontal,
+                         :orient_z_to_horizontal, :orient_z_ground, :orient_y_ground
 
     # Builds a vertex → normalised XY direction map from a vertex_edges hash.
     # Mirrors all_vertex_flow_directions (same three strategies + BFS sign fix)
@@ -1533,8 +1577,8 @@ module ASM_Extensions
             end
           else # ground
             case @scale_axis
-            when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
-            when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+            when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
+            when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
             else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
             end
           end
@@ -1790,8 +1834,8 @@ module ASM_Extensions
           end
         else # ground
           case @scale_axis
-          when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
-          when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
+          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
           else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
           end
         end
@@ -2063,8 +2107,8 @@ module ASM_Extensions
           end
         else # ground
           case @scale_axis
-          when :x then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.xaxis, entity_copy.transformation.yaxis)
-          when :y then OrienterExpress.send(:orient_ground_around, entity_copy, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
+          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
           else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
           end
         end

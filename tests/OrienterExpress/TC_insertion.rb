@@ -91,6 +91,38 @@ module ASM_Extensions
                 inst.transformation.zaxis, edge_vec.normalize)
       end
 
+      # Rotate instance so its X axis aligns to edge_vec (simulate orient_x_to_edge).
+      def orient_x_to(inst, edge_vec)
+        OE.send(:align_axis, inst, inst.transformation.origin,
+                inst.transformation.xaxis, edge_vec.normalize)
+      end
+
+      # Rotate instance so its Y axis aligns to edge_vec (simulate orient_y_to_edge).
+      def orient_y_to(inst, edge_vec)
+        OE.send(:align_axis, inst, inst.transformation.origin,
+                inst.transformation.yaxis, edge_vec.normalize)
+      end
+
+      # Creates a rectangular vertical wall face whose outward normal is roughly
+      # parallel to normal_dir. Returns [face, horizontal_edge].
+      def make_wall_face(normal_dir)
+        n    = normal_dir.normalize
+        perp = n.cross(Z_AXIS)
+        perp = n.cross(X_AXIS) if perp.length < 0.5
+        perp = perp.normalize
+        base = ORIGIN.offset(n, 50)
+        pts  = [base,
+                base.offset(perp, 100),
+                base.offset(perp, 100).offset(Z_AXIS, 60),
+                base.offset(Z_AXIS, 60)]
+        face = @entities.add_face(pts)
+        @to_erase << face
+        horiz = face.edges.find { |e|
+          (e.end.position - e.start.position).z.abs < 1e-3
+        }
+        [face, horiz]
+      end
+
       # =========================================================================
       # move_insertion_to — :center
       # =========================================================================
@@ -836,6 +868,104 @@ module ASM_Extensions
         actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
         assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
           'normal+base floor: base face (min onto +Z) must land at target'
+      end
+
+      # =========================================================================
+      # orient_z_ground (scale_axis=X) — ground mode on vertical faces
+      # =========================================================================
+
+      # After orient_z_ground: local Z must lie in the XY plane (z.z ≈ 0).
+      def test_orient_z_ground_x_scale_z_axis_parallel_to_xy
+        _face, edge = make_wall_face(Y_AXIS)
+        inst = make_instance
+        orient_x_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_z_ground, inst, edge)
+        assert_in_delta 0.0, inst.transformation.zaxis.z.abs, TOL,
+          'scale_axis=X ground: local Z must be parallel to the XY plane'
+      end
+
+      # After orient_z_ground: local Z must point toward the face normal XY projection.
+      def test_orient_z_ground_x_scale_z_axis_toward_face_normal
+        face, edge = make_wall_face(Y_AXIS)
+        inst = make_instance
+        orient_x_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_z_ground, inst, edge)
+        fn_xy = Geom::Vector3d.new(face.normal.x, face.normal.y, 0)
+        skip 'face normal has no XY component' if fn_xy.length < 0.1
+        dot = inst.transformation.zaxis.normalize.dot(fn_xy.normalize).abs
+        assert dot > 0.9,
+          "scale_axis=X ground: Z (#{inst.transformation.zaxis.inspect}) should align to face normal XY (#{fn_xy.inspect})"
+      end
+
+      # Oblique wall at 45°: same two checks with a non-axis-aligned normal.
+      def test_orient_z_ground_x_scale_oblique_wall_z_parallel_to_xy
+        _face, edge = make_wall_face(Geom::Vector3d.new(1, 1, 0))
+        inst = make_instance
+        orient_x_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_z_ground, inst, edge)
+        assert_in_delta 0.0, inst.transformation.zaxis.z.abs, TOL,
+          'scale_axis=X ground oblique: local Z must be parallel to the XY plane'
+      end
+
+      def test_orient_z_ground_x_scale_oblique_wall_z_toward_face_normal
+        face, edge = make_wall_face(Geom::Vector3d.new(1, 1, 0))
+        inst = make_instance
+        orient_x_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_z_ground, inst, edge)
+        fn_xy = Geom::Vector3d.new(face.normal.x, face.normal.y, 0)
+        skip 'face normal has no XY component' if fn_xy.length < 0.1
+        dot = inst.transformation.zaxis.normalize.dot(fn_xy.normalize).abs
+        assert dot > 0.9,
+          "scale_axis=X ground oblique: Z should align to face normal XY"
+      end
+
+      # =========================================================================
+      # orient_y_ground (scale_axis=Y) — ground mode on vertical faces
+      # =========================================================================
+
+      # After orient_y_ground: local Z must lie in the XY plane (z.z ≈ 0).
+      def test_orient_y_ground_y_scale_z_axis_parallel_to_xy
+        _face, edge = make_wall_face(X_AXIS)
+        inst = make_instance
+        orient_y_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_y_ground, inst, edge)
+        assert_in_delta 0.0, inst.transformation.zaxis.z.abs, TOL,
+          'scale_axis=Y ground: local Z must be parallel to the XY plane'
+      end
+
+      # After orient_y_ground: local Z must point toward the face normal XY projection.
+      def test_orient_y_ground_y_scale_z_axis_toward_face_normal
+        face, edge = make_wall_face(X_AXIS)
+        inst = make_instance
+        orient_y_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_y_ground, inst, edge)
+        fn_xy = Geom::Vector3d.new(face.normal.x, face.normal.y, 0)
+        skip 'face normal has no XY component' if fn_xy.length < 0.1
+        dot = inst.transformation.zaxis.normalize.dot(fn_xy.normalize).abs
+        assert dot > 0.9,
+          "scale_axis=Y ground: Z (#{inst.transformation.zaxis.inspect}) should align to face normal XY (#{fn_xy.inspect})"
+      end
+
+      # Oblique wall at 45°: same two checks.
+      def test_orient_y_ground_y_scale_oblique_wall_z_parallel_to_xy
+        _face, edge = make_wall_face(Geom::Vector3d.new(1, 1, 0))
+        inst = make_instance
+        orient_y_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_y_ground, inst, edge)
+        assert_in_delta 0.0, inst.transformation.zaxis.z.abs, TOL,
+          'scale_axis=Y ground oblique: local Z must be parallel to the XY plane'
+      end
+
+      def test_orient_y_ground_y_scale_oblique_wall_z_toward_face_normal
+        face, edge = make_wall_face(Geom::Vector3d.new(1, 1, 0))
+        inst = make_instance
+        orient_y_to(inst, edge.end.position - edge.start.position)
+        OE.send(:orient_y_ground, inst, edge)
+        fn_xy = Geom::Vector3d.new(face.normal.x, face.normal.y, 0)
+        skip 'face normal has no XY component' if fn_xy.length < 0.1
+        dot = inst.transformation.zaxis.normalize.dot(fn_xy.normalize).abs
+        assert dot > 0.9,
+          "scale_axis=Y ground oblique: Z should align to face normal XY"
       end
 
     end
