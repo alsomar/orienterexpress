@@ -769,11 +769,12 @@ module ASM_Extensions
             gen = @roll_key_rep_gen
             UI.start_timer(0.7, false) { key_repeat_roll(dir, gen) }
           end
-        when 38 # Up — advance to next 90° roll step, or reset to 0 if not on a step
+        when 40 # Down — advance to next 90° roll step, or reset to 0 if not on a step
           steps     = ((@roll_angle / 90.degrees) + 1e-9).floor
           on_step   = (@roll_angle - steps * 90.degrees).abs < 1e-6
           @roll_angle = on_step ? ((steps + 1) % 4) * 90.degrees : 0.0
           apply(self.class.last_offset_str)
+          update_vcb
         when 45 # Ins — reset offset to zero
           apply(Sketchup.format_length(0))
         else
@@ -928,6 +929,7 @@ module ASM_Extensions
       def scroll_roll(direction)
         @roll_angle = (@roll_angle + direction * 5.degrees) % 360.degrees
         apply(self.class.last_offset_str)
+        update_vcb
       end
 
       def scroll_offset(direction)
@@ -981,7 +983,7 @@ module ASM_Extensions
         unless @entity_def
           Sketchup.set_status_text("", 1)
           Sketchup.set_status_text("", 2)
-          Sketchup.set_status_text("Click a component to use as sample", 0)
+          Sketchup.set_status_text(no_sample_hint, 0)
           return
         end
         render_vcb
@@ -989,6 +991,18 @@ module ASM_Extensions
 
       # Hook: fill in VCB labels/hints when entity_def is set.
       def render_vcb; end
+
+      # Hook: status text when no sample component is selected yet.
+      def no_sample_hint;   ""; end
+
+      # Hook: short description shown as prefix when no geometry is selected yet.
+      def no_geometry_hint; ""; end
+
+      # Prepends no_geometry_hint as a permanent description before the key hints.
+      def build_status(hint_str)
+        pfx = no_geometry_hint
+        pfx.empty? ? hint_str : "#{pfx}  |  #{hint_str}"
+      end
 
       # Returns the roll axis: the entity axis aligned to the placement direction
       # (edge inward direction or face normal). Follows @scale_axis if defined.
@@ -1232,7 +1246,7 @@ module ASM_Extensions
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEVertexTool.last_offset_str)
-        when 40 # Down — cycle axis Z → X → Y
+        when 38 # Up — cycle axis Z → X → Y
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
           update_vcb
@@ -1247,15 +1261,19 @@ module ASM_Extensions
         apply(OEVertexTool.last_offset_str)
       end
 
+      def no_sample_hint;   Lang.commands.oevertex.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oevertex.no_geometry_hint.to_s; end
+
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
+        hint = format(Lang.commands.oevertex.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
         Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oevertex.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
+        Sketchup.set_status_text(build_status(hint), 0)
       end
 
       def apply(text)
@@ -1488,7 +1506,7 @@ module ASM_Extensions
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OECenterTool.last_offset_str)
-        when 40 # Down — cycle axis Z → X → Y
+        when 38 # Up — cycle axis Z → X → Y
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
           update_vcb
@@ -1503,15 +1521,19 @@ module ASM_Extensions
         apply(OECenterTool.last_offset_str)
       end
 
+      def no_sample_hint;   Lang.commands.oecenter.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oecenter.no_geometry_hint.to_s; end
+
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
+        hint = format(Lang.commands.oecenter.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
         Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OECenterTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oecenter.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
+        Sketchup.set_status_text(build_status(hint), 0)
       end
 
       def apply(text)
@@ -1739,7 +1761,7 @@ module ASM_Extensions
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEZScaleTool.last_offset_str)
-        when 40 # Down — cycle scale axis X → Y → Z
+        when 38 # Up — cycle scale axis X → Y → Z
           @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
           @first_apply = true
           update_vcb
@@ -1754,15 +1776,19 @@ module ASM_Extensions
         apply(OEZScaleTool.last_offset_str)
       end
 
+      def no_sample_hint;   Lang.commands.oezscale.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oezscale.no_geometry_hint.to_s; end
+
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
         ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
         ip_label   = Lang.t(:html, :settings, ip_key)
+        hint = format(Lang.commands.oezscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oezscale.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
+        Sketchup.set_status_text(build_status(hint), 0)
       end
 
       def apply(text)
@@ -1981,12 +2007,16 @@ module ASM_Extensions
         apply(nil)
       end
 
+      def no_sample_hint;   Lang.commands.oeuscale.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oeuscale.no_geometry_hint.to_s; end
+
       def render_vcb
         mode_key   = @rotation_mode == :flow ? :rotation_flow : :rotation_ground
         mode_label = Lang.t(:html, :settings, mode_key)
+        hint = format(Lang.commands.oeuscale.vcb_hint.to_s, mode: mode_label, roll: roll_label)
         Sketchup.set_status_text("", 1)
         Sketchup.set_status_text("", 2)
-        Sketchup.set_status_text("#{Lang.commands.oeuscale.vcb_hint}  |  #{mode_label}  |  #{roll_label}", 0)
+        Sketchup.set_status_text(build_status(hint), 0)
       end
 
       def apply(_text)
@@ -2136,7 +2166,7 @@ module ASM_Extensions
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEFlowTool.last_offset_str)
-        when 40 # Down — cycle axis Z → X → Y
+        when 38 # Up — cycle axis Z → X → Y
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
           update_vcb
@@ -2150,15 +2180,19 @@ module ASM_Extensions
         apply(OEFlowTool.last_offset_str)
       end
 
+      def no_sample_hint;   Lang.commands.oeflow.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oeflow.no_geometry_hint.to_s; end
+
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key)
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
+        hint = format(Lang.commands.oeflow.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeflow.vcb_hint}  |  #{mode_label}  |  #{axis_label}  |  #{ip_label}  |  #{roll_label}", 0)
+        Sketchup.set_status_text(build_status(hint), 0)
       end
 
       def apply(text)
@@ -2424,7 +2458,7 @@ module ASM_Extensions
           OrienterExpress.user_settings(insertion_point_custom: custom)
           update_vcb
           apply(OEFaceTool.last_offset_str)
-        when 40 # Down — cycle axis Z → X → Y
+        when 38 # Up — cycle axis Z → X → Y
           @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
           @first_apply = true
           update_vcb
@@ -2438,6 +2472,9 @@ module ASM_Extensions
         apply(OEFaceTool.last_offset_str)
       end
 
+      def no_sample_hint;   Lang.commands.oeface.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oeface.no_geometry_hint.to_s; end
+
       def render_vcb
         scale_label  = @scale_axis.to_s.upcase
         orient_label = [
@@ -2447,9 +2484,10 @@ module ASM_Extensions
         ][@axis_idx]
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
+        hint = format(Lang.commands.oeface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label)
         Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
-        Sketchup.set_status_text("#{Lang.commands.oeface.vcb_hint}  |  #{scale_label}  |  #{orient_label}  |  #{ip_label}  |  #{roll_label}", 0)
+        Sketchup.set_status_text(build_status(hint), 0)
       end
 
       def apply(text)

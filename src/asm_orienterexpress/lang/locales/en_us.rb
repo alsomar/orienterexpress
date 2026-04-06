@@ -7,48 +7,60 @@ module ASM_Extensions
         {
           commands: {
             oevertex: {
-              label:         "Edge Vertex Placement",
-              tooltip:       "Edge Vertex Placement",
-              status:        "Place oriented copies at both vertices of each edge, with optional inward offset.",
-              offset_prompt: "Offset",
-              vcb_hint:      "Enter: update  |  Tab: insertion  |  Shift: mode  |  ↑: roll  |  Home/End: fine roll  |  ↓: axis  |  PgUp/PgDn: adjust  |  Ins: reset  |  Esc: cancel"
+              label:            "Edge Vertex Placement",
+              tooltip:          "Edge Vertex Placement",
+              status:           "Place oriented copies at both vertices of each edge, with optional inward offset.",
+              offset_prompt:    "Offset",
+              no_sample_hint:   "Click a component to use as sample",
+              no_geometry_hint: "Click on edges or faces to place copies at their vertices",
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset "
             },
             oecenter: {
-              label:         "Edge Center Placement",
-              tooltip:       "Edge Center Placement",
-              status:        "Place copies centered on edges with an optional offset along the edge.",
-              offset_prompt: "Offset",
-              vcb_hint:      "Enter: update  |  Tab: insertion  |  Shift: mode  |  ↑: roll  |  Home/End: fine roll  |  ↓: axis  |  PgUp/PgDn: adjust  |  Ins: reset  |  Esc: cancel"
+              label:            "Edge Center Placement",
+              tooltip:          "Edge Center Placement",
+              status:           "Place copies centered on edges with an optional offset along the edge.",
+              offset_prompt:    "Offset",
+              no_sample_hint:   "Click a component to use as sample",
+              no_geometry_hint: "Click on edges or faces to place copies at their centers",
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset"
             },
             oezscale: {
-              label:          "Z-axis Scaling",
-              tooltip:        "Z-axis Scaling",
-              status:         "Scale and place copies along edges with an offset from each vertex.",
-              offset_prompt:  "Offset",
-              vcb_hint:       "Enter: update  |  Tab: insertion  |  Shift: mode  |  ↑: roll  |  Home/End: fine roll  |  ↓: axis  |  PgUp/PgDn: adjust  |  Ins: reset  |  Esc: cancel"
+              label:            "Z-axis Scaling",
+              tooltip:          "Z-axis Scaling",
+              status:           "Scale and place copies along edges with an offset from each vertex.",
+              offset_prompt:    "Offset",
+              no_sample_hint:   "Click a component to use as sample",
+              no_geometry_hint: "Click on edges or faces to scale copies along them",
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: scaled axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset"
             },
             oeuscale: {
-              label:    "Uniform Scaling",
-              tooltip:  "Uniform Scaling",
-              status:   "Scale uniformly and place copies along edges.",
-              vcb_hint: "Shift: mode  |  ↑: roll  |  Home/End: fine roll  |  Esc: cancel"
+              label:            "Uniform Scaling",
+              tooltip:          "Uniform Scaling",
+              status:           "Scale uniformly and place copies along edges.",
+              no_sample_hint:   "Click a component to use as sample",
+              no_geometry_hint: "Click on edges or faces to scale copies along them",
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  ↓: roll (%<roll>s) | Home/End: adjust roll"
             },
             oeflow: {
-              label:          "Vertex Flow Placement",
-              tooltip:        "Vertex Flow Placement",
-              status:         "Place oriented copies at vertices, aligned to the incoming edge flow.",
-              offset_prompt:  "Offset",
-              vcb_hint:       "Enter: update  |  Tab: insertion  |  Shift: mode  |  ↑: roll  |  Home/End: fine roll  |  ↓: axis  |  PgUp/PgDn: adjust  |  Ins: reset  |  Esc: cancel"
+              label:            "Vertex Flow Placement",
+              tooltip:          "Vertex Flow Placement",
+              status:           "Place oriented copies at vertices, aligned to the incoming edge flow.",
+              offset_prompt:    "Offset",
+              no_sample_hint:   "Click a component to use as sample",
+              no_geometry_hint: "Click on edges or faces to place copies at their vertices",
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset"
             },
             oeface: {
-              label:         "Face Placement",
-              tooltip:       "Face Placement",
-              status:        "Place copies at face centroids with an offset along the face normal.",
-              offset_prompt: "Offset",
-              vcb_hint:      "Enter: update  |  Tab: insertion  |  Shift: orientation  |  ↑: roll  |  Home/End: fine roll  |  ↓: axis  |  PgUp/PgDn: adjust  |  Ins: reset  |  Esc: cancel",
-              axis_parallel: "parallel to dominant edge",
-              axis_perp:     "perpendicular to dominant edge",
-              axis_ground:   "horizontal"
+              label:            "Face Placement",
+              tooltip:          "Face Placement",
+              status:           "Place copies at face centroids with an offset along the face normal.",
+              offset_prompt:    "Offset",
+              no_sample_hint:   "Click a component to use as sample",
+              no_geometry_hint: "Click on faces to place copies on them",
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: orientation (%<orient>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset",
+              axis_parallel:    "parallel to dominant edge",
+              axis_perp:        "perpendicular to dominant edge",
+              axis_ground:      "horizontal"
             },
             oealignoptimal: {
               label:    "Optimize Bounding Box",
