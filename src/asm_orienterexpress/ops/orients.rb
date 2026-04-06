@@ -1909,10 +1909,11 @@ module ASM_Extensions
         if @insertion_point == :base
           # Step 1 — center the component along the scale axis (same as :center mode).
           OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, :center, @scale_axis)
-          # Step 2 — project world "up" onto the cross-section plane (⊥ to scale axis).
-          # For normal mode use the face normal; ground/flow use world +Z.
+          # Step 2 — project the "up" reference onto the cross-section plane (⊥ to scale axis).
+          # All modes use the face normal when available so the base lands on the correct side
+          # of the surface (floor, ceiling, wall). Falls back to world +Z for naked edges.
           scale_axis_world = roll_axis(entity_copy).normalize
-          ref_up = @rotation_mode == :normal ? avg_face_normal_for_edge(edge) : nil
+          ref_up = avg_face_normal_for_edge(edge)
           ref_up ||= Geom::Vector3d.new(0, 0, 1)
           s       = ref_up.dot(scale_axis_world)
           up_perp = Geom::Vector3d.new(

@@ -659,37 +659,53 @@ module ASM_Extensions
 
       # Simulate the OEZScaleTool base placement:
       #   1. Center the instance at target.
-      #   2. Project world_up ⊥ to scale_axis_vec to get cross-section "up".
+      #   2. Project face_normal ⊥ to scale_axis_vec to get up_perp.
       #   3. Shift via move_base_to_surface in that direction.
-      # Returns the proxy used for step 3 (so callers can inspect).
-      def zscale_base_place(inst, target, scale_axis_vec, world_up = nil)
-        world_up ||= Geom::Vector3d.new(0, 0, 1)
+      # face_normal defaults to world +Z (naked-edge fallback).
+      def zscale_base_place(inst, target, scale_axis_vec, face_normal = nil)
+        ref_up  = face_normal || Geom::Vector3d.new(0, 0, 1)
         OE.send(:move_insertion_to, inst, target, :center, :z)
         scale_n = scale_axis_vec.normalize
-        s_dot   = world_up.dot(scale_n)
+        s_dot   = ref_up.dot(scale_n)
         up_perp = Geom::Vector3d.new(
-          world_up.x - scale_n.x * s_dot,
-          world_up.y - scale_n.y * s_dot,
-          world_up.z - scale_n.z * s_dot
+          ref_up.x - scale_n.x * s_dot,
+          ref_up.y - scale_n.y * s_dot,
+          ref_up.z - scale_n.z * s_dot
         )
         return unless up_perp.length > 1e-6
         proxy = make_tool_proxy
         proxy.move_base_to_surface(inst, target, up_perp)
       end
 
-      # At every 90° roll step, the world-space base face (lowest Z) must land at target.z.
+      # Floor face (normal +Z): base face (min in up_perp = +Z direction) at target.z.
       [0, 1, 2, 3].each do |steps|
-        define_method("test_zscale_base_ground_base_face_at_target_roll_#{steps * 90}deg") do
+        define_method("test_zscale_base_floor_normal_roll_#{steps * 90}deg") do
           inst   = make_instance
           target = Geom::Point3d.new(0, 0, 100)
-          orient_z_to(inst, X_AXIS)         # Z along horizontal edge (+X)
-          apply_roll(inst, steps, X_AXIS)   # roll around scale axis
-          zscale_base_place(inst, target, X_AXIS)
+          orient_z_to(inst, X_AXIS)
+          apply_roll(inst, steps, X_AXIS)
+          zscale_base_place(inst, target, X_AXIS, Z_AXIS)
 
-          up_perp = Geom::Vector3d.new(0, 0, 1)
-          actual_min = world_corners(inst).map { |p| proj(p, up_perp) }.min
-          assert_in_delta proj(target, up_perp), actual_min, TOL,
-            "Roll #{steps * 90}°: base face (min Z) should be at target.z"
+          actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
+          assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
+            "Floor normal roll #{steps * 90}°: base face (min Z) at target.z"
+        end
+      end
+
+      # Ceiling face (normal -Z): the face with max Z must land at target.z;
+      # component hangs below.
+      [0, 1, 2, 3].each do |steps|
+        define_method("test_zscale_base_ceiling_normal_roll_#{steps * 90}deg") do
+          inst      = make_instance
+          target    = Geom::Point3d.new(0, 0, 100)
+          ceiling_n = Geom::Vector3d.new(0, 0, -1)
+          orient_z_to(inst, X_AXIS)
+          apply_roll(inst, steps, X_AXIS)
+          zscale_base_place(inst, target, X_AXIS, ceiling_n)
+
+          actual_min = world_corners(inst).map { |p| proj(p, ceiling_n) }.min
+          assert_in_delta proj(target, ceiling_n), actual_min, TOL,
+            "Ceiling normal roll #{steps * 90}°: base face (min proj onto -Z) at target.z"
         end
       end
 
@@ -698,24 +714,32 @@ module ASM_Extensions
       def test_zscale_base_vertical_edge_center_at_midpoint
         inst   = make_instance
         target = Geom::Point3d.new(10, 20, 50)
-        orient_z_to(inst, Z_AXIS)   # Z along vertical edge
+        orient_z_to(inst, Z_AXIS)
         OE.send(:move_insertion_to, inst, target, :center, :z)
-        # No up_perp for vertical edge — center must stay at target
         ctr = inst.bounds.center
         assert_in_delta target.x, ctr.x, TOL
         assert_in_delta target.y, ctr.y, TOL
         assert_in_delta target.z, ctr.z, TOL
       end
 
-      # After the base shift, center must be ABOVE the target (not below),
-      # meaning the base face is at target and the rest of the component extends up.
-      def test_zscale_base_center_above_target_after_base_shift
+      # Floor face: center is above target (component extends upward from surface).
+      def test_zscale_base_floor_center_above_target
         inst   = make_instance
         target = Geom::Point3d.new(0, 0, 100)
         orient_z_to(inst, X_AXIS)
-        zscale_base_place(inst, target, X_AXIS)
+        zscale_base_place(inst, target, X_AXIS, Z_AXIS)
         assert inst.bounds.center.z > target.z - TOL,
-               'Component center should be at or above target after base shift'
+               'Floor: component center must be at or above target'
+      end
+
+      # Ceiling face: center is below target (component hangs down from surface).
+      def test_zscale_base_ceiling_center_below_target
+        inst   = make_instance
+        target = Geom::Point3d.new(0, 0, 100)
+        orient_z_to(inst, X_AXIS)
+        zscale_base_place(inst, target, X_AXIS, Geom::Vector3d.new(0, 0, -1))
+        assert inst.bounds.center.z < target.z + TOL,
+               'Ceiling: component center must be at or below target'
       end
 
       # =========================================================================
