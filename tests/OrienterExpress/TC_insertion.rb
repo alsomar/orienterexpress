@@ -718,6 +718,102 @@ module ASM_Extensions
                'Component center should be at or above target after base shift'
       end
 
+      # =========================================================================
+      # place_with_insertion — base mode, all rotation modes
+      # =========================================================================
+      #
+      # These tests call the REAL OEPlacementTool#place_with_insertion method
+      # (not a simulation) so bugs in the implementation are caught directly.
+
+      # Build a real OEPlacementTool instance (no initialize) with the given state.
+      def make_placement_tool(rotation_mode:, insertion_point:, scale_axis: :z)
+        tool = OEPlacementTool.allocate
+        tool.instance_variable_set(:@rotation_mode,   rotation_mode)
+        tool.instance_variable_set(:@insertion_point, insertion_point)
+        tool.instance_variable_set(:@scale_axis,      scale_axis)
+        tool
+      end
+
+      # ground mode, floor normal (+Z): bottom face must land at target.z
+      [0, 1, 2, 3].each do |steps|
+        define_method("test_place_with_insertion_ground_base_floor_roll_#{steps * 90}deg") do
+          inst   = make_instance
+          target = Geom::Point3d.new(200, 150, 300)
+          orient_z_to(inst, X_AXIS)
+          apply_roll(inst, steps, X_AXIS)
+
+          tool = make_placement_tool(rotation_mode: :ground, insertion_point: :base)
+          tool.send(:place_with_insertion, inst, target, Z_AXIS)
+
+          actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
+          assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
+            "ground+base floor roll #{steps * 90}°: bottom face must land at target.z"
+        end
+      end
+
+      # ground mode, ceiling normal (-Z): top face must land at target (component hangs below).
+      [0, 1, 2, 3].each do |steps|
+        define_method("test_place_with_insertion_ground_base_ceiling_roll_#{steps * 90}deg") do
+          inst      = make_instance
+          target    = Geom::Point3d.new(200, 150, 300)
+          ceiling_n = Geom::Vector3d.new(0, 0, -1)
+          orient_z_to(inst, X_AXIS)
+          apply_roll(inst, steps, X_AXIS)
+
+          tool = make_placement_tool(rotation_mode: :ground, insertion_point: :base)
+          tool.send(:place_with_insertion, inst, target, ceiling_n)
+
+          actual_min = world_corners(inst).map { |p| proj(p, ceiling_n) }.min
+          assert_in_delta proj(target, ceiling_n), actual_min, TOL,
+            "ground+base ceiling roll #{steps * 90}°: base face (min onto -Z) must land at target"
+        end
+      end
+
+      # ground mode, no face normal (naked edge): falls back to +Z.
+      def test_place_with_insertion_ground_base_no_normal_falls_back_to_z
+        inst   = make_instance
+        target = Geom::Point3d.new(0, 0, 200)
+        orient_z_to(inst, X_AXIS)
+
+        tool = make_placement_tool(rotation_mode: :ground, insertion_point: :base)
+        tool.send(:place_with_insertion, inst, target, nil)
+
+        actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
+        assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
+          'ground+base no normal: falls back to +Z, bottom face at target.z'
+      end
+
+      # flow mode, no face normal: same fallback to +Z.
+      [0, 1, 2, 3].each do |steps|
+        define_method("test_place_with_insertion_flow_no_normal_base_roll_#{steps * 90}deg") do
+          inst   = make_instance
+          target = Geom::Point3d.new(100, 100, 500)
+          orient_z_to(inst, Y_AXIS)
+          apply_roll(inst, steps, Y_AXIS)
+
+          tool = make_placement_tool(rotation_mode: :flow, insertion_point: :base)
+          tool.send(:place_with_insertion, inst, target, nil)
+
+          actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
+          assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
+            "flow-no-normal+base roll #{steps * 90}°: bottom face must land at target.z"
+        end
+      end
+
+      # normal mode, face normal +Z: bottom face at target.
+      def test_place_with_insertion_normal_base_floor_normal
+        inst   = make_instance
+        target = Geom::Point3d.new(0, 0, 300)
+        orient_z_to(inst, X_AXIS)
+
+        tool = make_placement_tool(rotation_mode: :normal, insertion_point: :base)
+        tool.send(:place_with_insertion, inst, target, Z_AXIS)
+
+        actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
+        assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
+          'normal+base floor: base face (min onto +Z) must land at target'
+      end
+
     end
   end
 end

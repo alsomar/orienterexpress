@@ -992,6 +992,25 @@ module ASM_Extensions
       # Hook: fill in VCB labels/hints when entity_def is set.
       def render_vcb; end
 
+      # Hook: tool name for debug state line (override in subclasses).
+      def debug_tool_name; "unknown"; end
+
+      # Logs a compact state line to the Ruby Console when debug_mode is on,
+      # but only when the state has actually changed since the last log.
+      def debug_state
+        return unless Debug.enabled
+        parts  = []
+        parts << @rotation_mode.to_s          if defined?(@rotation_mode)
+        parts << (@insertion_point || :center).to_s
+        parts << (@scale_axis || :z).to_s.upcase
+        deg = defined?(@roll_angle) ? ((@roll_angle * 180.0 / Math::PI) % 360.0).round(1) : 0.0
+        parts << "#{deg}°"
+        line = parts.join(" | ")
+        return if line == @last_debug_state
+        @last_debug_state = line
+        Debug.log(self.class, :state, line)
+      end
+
       # Hook: status text when no sample component is selected yet.
       def no_sample_hint;   ""; end
 
@@ -1074,9 +1093,9 @@ module ASM_Extensions
 
       # For edge tools in base mode: use world-space OBB projection so the result
       # is correct at all roll steps (sign-safe).
-      # - normal mode: project onto the face normal (component base touches the surface)
-      # - ground mode:  project onto world -Z (component base touches the floor)
-      # - flow mode:    project onto face normal when available, else world -Z
+      # All rotation modes use the face normal so placement works on any surface
+      # (floor, ceiling, vertical wall). Ground/flow fall back to +Z for naked edges.
+      # Normal mode falls back to move_insertion_to when there is no face normal.
       # Other insertion points fall back to move_insertion_to with @scale_axis.
       def place_with_insertion(entity_copy, target, edge_normal_vec = nil)
         if @insertion_point == :base
@@ -1084,9 +1103,9 @@ module ASM_Extensions
                         when :normal
                           edge_normal_vec
                         when :flow
-                          edge_normal_vec || Geom::Vector3d.new(0, 0, -1)
+                          edge_normal_vec || Geom::Vector3d.new(0, 0, 1)
                         else # ground
-                          Geom::Vector3d.new(0, 0, -1)
+                          edge_normal_vec || Geom::Vector3d.new(0, 0, 1)
                         end
           if surface_dir
             move_base_to_surface(entity_copy, target, surface_dir)
@@ -1261,6 +1280,7 @@ module ASM_Extensions
         apply(OEVertexTool.last_offset_str)
       end
 
+      def debug_tool_name;  "oevertex"; end
       def no_sample_hint;   Lang.commands.oevertex.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oevertex.no_geometry_hint.to_s; end
 
@@ -1274,6 +1294,7 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
+        debug_state
       end
 
       def apply(text)
@@ -1521,6 +1542,7 @@ module ASM_Extensions
         apply(OECenterTool.last_offset_str)
       end
 
+      def debug_tool_name;  "oecenter"; end
       def no_sample_hint;   Lang.commands.oecenter.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oecenter.no_geometry_hint.to_s; end
 
@@ -1534,6 +1556,7 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OECenterTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
+        debug_state
       end
 
       def apply(text)
@@ -1776,6 +1799,7 @@ module ASM_Extensions
         apply(OEZScaleTool.last_offset_str)
       end
 
+      def debug_tool_name;  "oezscale"; end
       def no_sample_hint;   Lang.commands.oezscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oezscale.no_geometry_hint.to_s; end
 
@@ -1789,6 +1813,7 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
+        debug_state
       end
 
       def apply(text)
@@ -2007,6 +2032,7 @@ module ASM_Extensions
         apply(nil)
       end
 
+      def debug_tool_name;  "oeuscale"; end
       def no_sample_hint;   Lang.commands.oeuscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeuscale.no_geometry_hint.to_s; end
 
@@ -2017,6 +2043,7 @@ module ASM_Extensions
         Sketchup.set_status_text("", 1)
         Sketchup.set_status_text("", 2)
         Sketchup.set_status_text(build_status(hint), 0)
+        debug_state
       end
 
       def apply(_text)
@@ -2180,6 +2207,7 @@ module ASM_Extensions
         apply(OEFlowTool.last_offset_str)
       end
 
+      def debug_tool_name;  "oeflow"; end
       def no_sample_hint;   Lang.commands.oeflow.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeflow.no_geometry_hint.to_s; end
 
@@ -2193,6 +2221,7 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
+        debug_state
       end
 
       def apply(text)
@@ -2472,6 +2501,7 @@ module ASM_Extensions
         apply(OEFaceTool.last_offset_str)
       end
 
+      def debug_tool_name;  "oeface"; end
       def no_sample_hint;   Lang.commands.oeface.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeface.no_geometry_hint.to_s; end
 
@@ -2488,6 +2518,7 @@ module ASM_Extensions
         Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
+        debug_state
       end
 
       def apply(text)
