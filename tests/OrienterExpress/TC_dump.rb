@@ -12,7 +12,12 @@ module ASM_Extensions
         Sketchup.require 'asm_orienterexpress/lang/i18n'
         Sketchup.require 'asm_orienterexpress/lang/locales/en_us'
         Sketchup.require 'asm_orienterexpress/lang/locales/es_es'
+        @original_locale = Lang.locale
         Lang.configure("en-US")
+      end
+
+      def teardown
+        Lang.configure(@original_locale) if @original_locale
       end
 
       # --- Return type ---

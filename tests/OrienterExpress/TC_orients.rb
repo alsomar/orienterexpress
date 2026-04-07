@@ -18,13 +18,23 @@ module ASM_Extensions
         @entities = @model.active_entities
         @to_erase = []
 
+        # Snapshot existing entity IDs so teardown can erase everything added
+        # during this test, including implicit geometry created by SketchUp
+        # (auto-faces, split edges) that would not be tracked in @to_erase.
+        @before_ids = {}
+        @entities.each { |e| @before_ids[e.entityID] = true }
+
         @definition = @model.definitions.add('TC_orients_box')
         pts = [[0, 0, 0], [100, 0, 0], [100, 100, 0], [0, 100, 0]]
         @definition.entities.add_face(pts).pushpull(200)
       end
 
       def teardown
-        @to_erase.each { |e| e.erase! if e.respond_to?(:valid?) && e.valid? }
+        @entities.to_a.each do |e|
+          next unless e.respond_to?(:valid?) && e.valid?
+          next if @before_ids && @before_ids[e.entityID]
+          e.erase! rescue nil
+        end
         @model.definitions.purge_unused
       end
 
@@ -822,6 +832,52 @@ module ASM_Extensions
           assert n.x.abs + n.y.abs > 0.5,
             "Mid-ring normal must have a significant XY component, got #{n.inspect}"
         end
+      end
+
+      # =========================================================================
+      # orient_to_face_normal — h_dir_map integration for naked vertical edges
+      # =========================================================================
+      #
+      # When a vertical edge has no faces and h_dir_map is provided, the entity's
+      # X axis should be rotated toward the wall direction stored in the map.
+      # Without h_dir_map the call is a no-op (orient_ground is noop for Z-up).
+
+      # With h_dir_map: X must align to the wall direction for the vertical edge.
+      def test_orient_to_face_normal_naked_vertical_with_h_dir_map_aligns_x
+        setup_naked_box
+        h         = build_h_dir_map
+        inst      = make_instance          # default: Z up, X = world X
+        vert_edge = @vert_lower.first      # vertical edge at corner (0,0)
+
+        expected = h[vert_edge.start] || h[vert_edge.end]
+        refute_nil expected,
+          "h_dir_map must contain a direction for the vert_lower[0] corner vertex"
+
+        OE.send(:orient_to_face_normal, inst, vert_edge, h)
+
+        x = inst.transformation.xaxis
+        assert_in_delta 0.0, x.z.abs, TOL,
+          "X should remain horizontal after orient_to_face_normal with h_dir_map"
+        assert_same_direction expected, x,
+          "X should align to the h_dir_map wall direction (got #{x.inspect})"
+      end
+
+      # Without h_dir_map: orient_ground is a no-op for Z-up, so X is unchanged.
+      def test_orient_to_face_normal_naked_vertical_without_h_dir_map_leaves_x
+        setup_naked_box
+
+        # Pre-rotate 45° around Z so X is NOT world X
+        rot      = Geom::Transformation.rotation(ORIGIN, Z_AXIS, Math::PI / 4)
+        inst     = make_instance(rot)
+        x_before = inst.transformation.xaxis.clone
+
+        OE.send(:orient_to_face_normal, inst, @vert_lower.first, nil)
+
+        x_after = inst.transformation.xaxis
+        assert_in_delta x_before.x, x_after.x, TOL,
+          "X should be unchanged when h_dir_map is nil (orient_ground noop for vertical Z)"
+        assert_in_delta x_before.y, x_after.y, TOL
+        assert_in_delta x_before.z, x_after.z, TOL
       end
 
     end

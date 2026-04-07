@@ -257,9 +257,20 @@ module ASM_Extensions
     # Rotates the entity around its local Z axis so that the local Y axis
     # aligns to the averaged normal of the faces sharing the edge, projected
     # onto the plane perpendicular to Z. Falls back to orient_x if degenerate.
-    def self.orient_to_face_normal(entity, edge)
+    # For naked vertical edges, orient_x is further refined by h_dir_map so
+    # the component faces the wall rather than defaulting to world X.
+    def self.orient_to_face_normal(entity, edge, h_dir_map = nil)
       normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }.map(&:normalize)
-      return orient_x(entity) if normals.empty?
+      if normals.empty?
+        orient_x(entity)
+        # Naked vertical edge: use h_dir_map to orient toward the wall.
+        z = entity.transformation.zaxis.normalize
+        if (z.z.abs - 1.0).abs < 1e-3
+          ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
+          orient_x_to_horizontal(entity, ref) if ref
+        end
+        return
+      end
 
       avg = normals.reduce(Geom::Vector3d.new(0, 0, 0)) { |s, n| s + n }
       return orient_x(entity) if avg.length < 1e-6
@@ -483,7 +494,13 @@ module ASM_Extensions
         [edge.start, edge.end].each do |vertex|
           d = vertex_flow_direction(vertex, vertex.edges.to_a)
           if d && d.z.abs > 0.3
-            # Border cap vertex with clear vertical flow → ±Z.
+            # Cap vertex with clear vertical flow → ±Z.
+            # Known limitation: rim vertices (where wall meets cap) also fall
+            # here and receive ±Z instead of the wall/cap bisector.  Fixing
+            # this requires distinguishing rim from interior cap, which proved
+            # error-prone when h_dir_map is used as the discriminator (interior
+            # cap vertices can appear in h_dir_map via XY flow from asymmetric
+            # topology).  Left as a known edge case for naked-edge meshes.
             return Geom::Vector3d.new(0, 0, d.z > 0 ? 1 : -1)
           end
           # Lateral wall vertex or no flow → prefer horizontal reference.
@@ -917,7 +934,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         OEPlacementTool.active_instance = self
-        rebuild_h_dir_map if @rotation_mode == :ground
+        rebuild_h_dir_map if @rotation_mode != :flow
         update_vcb
         UI.start_timer(0, false) { apply(self.class.last_offset_str); sync_selection } if @entity_def
       end
@@ -1194,7 +1211,7 @@ module ASM_Extensions
       # Hook: called after geometry set changes (e.g. rebuild flow map).
       # Base implementation rebuilds the horizontal-direction map for ground mode.
       def on_geometry_changed
-        rebuild_h_dir_map if @rotation_mode == :ground
+        rebuild_h_dir_map if @rotation_mode != :flow
       end
 
       def key_repeat(dir, gen)
@@ -1376,24 +1393,15 @@ module ASM_Extensions
 
       # For edge tools in base mode: use world-space OBB projection so the result
       # is correct at all roll steps (sign-safe).
-      # All rotation modes use the face normal so placement works on any surface
-      # (floor, ceiling, vertical wall). Ground/flow fall back to +Z for naked edges.
-      # Normal mode falls back to move_insertion_to when there is no face normal.
+      # Priority: face normal → naked_edge_surface_normal → +Z (ground/flow only).
+      # Normal mode without a face normal falls back to move_insertion_to since
+      # there is no reliable surface direction to infer.
       # Other insertion points fall back to move_insertion_to with @scale_axis.
       def place_with_insertion(entity_copy, target, edge_normal_vec = nil, edge = nil)
         if @insertion_point == :base
-          surface_dir = case @rotation_mode
-                        when :normal
-                          edge_normal_vec
-                        when :flow
-                          edge_normal_vec ||
-                            (edge && OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)) ||
-                            Geom::Vector3d.new(0, 0, 1)
-                        else # ground
-                          edge_normal_vec ||
-                            (edge && OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)) ||
-                            Geom::Vector3d.new(0, 0, 1)
-                        end
+          surface_dir = edge_normal_vec ||
+                        (edge && OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)) ||
+                        (@rotation_mode != :normal && Geom::Vector3d.new(0, 0, 1))
           if surface_dir
             move_base_to_surface(entity_copy, target, surface_dir)
           else
@@ -1537,7 +1545,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply(OEVertexTool.last_offset_str)
         else
-          rebuild_h_dir_map if @rotation_mode == :ground
+          rebuild_h_dir_map if @rotation_mode != :flow
           offset = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
@@ -1582,7 +1590,7 @@ module ASM_Extensions
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
-        rebuild_h_dir_map  if @rotation_mode == :ground
+        rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
         apply(OEVertexTool.last_offset_str)
       end
@@ -1678,7 +1686,7 @@ module ASM_Extensions
             case @scale_axis
             when :x then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
             when :y then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-            else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
+            else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge, @h_dir_map)
             end
           else # ground
             case @scale_axis
@@ -1802,7 +1810,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply(OECenterTool.last_offset_str)
         else
-          rebuild_h_dir_map if @rotation_mode == :ground
+          rebuild_h_dir_map if @rotation_mode != :flow
           offset = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
@@ -1847,7 +1855,7 @@ module ASM_Extensions
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
-        rebuild_h_dir_map  if @rotation_mode == :ground
+        rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
         apply(OECenterTool.last_offset_str)
       end
@@ -1935,7 +1943,7 @@ module ASM_Extensions
           case @scale_axis
           when :x then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
           when :y then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-          else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
+          else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge, @h_dir_map)
           end
         else # ground
           case @scale_axis
@@ -2062,7 +2070,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply(OEZScaleTool.last_offset_str)
         else
-          rebuild_h_dir_map if @rotation_mode == :ground
+          rebuild_h_dir_map if @rotation_mode != :flow
           offset = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
@@ -2107,7 +2115,7 @@ module ASM_Extensions
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
-        rebuild_h_dir_map  if @rotation_mode == :ground
+        rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
         apply(OEZScaleTool.last_offset_str)
       end
@@ -2209,7 +2217,7 @@ module ASM_Extensions
           case @scale_axis
           when :x then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
           when :y then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-          else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge)
+          else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge, @h_dir_map)
           end
         else # ground
           case @scale_axis
@@ -2631,7 +2639,7 @@ module ASM_Extensions
                                        entity_copy.transformation.yaxis,
                                        entity_copy.transformation.zaxis)
                 else
-                  OrienterExpress.send(:orient_to_face_normal, entity_copy, rep_edge)
+                  OrienterExpress.send(:orient_to_face_normal, entity_copy, rep_edge, @h_dir_map)
                 end
               else
                 OrienterExpress.orient_x(entity_copy)
