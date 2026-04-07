@@ -107,7 +107,8 @@ module ASM_Extensions
       end
 
       Dialogs.refresh_settings_dialog
-      OEPlacementTool.active_instance&.on_config_changed(changed)
+      inst = OEPlacementTool.active_instance
+      inst.on_config_changed(changed) if inst
     end
 
   end # module OrienterExpress
