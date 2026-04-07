@@ -3301,7 +3301,7 @@ module ASM_Extensions
       instance.definition.instances.each do |inst|
         inst.transformation = inst.transformation * r_scale_inv
       end
-      puts "[OEAlignPCA] scale baked: (#{sx.round(4)}, #{sy.round(4)}, #{sz.round(4)})"
+      Debug.log(self, :align_pca, "scale baked: (#{sx.round(4)}, #{sy.round(4)}, #{sz.round(4)})")
     end
 
     # Redefines the local axes so that local X aligns with the dominant edge,
@@ -3339,7 +3339,7 @@ module ASM_Extensions
 
       # Vertices in world-aligned frame
       pts_reset = collect_vertices(instance.definition.entities, r_reset)
-      puts "[OEAlignX] instance=#{instance.definition.name} pts=#{pts_reset.size}"
+      Debug.log(self, :align_x, "instance=#{instance.definition.name} pts=#{pts_reset.size}")
       return if pts_reset.empty?
 
       # bb_vol_at_angle has period 90° (swapping X/Y extents preserves product),
@@ -3348,7 +3348,7 @@ module ASM_Extensions
       deg2rad = Math::PI / 180.0
       coarse_best_angle = 0.0
       coarse_best_vol   = bb_vol_at_angle(pts_reset, 0.0)
-      puts "[OEAlignX] current vol=#{coarse_best_vol.round(4)}"
+      Debug.log(self, :align_x, "current vol=#{coarse_best_vol.round(4)}")
       (2...90).step(2) do |deg|
         a2  = deg * deg2rad
         vol = bb_vol_at_angle(pts_reset, a2)
@@ -3357,7 +3357,7 @@ module ASM_Extensions
           coarse_best_angle = a2
         end
       end
-      puts "[OEAlignX] coarse best=#{(coarse_best_angle/deg2rad).round(1)}° vol=#{coarse_best_vol.round(4)}"
+      Debug.log(self, :align_x, "coarse best=#{(coarse_best_angle/deg2rad).round(1)}° vol=#{coarse_best_vol.round(4)}")
 
       # Phase 2: fine sweep ±2° around coarse minimum in 0.1° steps
       best_angle = nil
@@ -3373,10 +3373,10 @@ module ASM_Extensions
       end
 
       if best_angle.nil?
-        puts "[OEAlignX] already optimal"
+        Debug.log(self, :align_x, "already optimal")
         return
       end
-      puts "[OEAlignX] best=#{(best_angle/deg2rad).round(2)}° vol=#{best_vol.round(4)}"
+      Debug.log(self, :align_x, "best=#{(best_angle/deg2rad).round(2)}° vol=#{best_vol.round(4)}")
 
       local_origin = Geom::Point3d.new(0, 0, 0)
       world_z      = Geom::Vector3d.new(0, 0, 1)
@@ -3393,9 +3393,9 @@ module ASM_Extensions
         before = inst.transformation.origin
         inst.transformation = inst.transformation * r_combined_inv
         after  = inst.transformation.origin
-        puts "[OEAlignX]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
+        Debug.log(self, :align_x, "  origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}")
       end
-      puts "[OEAlignX] done"
+      Debug.log(self, :align_x, "done")
     end
 
     # BB volume of pts rotated by a row-major 3×3 matrix (no allocation in inner loop).
@@ -3518,7 +3518,7 @@ module ASM_Extensions
       instance.definition.instances.each do |inst|
         inst.transformation = inst.transformation * r_inv
       end
-      puts "[OEAlignPCA] axes normalized: perm=#{best_perm} signs=(#{best_signs.join(',')})"
+      Debug.log(self, :align_pca, "axes normalized: perm=#{best_perm} signs=(#{best_signs.join(',')})")
     end
 
     # Redefines the local axes to minimize the bounding box volume (3D) or area
@@ -3533,11 +3533,11 @@ module ASM_Extensions
       pts = collect_vertices(instance.definition.entities, id)
       t0  = instance.transformation
       det0 = t0.xaxis.dot(t0.yaxis.cross(t0.zaxis)) >= 0 ? "RH" : "LH"
-      puts "[OEAlignPCA] instance=#{instance.definition.name} pts=#{pts.size} handedness=#{det0}"
+      Debug.log(self, :align_pca, "instance=#{instance.definition.name} pts=#{pts.size} handedness=#{det0}")
       return if pts.empty?
 
       pts = convex_hull_3d(pts)
-      puts "[OEAlignPCA] hull pts=#{pts.size}"
+      Debug.log(self, :align_pca, "hull pts=#{pts.size}")
 
       deg2rad = Math::PI / 180.0
 
@@ -3545,7 +3545,7 @@ module ASM_Extensions
       normal = planar_normal(pts)
       if normal
         nx, ny, nz = normal
-        puts "[OEAlignPCA] planar geometry, normal=[#{nx.round(4)},#{ny.round(4)},#{nz.round(4)}]"
+        Debug.log(self, :align_pca, "planar geometry, normal=[#{nx.round(4)},#{ny.round(4)},#{nz.round(4)}]")
 
         # Nearest world axis to the normal (preserve sign so local Z matches normal)
         axis_idx  = [[nx.abs, 0],[ny.abs, 1],[nz.abs, 2]].max_by{|v,_| v}[1]
@@ -3641,7 +3641,7 @@ module ASM_Extensions
           area = area_at.call(a)
           fine_angle = a; fine_area = area if area < fine_area
         end
-        puts "[OEAlignPCA] 2D rotating-calipers best=#{(fine_angle/deg2rad).round(3)}° area=#{fine_area.round(4)} (#{edge_angles.size} edges)"
+        Debug.log(self, :align_pca, "2D rotating-calipers best=#{(fine_angle/deg2rad).round(3)}° area=#{fine_area.round(4)} (#{edge_angles.size} edges)")
 
         # Compose r1 (normal align) + r2 (in-plane rotation)
         flat_axis_vec = Geom::Vector3d.new(*axes[axis_idx])
@@ -3653,7 +3653,7 @@ module ASM_Extensions
         trace = m[0] + m[5] + m[10]
         total_angle = Math.acos([[(trace - 1.0) / 2.0, -1.0].max, 1.0].min)
         if total_angle < 1e-4
-          puts "[OEAlignPCA] already optimal (2D)"
+          Debug.log(self, :align_pca, "already optimal (2D)")
           return
         end
 
@@ -3663,12 +3663,12 @@ module ASM_Extensions
           before = inst.transformation.origin
           inst.transformation = inst.transformation * r_total_inv
           after  = inst.transformation.origin
-          puts "[OEAlignPCA]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
+          Debug.log(self, :align_pca, "  origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}")
         end
         permute_axes_by_extent(instance)
         t1 = instance.transformation
         det1 = t1.xaxis.dot(t1.yaxis.cross(t1.zaxis)) >= 0 ? "RH" : "LH"
-        puts "[OEAlignPCA] done (2D) handedness=#{det1}"
+        Debug.log(self, :align_pca, "done (2D) handedness=#{det1}")
         return
       end
 
@@ -3704,7 +3704,7 @@ module ASM_Extensions
           end
         end
       end
-      puts "[OEAlignPCA] coarse best=α#{(best_al/deg2rad).round(1)}° β#{(best_be/deg2rad).round(1)}° γ#{(best_ga/deg2rad).round(1)}° vol=#{best_vol.round(4)}"
+      Debug.log(self, :align_pca, "coarse best=α#{(best_al/deg2rad).round(1)}° β#{(best_be/deg2rad).round(1)}° γ#{(best_ga/deg2rad).round(1)}° vol=#{best_vol.round(4)}")
 
       # Phase 2: Nelder-Mead simplex from coarse best → converges to exact minimum
       # Simplex: 4 vertices in (α,β,γ) space, initial edge = 8°
@@ -3765,11 +3765,11 @@ module ASM_Extensions
 
       fine_al, fine_be, fine_ga = simplex[0]
       fine_vol = fval[0]
-      puts "[OEAlignPCA] nelder-mead best=α#{(fine_al/deg2rad).round(3)}° β#{(fine_be/deg2rad).round(3)}° γ#{(fine_ga/deg2rad).round(3)}° vol=#{fine_vol.round(4)}"
+      Debug.log(self, :align_pca, "nelder-mead best=α#{(fine_al/deg2rad).round(3)}° β#{(fine_be/deg2rad).round(3)}° γ#{(fine_ga/deg2rad).round(3)}° vol=#{fine_vol.round(4)}")
 
       current_vol = bb_vol_3d(pts, 1,0,0, 0,1,0, 0,0,1)
       if fine_vol >= current_vol * 0.99
-        puts "[OEAlignPCA] already optimal (improvement < 1%)"
+        Debug.log(self, :align_pca, "already optimal (improvement < 1%)")
         return
       end
 
@@ -3792,12 +3792,12 @@ module ASM_Extensions
         before = inst.transformation.origin
         inst.transformation = inst.transformation * r_best_inv
         after  = inst.transformation.origin
-        puts "[OEAlignPCA]   origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}"
+        Debug.log(self, :align_pca, "  origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}")
       end
       permute_axes_by_extent(instance)
       t1 = instance.transformation
       det1 = t1.xaxis.dot(t1.yaxis.cross(t1.zaxis)) >= 0 ? "RH" : "LH"
-      puts "[OEAlignPCA] done handedness=#{det1}"
+      Debug.log(self, :align_pca, "done handedness=#{det1}")
     end
 
     # Tool class that runs align_x_to_dominant_edge then align_to_min_bb in one
