@@ -864,20 +864,41 @@ module ASM_Extensions
 
       # Without h_dir_map: orient_ground is a no-op for Z-up, so X is unchanged.
       def test_orient_to_face_normal_naked_vertical_without_h_dir_map_leaves_x
-        setup_naked_box
+        # Isolated naked vertical edge: no faces, no connected edges → no reference
+        # direction can be computed → orient_x_to_horizontal is never called → X unchanged.
+        # (setup_naked_box is intentionally NOT used here: its ring + vertical geometry
+        # causes SketchUp to auto-create side faces, making the edges non-naked and
+        # triggering the face-normal path instead of the h_dir_map path.)
+        edge = @entities.add_line([500, 0, 0], [500, 0, 100])
 
         # Pre-rotate 45° around Z so X is NOT world X
         rot      = Geom::Transformation.rotation(ORIGIN, Z_AXIS, Math::PI / 4)
         inst     = make_instance(rot)
         x_before = inst.transformation.xaxis.clone
 
-        OE.send(:orient_to_face_normal, inst, @vert_lower.first, nil)
+        OE.send(:orient_to_face_normal, inst, edge, nil)
 
         x_after = inst.transformation.xaxis
         assert_in_delta x_before.x, x_after.x, TOL,
           "X should be unchanged when h_dir_map is nil (orient_ground noop for vertical Z)"
         assert_in_delta x_before.y, x_after.y, TOL
         assert_in_delta x_before.z, x_after.z, TOL
+      end
+
+      # =========================================================================
+      # OEFaceTool — on_geometry_changed regression
+      # =========================================================================
+
+      # Regression: OEFace stores faces in @geometry, but the base
+      # rebuild_h_dir_map invokes edge.start on each element —
+      # crashing with NoMethodError on Sketchup::Face.
+      # Coordinates offset to avoid merging with naked-box test geometry.
+      def test_oeface_rebuild_h_dir_map_does_not_raise_with_face
+        face = @entities.add_face([500,0,0], [600,0,0], [600,100,0], [500,100,0])
+        tool = OEFaceTool.allocate
+        tool.instance_variable_set(:@geometry,      [face])
+        tool.instance_variable_set(:@rotation_mode, :ground)
+        tool.send(:rebuild_h_dir_map)  # NoMethodError before the fix; Minitest fails on exception
       end
 
     end

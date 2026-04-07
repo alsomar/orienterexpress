@@ -9,6 +9,7 @@ module ASM_Extensions
       EXPECTED_KEYS = %i[
         language context_menu
         rotation_mode insertion_point_custom
+        roll_step offset_step default_roll default_offset
         dark_mode debug_mode
         oevertex_offset oecenter_offset oezscale_offset oeface_offset oeflow_offset
       ].freeze

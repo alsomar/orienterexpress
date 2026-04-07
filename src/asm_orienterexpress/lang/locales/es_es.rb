@@ -13,7 +13,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic en un componente para usarlo como muestra",
               no_geometry_hint: "Haz clic en aristas o caras para colocar copias en sus vértices",
-              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: modo (%<mode>s)  |  Tab: punto de inserción (%<ip>s)  |  ↑: eje de orientación (%<axis>s)  |  Inicio/Fin: ajustar giro (%<roll>s)  |  AvPág/RePág: ajustar desfase (%<offset>s)"
+              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oecenter: {
               label:            "Colocación centrada en arista",
@@ -22,7 +22,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic en un componente para usarlo como muestra",
               no_geometry_hint: "Haz clic en aristas o caras para colocar copias en su centro",
-              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: modo (%<mode>s)  |  Tab: punto de inserción (%<ip>s)  |  ↑: eje de orientación (%<axis>s)  |  Inicio/Fin: ajustar giro (%<roll>s)  |  AvPág/RePág: ajustar desfase (%<offset>s)"
+              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oezscale: {
               label:            "Escalado en Z",
@@ -31,7 +31,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic en un componente para usarlo como muestra",
               no_geometry_hint: "Haz clic en aristas o caras para escalar copias a lo largo de ellas",
-              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: modo (%<mode>s)  |  Tab: punto de inserción (%<ip>s)  |  ↑: eje de escala (%<axis>s)  |  Inicio/Fin: ajustar giro (%<roll>s)  |  AvPág/RePág: ajustar desfase (%<offset>s)"
+              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de escala (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oeuscale: {
               label:            "Escalado uniforme",
@@ -39,7 +39,7 @@ module ASM_Extensions
               status:           "Escala uniformemente y coloca copias a lo largo de las aristas.",
               no_sample_hint:   "Haz clic en un componente para usarlo como muestra",
               no_geometry_hint: "Haz clic en aristas o caras para escalar copias a lo largo de ellas",
-              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: modo (%<mode>s)  |  Inicio/Fin: ajustar giro (%<roll>s)"
+              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Alt: modo (%<mode>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oeflow: {
               label:            "Colocación según flujo de vértices",
@@ -48,7 +48,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic en un componente para usarlo como muestra",
               no_geometry_hint: "Haz clic en aristas o caras para colocar copias en sus vértices",
-              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: modo (%<mode>s)  |  Tab: punto de inserción (%<ip>s)  |  ↑: eje de orientación (%<axis>s)  |  Inicio/Fin: ajustar giro (%<roll>s)  |  AvPág/RePág: ajustar desfase (%<offset>s)"
+              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oeface: {
               label:            "Colocación en cara",
@@ -57,7 +57,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic en un componente para usarlo como muestra",
               no_geometry_hint: "Haz clic en caras para colocar copias sobre ellas",
-              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: orientación (%<orient>s)  |  Tab: punto de inserción (%<ip>s)  |  ↑: eje de orientación (%<axis>s)  |  Inicio/Fin: ajustar giro (%<roll>s)  |  AvPág/RePág: ajustar desfase (%<offset>s)",
+              vcb_hint:         "Ctrl: añadir geometría a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: orientación (%<orient>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)",
               axis_parallel:    "paralelo a arista dominante",
               axis_perp:        "perpendicular a arista dominante",
               axis_ground:      "horizontal"
@@ -104,7 +104,12 @@ module ASM_Extensions
               insertion_point:        "Punto de inserción",
               insertion_base_short:   "base",
               insertion_center_short: "centro",
-              insertion_origin_short: "origen"
+              insertion_origin_short: "origen",
+              steps:          "Magnitudes",
+              roll_step:      "Incremento de giro",
+              offset_step:    "Incremento de desfase",
+              default_roll:   "Giro por defecto",
+              default_offset: "Desfase por defecto"
             },
             about: {
               title:       "Info",

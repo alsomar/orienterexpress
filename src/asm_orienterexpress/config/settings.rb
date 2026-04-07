@@ -12,7 +12,7 @@ module ASM_Extensions
       # Entity Options
       rotation_mode: "ground",
       insertion_point_custom: {
-        oevertex:  "origin",
+        oevertex:  "center",
         oecenter:  "center",
         oezscale:  "center",
         oeuscale:  "center",
@@ -20,6 +20,12 @@ module ASM_Extensions
         oeface:    "base",
         oereset:   "base"
       },
+
+      # Step sizes and defaults
+      roll_step:      15,
+      offset_step:    "1cm",
+      default_roll:   0,
+      default_offset: "0cm",
 
       # Inner Options
       dark_mode: false,

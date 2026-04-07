@@ -191,27 +191,18 @@ module ASM_Extensions
     # aligns to the average flow direction of the edge's vertices, projected
     # onto the plane perpendicular to Z. Falls back to orient_x if degenerate.
     def self.orient_to_flow(entity, edge, flow_map)
-      method_id  = :orient_to_flow
       z_axis     = entity.transformation.zaxis
       flow_start = flow_map[edge.start]
       flow_end   = flow_map[edge.end]
       candidates = [flow_start, flow_end].compact
 
-      Debug.log(self, method_id,
-        "edge #{edge.start.position.to_a.map { |v| v.round(2) }} → " \
-        "#{edge.end.position.to_a.map { |v| v.round(2) }} | " \
-        "flow_start=#{flow_start ? flow_start.to_a.map { |v| v.round(3) } : 'nil'} " \
-        "flow_end=#{flow_end ? flow_end.to_a.map { |v| v.round(3) } : 'nil'}")
-
       if candidates.empty?
-        Debug.log(self, method_id, "  → fallback: no flow data")
         orient_x(entity)
         return
       end
 
       avg = candidates.reduce(Geom::Vector3d.new(0, 0, 0)) { |s, v| s + v }
       if avg.length < 1e-6
-        Debug.log(self, method_id, "  → fallback: avg cancelled out")
         orient_x(entity)
         return
       end
@@ -222,12 +213,7 @@ module ASM_Extensions
       proj_z    = Geom::Vector3d.new(z_axis.x * dot, z_axis.y * dot, z_axis.z * dot)
       projected = avg - proj_z
 
-      Debug.log(self, method_id,
-        "  z_axis=#{z_axis.to_a.map { |v| v.round(3) }} avg=#{avg.to_a.map { |v| v.round(3) }} " \
-        "dot=#{dot.round(3)} projected=#{projected.to_a.map { |v| v.round(3) }} len=#{projected.length.round(4)}")
-
       if projected.length < 1e-6
-        Debug.log(self, method_id, "  → fallback: flow parallel to edge")
         orient_x(entity)
         return
       end
@@ -247,11 +233,6 @@ module ASM_Extensions
         center = entity.bounds.center
         entity.transform!(Geom::Transformation.rotation(center, z_axis, angle))
       end
-
-      Debug.log(self, method_id,
-        "  → aligned: y_before=#{y_before.to_a.map { |v| v.round(3) }} " \
-        "target=#{target.to_a.map { |v| v.round(3) }} " \
-        "y_after=#{entity.transformation.yaxis.to_a.map { |v| v.round(3) }}")
     end
 
     # Rotates the entity around its local Z axis so that the local Y axis
@@ -930,7 +911,7 @@ module ASM_Extensions
         @drag_mode     = nil
         @arrow_key_dir = nil
         @roll_key_dir  = nil
-        @roll_angle    = 0.0
+        @roll_angle    = CONFIG[:default_roll].to_f.degrees
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         OEPlacementTool.active_instance = self
@@ -1030,6 +1011,7 @@ module ASM_Extensions
         case key
         when 17 then @mod_ctrl  = true
         when 16 then @mod_shift = true
+        when 18 then @alt_handled = false  # reset guard on each new press
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -1037,8 +1019,11 @@ module ASM_Extensions
         update_cursor
         view.invalidate
         case key
-        when 16 # Shift — cycle mode (only when not clicking or combining with Ctrl)
-          handle_mode_key unless @lbutton_down || @mod_ctrl
+        when 16 # Shift — cycle insertion point (only when not clicking or combining with Ctrl)
+          handle_ins_key unless @lbutton_down || @mod_ctrl
+        when 18 # Alt — cycle mode
+          handle_mode_key
+          @alt_handled = true
         when 27 # Esc
           if @applied
             @model.start_operation(cancel_op_name, true)
@@ -1048,8 +1033,8 @@ module ASM_Extensions
             @applied = false
           end
           @model.select_tool(nil)
-        when 33, 34 # PgUp/PgDn — adjust offset
-          dir = key == 33 ? +1 : -1
+        when 37, 39 # Left/Right — adjust offset
+          dir = key == 39 ? +1 : -1
           unless @arrow_key_dir == dir
             scroll_offset(dir)
             @arrow_key_dir  = dir
@@ -1057,8 +1042,8 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
-        when 35, 36 # End/Home — adjust roll by 30°
-          dir = key == 36 ? +1 : -1
+        when 38, 40 # Up/Down — adjust roll by 15°
+          dir = key == 38 ? +1 : -1
           unless @roll_key_dir == dir
             scroll_roll(dir)
             @roll_key_dir      = dir
@@ -1066,10 +1051,10 @@ module ASM_Extensions
             gen = @roll_key_rep_gen
             UI.start_timer(0.7, false) { key_repeat_roll(dir, gen) }
           end
-        when 45 # Ins — reset offset and roll to zero
-          @roll_angle = 0.0
+        when 36 # Home — reset offset and roll to defaults
+          @roll_angle = CONFIG[:default_roll].to_f.degrees
           update_vcb
-          apply(Sketchup.format_length(0))
+          apply(CONFIG[:default_offset].to_s.empty? ? Sketchup.format_length(0) : CONFIG[:default_offset].to_s)
         else
           handle_key(key)
         end
@@ -1079,12 +1064,15 @@ module ASM_Extensions
         case key
         when 17 then @mod_ctrl  = false
         when 16 then @mod_shift = false
+        when 18 # Alt — fallback if key-down was swallowed by the OS
+          handle_mode_key unless @alt_handled
+          @alt_handled = false
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
-        @arrow_key_dir = nil if key == 33 || key == 34
-        @roll_key_dir  = nil if key == 35 || key == 36
+        @arrow_key_dir = nil if key == 37 || key == 39
+        @roll_key_dir  = nil if key == 38 || key == 40
         update_cursor
         view.invalidate
       end
@@ -1094,8 +1082,14 @@ module ASM_Extensions
       # Hook: tool-specific cleanup on deactivate (e.g. clear @skipped_edges)
       def on_deactivate; end
 
-      # Hook: tool-specific key handling (Tab, Down, etc.)
+      # Hook: tool-specific key handling (Tab, etc.)
       def handle_key(_key); end
+
+      # Hook: Alt keypress — cycle scale/orientation axis
+      def handle_axis_key; end
+
+      # Hook: Shift keypress — cycle insertion point
+      def handle_ins_key; end
 
       # Hook: Shift keypress without mouse button — cycle rotation mode or equivalent
       def handle_mode_key; end
@@ -1223,7 +1217,9 @@ module ASM_Extensions
       end
 
       def scroll_roll(direction)
-        @roll_angle = (@roll_angle + direction * 15.degrees) % 360.degrees
+        step = [CONFIG[:roll_step].to_f, 1.0].max
+        @roll_angle = (@roll_angle + direction * step.degrees) % 360.degrees
+        @roll_angle = 0.0 if @roll_angle < 1e-9
         apply(self.class.last_offset_str)
         update_vcb
       end
@@ -1231,7 +1227,7 @@ module ASM_Extensions
       def scroll_offset(direction)
         current = OrienterExpress.send(:parse_length_safe, self.class.last_offset_str)
         return unless current
-        step    = Sketchup.parse_length("1cm")
+        step    = Sketchup.parse_length(CONFIG[:offset_step].to_s) rescue Sketchup.parse_length("1cm")
         new_val = current + direction * step
         apply(Sketchup.format_length(new_val))
         update_vcb
@@ -1569,19 +1565,25 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle insertion point
-          @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oevertex] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(OEVertexTool.last_offset_str)
-        when 38 # Up — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEVertexTool.last_offset_str)
+        when 9 # Tab — cycle axis
+          handle_axis_key
         end
+      end
+
+      def handle_axis_key
+        @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+        @first_apply = true
+        update_vcb
+        apply(OEVertexTool.last_offset_str)
+      end
+
+      def handle_ins_key
+        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
+        custom = CONFIG[:insertion_point_custom].dup
+        custom[:oevertex] = @insertion_point.to_s
+        OrienterExpress.user_settings(insertion_point_custom: custom)
+        update_vcb
+        apply(OEVertexTool.last_offset_str)
       end
 
       def handle_mode_key
@@ -1834,19 +1836,25 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle insertion point
-          @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oecenter] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(OECenterTool.last_offset_str)
-        when 38 # Up — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OECenterTool.last_offset_str)
+        when 9 # Tab — cycle axis
+          handle_axis_key
         end
+      end
+
+      def handle_axis_key
+        @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+        @first_apply = true
+        update_vcb
+        apply(OECenterTool.last_offset_str)
+      end
+
+      def handle_ins_key
+        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
+        custom = CONFIG[:insertion_point_custom].dup
+        custom[:oecenter] = @insertion_point.to_s
+        OrienterExpress.user_settings(insertion_point_custom: custom)
+        update_vcb
+        apply(OECenterTool.last_offset_str)
       end
 
       def handle_mode_key
@@ -2094,19 +2102,25 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — toggle insertion point center ↔ base
-          @insertion_point = @insertion_point == :center ? :base : :center
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oezscale] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(OEZScaleTool.last_offset_str)
-        when 38 # Up — cycle scale axis X → Y → Z
-          @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEZScaleTool.last_offset_str)
+        when 9 # Tab — cycle axis
+          handle_axis_key
         end
+      end
+
+      def handle_axis_key
+        @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
+        @first_apply = true
+        update_vcb
+        apply(OEZScaleTool.last_offset_str)
+      end
+
+      def handle_ins_key
+        @insertion_point = @insertion_point == :center ? :base : :center
+        custom = CONFIG[:insertion_point_custom].dup
+        custom[:oezscale] = @insertion_point.to_s
+        OrienterExpress.user_settings(insertion_point_custom: custom)
+        update_vcb
+        apply(OEZScaleTool.last_offset_str)
       end
 
       def handle_mode_key
@@ -2356,16 +2370,15 @@ module ASM_Extensions
         apply(nil)
       end
 
-      def handle_key(key)
-        case key
-        when 9 # Tab — cycle insertion point
-          @insertion_point = @insertion_point == :center ? :base : :center
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oeuscale] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(nil)
-        end
+      def handle_key(_key); end
+
+      def handle_ins_key
+        @insertion_point = @insertion_point == :center ? :base : :center
+        custom = CONFIG[:insertion_point_custom].dup
+        custom[:oeuscale] = @insertion_point.to_s
+        OrienterExpress.user_settings(insertion_point_custom: custom)
+        update_vcb
+        apply(nil)
       end
 
       def debug_tool_name;        "oeuscale"; end
@@ -2526,19 +2539,25 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle insertion point
-          @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oeflow] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(OEFlowTool.last_offset_str)
-        when 38 # Up — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEFlowTool.last_offset_str)
+        when 9 # Tab — cycle axis
+          handle_axis_key
         end
+      end
+
+      def handle_axis_key
+        @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+        @first_apply = true
+        update_vcb
+        apply(OEFlowTool.last_offset_str)
+      end
+
+      def handle_ins_key
+        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
+        custom = CONFIG[:insertion_point_custom].dup
+        custom[:oeflow] = @insertion_point.to_s
+        OrienterExpress.user_settings(insertion_point_custom: custom)
+        update_vcb
+        apply(OEFlowTool.last_offset_str)
       end
 
       def handle_mode_key
@@ -2818,21 +2837,29 @@ module ASM_Extensions
         "Cancel Face Placement"
       end
 
+      def rebuild_h_dir_map; end
+
       def handle_key(key)
         case key
-        when 9 # Tab — cycle insertion point
-          @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-          custom = CONFIG[:insertion_point_custom].dup
-          custom[:oeface] = @insertion_point.to_s
-          OrienterExpress.user_settings(insertion_point_custom: custom)
-          update_vcb
-          apply(OEFaceTool.last_offset_str)
-        when 38 # Up — cycle axis Z → X → Y
-          @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
-          @first_apply = true
-          update_vcb
-          apply(OEFaceTool.last_offset_str)
+        when 9 # Tab — cycle axis
+          handle_axis_key
         end
+      end
+
+      def handle_axis_key
+        @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
+        @first_apply = true
+        update_vcb
+        apply(OEFaceTool.last_offset_str)
+      end
+
+      def handle_ins_key
+        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
+        custom = CONFIG[:insertion_point_custom].dup
+        custom[:oeface] = @insertion_point.to_s
+        OrienterExpress.user_settings(insertion_point_custom: custom)
+        update_vcb
+        apply(OEFaceTool.last_offset_str)
       end
 
       def handle_mode_key

@@ -54,6 +54,10 @@ function settingsJSON(config) {
         oeflow:       'center',
         oeface:       'base'
       };
+      window.app.rollStep               = config.roll_step    != null ? config.roll_step    : 15;
+      window.app.offsetStep             = config.offset_step  || '1cm';
+      window.app.defaultRoll            = config.default_roll != null ? config.default_roll : 0;
+      window.app.defaultOffset          = config.default_offset || '0cm';
       window.app.darkMode               = config.dark_mode  || false;
       window.app.debugMode              = config.debug_mode || false;
 

@@ -149,6 +149,63 @@
                 </div>
               </div>
 
+              <!-- Steps -->
+              <div class="card">
+                <div class="card-header" id="accordionTab4" role="button"
+                  data-toggle="collapse" data-target="#collapseTab4"
+                  aria-expanded="false" aria-controls="collapseTab4">
+                  <h6 class="mb-0">{{ t('html.settings.steps') }}</h6>
+                </div>
+                <div class="collapse" id="collapseTab4"
+                  aria-labelledby="accordionTab4" data-parent="#accordionSettings">
+                  <div class="card-body card-custom">
+
+                    <!-- Roll Step -->
+                    <div class="mb-2">
+                      <label for="rollStep" class="form-label mb-1">{{ t('html.settings.roll_step') }}</label>
+                      <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="rollStep"
+                          v-model.number="rollStep" min="1" max="180" step="1"
+                          @change="rollStep = Math.max(1, Math.min(180, rollStep || 15))">
+                        <div class="input-group-append">
+                          <span class="input-group-text">&deg;</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Offset Step -->
+                    <div class="mb-2">
+                      <label for="offsetStep" class="form-label mb-1">{{ t('html.settings.offset_step') }}</label>
+                      <input type="text" class="form-control form-control-sm" id="offsetStep"
+                        v-model="offsetStep"
+                        @blur="if (!offsetStep || !offsetStep.trim()) offsetStep = '1cm'">
+                    </div>
+
+                    <!-- Default Roll -->
+                    <div class="mb-2">
+                      <label for="defaultRoll" class="form-label mb-1">{{ t('html.settings.default_roll') }}</label>
+                      <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" id="defaultRoll"
+                          v-model.number="defaultRoll" min="0" max="359" step="1"
+                          @change="defaultRoll = Math.max(0, Math.min(359, defaultRoll || 0))">
+                        <div class="input-group-append">
+                          <span class="input-group-text">&deg;</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- Default Offset -->
+                    <div>
+                      <label for="defaultOffset" class="form-label mb-1">{{ t('html.settings.default_offset') }}</label>
+                      <input type="text" class="form-control form-control-sm" id="defaultOffset"
+                        v-model="defaultOffset"
+                        @blur="if (!defaultOffset || !defaultOffset.trim()) defaultOffset = '0cm'">
+                    </div>
+
+                  </div>
+                </div>
+              </div>
+
               <!-- General Options -->
               <div class="card">
                 <div class="card-header" id="accordionTab1" role="button"
@@ -302,7 +359,7 @@
           rotationMode:  'ground',
           rotationModes: ['ground', 'flow', 'normal'],
           settingsInsertionPointCustom: {
-            oevertex: 'origin',
+            oevertex: 'center',
             oecenter: 'center',
             oezscale: 'center',
             oeuscale: 'center',
@@ -315,6 +372,12 @@
             oezscale: ['base', 'center'],
             oeuscale: ['base', 'center']
           },
+
+          // Steps
+          rollStep:      15,
+          offsetStep:    '1cm',
+          defaultRoll:   0,
+          defaultOffset: '0cm',
 
           // Dark mode
           darkMode: false,
@@ -375,6 +438,10 @@
             context_menu:           this.settingsContextMenu,
             rotation_mode:          this.rotationMode,
             insertion_point_custom: this.settingsInsertionPointCustom,
+            roll_step:              this.rollStep,
+            offset_step:            this.offsetStep,
+            default_roll:           this.defaultRoll,
+            default_offset:         this.defaultOffset,
             dark_mode:              this.darkMode
           };
         },
@@ -395,7 +462,11 @@
           this.settingsLanguage             = 'auto';
           this.settingsContextMenu          = false;
           this.rotationMode                 = 'ground';
-          this.settingsInsertionPointCustom = { oevertex: 'origin', oecenter: 'center', oezscale: 'center', oeuscale: 'center', oeflow: 'center', oeface: 'base' };
+          this.settingsInsertionPointCustom = { oevertex: 'center', oecenter: 'center', oezscale: 'center', oeuscale: 'center', oeflow: 'center', oeface: 'base' };
+          this.rollStep                     = 15;
+          this.offsetStep                   = '1cm';
+          this.defaultRoll                  = 0;
+          this.defaultOffset                = '0cm';
           this.darkMode                     = false;
           this.showReset                    = false;
 
