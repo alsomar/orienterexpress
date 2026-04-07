@@ -1016,7 +1016,7 @@ module ASM_Extensions
       def onUserText(text, _view)
         stripped = text.strip
         return if stripped.empty?
-        if stripped =~ /\A-?\d+([.,]\d+)?\s*(deg|°)\z/i
+        if stripped =~ /\A-?\d+([.,]\d+)?\s*(deg|\u00B0)\z/i
           deg = stripped.gsub(',', '.').to_f
           @roll_angle = deg * Math::PI / 180.0
           apply(self.class.last_offset_str)
@@ -1057,7 +1057,7 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
-        when 35, 36 # End/Home — fine-adjust roll by 5°
+        when 35, 36 # End/Home — adjust roll by 30°
           dir = key == 36 ? +1 : -1
           unless @roll_key_dir == dir
             scroll_roll(dir)
@@ -1066,13 +1066,9 @@ module ASM_Extensions
             gen = @roll_key_rep_gen
             UI.start_timer(0.7, false) { key_repeat_roll(dir, gen) }
           end
-        when 40 # Down — advance to next 90° roll step, or reset to 0 if not on a step
-          steps     = ((@roll_angle / 90.degrees) + 1e-9).floor
-          on_step   = (@roll_angle - steps * 90.degrees).abs < 1e-6
-          @roll_angle = on_step ? ((steps + 1) % 4) * 90.degrees : 0.0
-          apply(self.class.last_offset_str)
+        when 45 # Ins — reset offset and roll to zero
+          @roll_angle = 0.0
           update_vcb
-        when 45 # Ins — reset offset to zero
           apply(Sketchup.format_length(0))
         else
           handle_key(key)
@@ -1227,7 +1223,7 @@ module ASM_Extensions
       end
 
       def scroll_roll(direction)
-        @roll_angle = (@roll_angle + direction * 5.degrees) % 360.degrees
+        @roll_angle = (@roll_angle + direction * 15.degrees) % 360.degrees
         apply(self.class.last_offset_str)
         update_vcb
       end
@@ -1238,6 +1234,7 @@ module ASM_Extensions
         step    = Sketchup.parse_length("1cm")
         new_val = current + direction * step
         apply(Sketchup.format_length(new_val))
+        update_vcb
       end
 
       def on_external_selection_change
@@ -1353,7 +1350,7 @@ module ASM_Extensions
       def roll_label
         deg = (@roll_angle * 180.0 / Math::PI) % 360.0
         deg_str = (deg % 1.0).abs < 0.05 ? deg.round.to_s : format('%.1f', deg)
-        "#{deg_str}\xC2\xB0"
+        "#{deg_str} deg"
       end
 
       # Returns which local axis symbol (:x, :y, or nil=z) of entity_copy is
@@ -1589,7 +1586,7 @@ module ASM_Extensions
 
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-        rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
+        rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
         apply(OEVertexTool.last_offset_str)
@@ -1605,7 +1602,7 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
-        hint = format(Lang.commands.oevertex.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
+        hint = format(Lang.commands.oevertex.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEVertexTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
@@ -1854,7 +1851,7 @@ module ASM_Extensions
 
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-        rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
+        rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
         apply(OECenterTool.last_offset_str)
@@ -1870,7 +1867,7 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
-        hint = format(Lang.commands.oecenter.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
+        hint = format(Lang.commands.oecenter.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OECenterTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OECenterTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
@@ -2114,7 +2111,7 @@ module ASM_Extensions
 
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
-        rebuild_flow_map   if @rotation_mode == :flow   && @flow_map.empty?
+        rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
         apply(OEZScaleTool.last_offset_str)
@@ -2131,7 +2128,7 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
         ip_label   = Lang.t(:html, :settings, ip_key)
-        hint = format(Lang.commands.oezscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
+        hint = format(Lang.commands.oezscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEZScaleTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
@@ -2354,7 +2351,7 @@ module ASM_Extensions
 
       def handle_mode_key
         @rotation_mode = @rotation_mode == :flow ? :ground : :flow
-        rebuild_flow_map if @rotation_mode == :flow && @flow_map.empty?
+        rebuild_flow_map if @rotation_mode == :flow
         update_vcb
         apply(nil)
       end
@@ -2560,7 +2557,7 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
-        hint = format(Lang.commands.oeflow.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label)
+        hint = format(Lang.commands.oeflow.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEFlowTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
@@ -2857,7 +2854,7 @@ module ASM_Extensions
         ][@axis_idx]
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
         ip_label   = Lang.t(:html, :settings, ip_key)
-        hint = format(Lang.commands.oeface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label)
+        hint = format(Lang.commands.oeface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label, offset: OEFaceTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)

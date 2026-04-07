@@ -13,7 +13,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click a component to use as sample",
               no_geometry_hint: "Click on edges or faces to place copies at their vertices",
-              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset "
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  Home/End: adjust roll (%<roll>s)  |  PgUp/PgDn: adjust offset (%<offset>s)"
             },
             oecenter: {
               label:            "Edge Center Placement",
@@ -22,7 +22,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click a component to use as sample",
               no_geometry_hint: "Click on edges or faces to place copies at their centers",
-              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset"
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  Home/End: adjust roll (%<roll>s)  |  PgUp/PgDn: adjust offset (%<offset>s)"
             },
             oezscale: {
               label:            "Z-axis Scaling",
@@ -31,7 +31,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click a component to use as sample",
               no_geometry_hint: "Click on edges or faces to scale copies along them",
-              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: scaled axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset"
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: scaled axis (%<axis>s)  |  Home/End: adjust roll (%<roll>s)  |  PgUp/PgDn: adjust offset (%<offset>s)"
             },
             oeuscale: {
               label:            "Uniform Scaling",
@@ -39,7 +39,7 @@ module ASM_Extensions
               status:           "Scale uniformly and place copies along edges.",
               no_sample_hint:   "Click a component to use as sample",
               no_geometry_hint: "Click on edges or faces to scale copies along them",
-              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  ↓: roll (%<roll>s) | Home/End: adjust roll"
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Home/End: adjust roll (%<roll>s)"
             },
             oeflow: {
               label:            "Vertex Flow Placement",
@@ -48,7 +48,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click a component to use as sample",
               no_geometry_hint: "Click on edges or faces to place copies at their vertices",
-              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset"
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: mode (%<mode>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  Home/End: adjust roll (%<roll>s)  |  PgUp/PgDn: adjust offset (%<offset>s)"
             },
             oeface: {
               label:            "Face Placement",
@@ -57,7 +57,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click a component to use as sample",
               no_geometry_hint: "Click on faces to place copies on them",
-              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: orientation (%<orient>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  ↓: roll (%<roll>s)  | Home/End: adjust roll  |  PgUp/PgDn: adjust offset",
+              vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: orientation (%<orient>s)  |  Tab: insertion point (%<ip>s)  |  ↑: oriented axis (%<axis>s)  |  Home/End: adjust roll (%<roll>s)  |  PgUp/PgDn: adjust offset (%<offset>s)",
               axis_parallel:    "parallel to dominant edge",
               axis_perp:        "perpendicular to dominant edge",
               axis_ground:      "horizontal"
