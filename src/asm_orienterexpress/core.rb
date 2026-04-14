@@ -63,13 +63,13 @@ module ASM_Extensions
       cmd_oeflow = cmd
       @commands[:oeflow] = cmd
 
-      cmd = UI::Command.new(Lang.commands.oeface.label.to_s) { self.oeface_tool }
+      cmd = UI::Command.new(Lang.commands.oesurface.label.to_s) { self.oesurface_tool }
       cmd.small_icon = self.icon("oeface_24")
       cmd.large_icon = self.icon("oeface_32")
-      cmd.status_bar_text = Lang.commands.oeface.status
-      cmd.tooltip = Lang.commands.oeface.tooltip
+      cmd.status_bar_text = Lang.commands.oesurface.status
+      cmd.tooltip = Lang.commands.oesurface.tooltip
       cmd_oeface = cmd
-      @commands[:oeface] = cmd
+      @commands[:oesurface] = cmd
 
       cmd = UI::Command.new(Lang.commands.oealignoptimal.label.to_s) { self.oealignoptimal_tool }
       cmd.small_icon = self.icon("oeoptimal_24")
@@ -171,8 +171,8 @@ module ASM_Extensions
         ASM_Extensions::OrienterExpress.oeflow
       end
 
-      def self.oeface_tool
-        ASM_Extensions::OrienterExpress.oeface
+      def self.oesurface_tool
+        ASM_Extensions::OrienterExpress.oesurface
       end
 
       def self.oealignoptimal_tool

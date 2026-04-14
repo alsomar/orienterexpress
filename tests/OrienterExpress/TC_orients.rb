@@ -886,16 +886,16 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # OEFaceTool — on_geometry_changed regression
+      # OESurfaceTool — on_geometry_changed regression
       # =========================================================================
 
-      # Regression: OEFace stores faces in @geometry, but the base
+      # Regression: OESurface stores faces in @geometry, but the base
       # rebuild_h_dir_map invokes edge.start on each element —
       # crashing with NoMethodError on Sketchup::Face.
       # Coordinates offset to avoid merging with naked-box test geometry.
-      def test_oeface_rebuild_h_dir_map_does_not_raise_with_face
+      def test_oesurface_rebuild_h_dir_map_does_not_raise_with_face
         face = @entities.add_face([500,0,0], [600,0,0], [600,100,0], [500,100,0])
-        tool = OEFaceTool.allocate
+        tool = OESurfaceTool.allocate
         tool.instance_variable_set(:@geometry,      [face])
         tool.instance_variable_set(:@rotation_mode, :ground)
         tool.send(:rebuild_h_dir_map)  # NoMethodError before the fix; Minitest fails on exception

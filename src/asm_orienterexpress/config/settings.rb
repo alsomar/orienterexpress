@@ -12,13 +12,13 @@ module ASM_Extensions
       # Entity Options
       rotation_mode: "ground",
       insertion_point_custom: {
-        oevertex:  "center",
-        oecenter:  "center",
-        oezscale:  "center",
-        oeuscale:  "center",
-        oeflow:    "center",
-        oeface:    "base",
-        oereset:   "base"
+        oevertex:   "center",
+        oecenter:   "center",
+        oezscale:   "center",
+        oeuscale:   "center",
+        oeflow:     "center",
+        oesurface:  "base",
+        oereset:    "base"
       },
 
       # Step sizes and defaults
@@ -30,10 +30,11 @@ module ASM_Extensions
       # Inner Options
       dark_mode: false,
       debug_mode: false,
+      smooth_groups: true,
       oevertex_offset: "0cm",
       oecenter_offset: "0cm",
       oezscale_offset:   "10cm",
-      oeface_offset:   "0cm",
+      oesurface_offset: "0cm",
       oeflow_offset:   "0cm"
     }.freeze
 

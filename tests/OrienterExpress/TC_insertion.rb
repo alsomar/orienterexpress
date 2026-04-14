@@ -368,7 +368,7 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # axis_most_aligned_to — OEFaceTool base insertion
+      # axis_most_aligned_to — OESurfaceTool insertion
       # =========================================================================
 
       def simulate_axis_most_aligned_to(inst, ref_vec, scale_axis)

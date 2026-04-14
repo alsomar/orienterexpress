@@ -11,6 +11,7 @@
   <script src="../vendor/vue.min.js"></script>
   <!-- <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script> -->
   <script src="../libs/asav.js"></script>
+  <script src="../libs/orienterexpress.js"></script>
 </head>
 <body>
   <script>if (localStorage.getItem('asav_dark_mode') === 'true') document.body.classList.add('dark-mode');</script>
@@ -206,6 +207,24 @@
                 </div>
               </div>
 
+              <!-- Surface Placement -->
+              <div class="card">
+                <div class="card-header" id="accordionTab5" role="button"
+                  data-toggle="collapse" data-target="#collapseTab5"
+                  aria-expanded="false" aria-controls="collapseTab5">
+                  <h6 class="mb-0">{{ t('commands.oesurface.label') }}</h6>
+                </div>
+                <div class="collapse" id="collapseTab5"
+                  aria-labelledby="accordionTab5" data-parent="#accordionSettings">
+                  <div class="card-body card-custom">
+                    <div class="custom-control custom-switch">
+                      <input type="checkbox" class="custom-control-input" v-model="smoothGroups" id="smoothGroups">
+                      <label class="custom-control-label" for="smoothGroups">{{ t('html.settings.smooth_groups') }}</label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- General Options -->
               <div class="card">
                 <div class="card-header" id="accordionTab1" role="button"
@@ -359,14 +378,14 @@
           rotationMode:  'ground',
           rotationModes: ['ground', 'flow', 'normal'],
           settingsInsertionPointCustom: {
-            oevertex: 'center',
-            oecenter: 'center',
-            oezscale: 'center',
-            oeuscale: 'center',
-            oeflow:   'center',
-            oeface:   'base'
+            oevertex:  'center',
+            oecenter:  'center',
+            oezscale:  'center',
+            oeuscale:  'center',
+            oeflow:    'center',
+            oesurface: 'base'
           },
-          customTools:    ['oevertex', 'oecenter', 'oeflow', 'oeface', 'oezscale', 'oeuscale'],
+          customTools:    ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oezscale', 'oeuscale'],
           insertionModes: ['base', 'center', 'origin'],
           toolModesMap: {
             oezscale: ['base', 'center'],
@@ -378,6 +397,9 @@
           offsetStep:    '1cm',
           defaultRoll:   0,
           defaultOffset: '0cm',
+
+          // Surface Placement
+          smoothGroups: true,
 
           // Dark mode
           darkMode: false,
@@ -442,6 +464,7 @@
             offset_step:            this.offsetStep,
             default_roll:           this.defaultRoll,
             default_offset:         this.defaultOffset,
+            smooth_groups:          this.smoothGroups,
             dark_mode:              this.darkMode
           };
         },
@@ -462,11 +485,12 @@
           this.settingsLanguage             = 'auto';
           this.settingsContextMenu          = false;
           this.rotationMode                 = 'ground';
-          this.settingsInsertionPointCustom = { oevertex: 'center', oecenter: 'center', oezscale: 'center', oeuscale: 'center', oeflow: 'center', oeface: 'base' };
+          this.settingsInsertionPointCustom = { oevertex: 'center', oecenter: 'center', oezscale: 'center', oeuscale: 'center', oeflow: 'center', oesurface: 'base' };
           this.rollStep                     = 15;
           this.offsetStep                   = '1cm';
           this.defaultRoll                  = 0;
           this.defaultOffset                = '0cm';
+          this.smoothGroups                 = true;
           this.darkMode                     = false;
           this.showReset                    = false;
 

@@ -2721,13 +2721,14 @@ module ASM_Extensions
       )
     end
 
-    # Tool class for interactive Face Placement.
-    # Equivalent to OEZScaleTool but for faces: the user adjusts an offset
-    # along the face normal via the VCB or arrow keys.
-    class OEFaceTool < OEPlacementTool
+    # Tool class for interactive Surface Placement.
+    # Places one component instance per smooth-connected face group, using the
+    # area-weighted average normal and a ray-projected contact point so that
+    # placement lands on the surface rather than inside curved geometry.
+    class OESurfaceTool < OEPlacementTool
 
       def self.last_offset_str
-        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeface_offset)
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oesurface_offset)
       end
 
       def self.last_offset_str=(val)
@@ -2746,22 +2747,52 @@ module ASM_Extensions
 
       def initialize(faces, entity)
         super(faces, entity)
-        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oeface).to_sym
+        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oesurface).to_sym
         @scale_axis      = :z
         @axis_idx        = 0
+        @smooth_groups   = CONFIG[:smooth_groups] != false
+      end
+
+      def on_config_changed(changed)
+        super
+        if changed.key?(:smooth_groups)
+          new_val = changed[:smooth_groups] != false
+          return if new_val == @smooth_groups
+          @smooth_groups = new_val
+          @first_apply   = true
+          apply(OESurfaceTool.last_offset_str)
+        end
       end
 
       private
 
-      # OEFace picks faces: Face → [face], Edge → edge.faces
+      # Flood-fill via softened/smoothed edges only.
+      def soft_group_for(face)
+        visited = {}
+        queue   = [face]
+        until queue.empty?
+          f = queue.pop
+          next if visited[f]
+          visited[f] = true
+          f.edges.each do |e|
+            next unless e.soft? || e.smooth?
+            e.faces.each { |n| queue << n unless visited[n] }
+          end
+        end
+        visited.keys
+      end
+
+      # Single click expands the picked face/edge to its full soft group.
       def pick_geometry_from_entity(entity)
         case entity
-        when Sketchup::Face then [entity]
-        when Sketchup::Edge then entity.faces.to_a
+        when Sketchup::Face
+          soft_group_for(entity)
+        when Sketchup::Edge
+          entity.faces.flat_map { |f| soft_group_for(f) }.uniq
         end
       end
 
-      # OEFace flood-fill traverses faces via edges
+      # Double-click flood-fill via all edges (selects all connected geometry).
       def connected_geometry(entity)
         start_faces = pick_geometry_from_entity(entity)
         return nil unless start_faces
@@ -2778,7 +2809,6 @@ module ASM_Extensions
         visited.keys
       end
 
-      # OEFace uses best_picked (not path-based) and maps placed → source face
       def handle_geometry_click(ctrl, shift, view, x, y, click_type)
         ph = view.pick_helper
         ph.do_pick(x, y)
@@ -2811,18 +2841,17 @@ module ASM_Extensions
         modify_geometry(@drag_mode, picked) if picked
       end
 
-      # OEFace collects faces from selection, not edges
       def collect_geometry_from_selection(selection)
         (selection.grep(Sketchup::Face) +
          selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
       end
 
-      def on_selection_changed(new_set, old_set)
-        offset = OrienterExpress.send(:parse_length_safe, OEFaceTool.last_offset_str)
-        apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+      # External selection changes trigger a full re-apply because group
+      # boundaries depend on the full set of selected faces.
+      def on_selection_changed(_new_set, _old_set)
+        apply(OESurfaceTool.last_offset_str)
       end
 
-      # OEFace sync_selection uses faces, no full_faces expansion
       def sync_selection
         source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
         target    = (@geometry.select(&:valid?) + source).to_set
@@ -2834,7 +2863,7 @@ module ASM_Extensions
       end
 
       def cancel_op_name
-        "Cancel Face Placement"
+        "Cancel Surface Placement"
       end
 
       def rebuild_h_dir_map; end
@@ -2850,42 +2879,47 @@ module ASM_Extensions
         @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OEFaceTool.last_offset_str)
+        apply(OESurfaceTool.last_offset_str)
       end
 
       def handle_ins_key
         @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
         custom = CONFIG[:insertion_point_custom].dup
-        custom[:oeface] = @insertion_point.to_s
+        custom[:oesurface] = @insertion_point.to_s
         OrienterExpress.user_settings(insertion_point_custom: custom)
         update_vcb
-        apply(OEFaceTool.last_offset_str)
+        apply(OESurfaceTool.last_offset_str)
       end
 
       def handle_mode_key
         @axis_idx = (@axis_idx + 1) % 3
         update_vcb
-        apply(OEFaceTool.last_offset_str)
+        apply(OESurfaceTool.last_offset_str)
       end
 
-      def debug_tool_name;  "oeface"; end
-      def no_sample_hint;   Lang.commands.oeface.no_sample_hint.to_s;   end
-      def no_geometry_hint; Lang.commands.oeface.no_geometry_hint.to_s; end
+      def debug_tool_name;  "oesurface"; end
+      def no_sample_hint;   Lang.commands.oesurface.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oesurface.no_geometry_hint.to_s; end
 
       def render_vcb
         scale_label  = @scale_axis.to_s.upcase
         orient_label = [
-          Lang.commands.oeface.axis_parallel,
-          Lang.commands.oeface.axis_perp,
-          Lang.commands.oeface.axis_ground
+          Lang.commands.oesurface.axis_parallel,
+          Lang.commands.oesurface.axis_perp,
+          Lang.commands.oesurface.axis_ground
         ][@axis_idx]
-        ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
-        ip_label   = Lang.t(:html, :settings, ip_key)
-        hint = format(Lang.commands.oeface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label, offset: OEFaceTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oeface.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEFaceTool.last_offset_str, 2)
+        ip_key   = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip_label = Lang.t(:html, :settings, ip_key)
+        hint = format(Lang.commands.oesurface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label, offset: OESurfaceTool.last_offset_str)
+        Sketchup.set_status_text(Lang.commands.oesurface.offset_prompt.to_s, 1)
+        Sketchup.set_status_text(OESurfaceTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
+      end
+
+      # No incremental diff — always do a full re-apply.
+      def apply_diff(_added, _removed, _offset)
+        apply(OESurfaceTool.last_offset_str)
       end
 
       def apply(text)
@@ -2894,20 +2928,24 @@ module ASM_Extensions
         return unless offset
 
         transparent = !@first_apply
-        @model.start_operation("Orienter Express: Face Placement", true, false, transparent)
+        @model.start_operation("Orienter Express: Surface Placement", true, false, transparent)
 
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
           @placement_map     = {}
 
-          @geometry.each { |face| place_for_face(face, offset) }
+          if @smooth_groups
+            compute_groups.each { |group| place_for_group(group, offset) }
+          else
+            @geometry.select(&:valid?).each { |face| place_for_group([face], offset) }
+          end
 
           @model.commit_operation
           @first_apply = false
           @applied     = true
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeface_offset)
-          OEFaceTool.last_offset_str = formatted
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oesurface_offset)
+          OESurfaceTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
@@ -2916,59 +2954,112 @@ module ASM_Extensions
         end
       end
 
-      def apply_diff(added, removed, offset)
-        return unless offset && @entity_def
-        @model.start_operation("Orienter Express: Face Placement", true, false, true)
-        begin
-          removed.each do |face|
-            to_erase = @placement_map.select { |_, f| f == face }.keys
-            to_erase.each { |ent| ent.erase! if ent.valid? }
-            to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
-          end
-          added.each { |face| place_for_face(face, offset) }
-          @model.commit_operation
-          @model.active_view.invalidate
-        rescue => e
-          @model.abort_operation
-          UI.messagebox("Error: #{e.message}")
+      # Partition @geometry into non-overlapping soft groups.
+      def compute_groups
+        geo_set  = @geometry.to_set
+        assigned = {}
+        groups   = []
+        @geometry.each do |face|
+          next if assigned[face] || !face.valid?
+          group = soft_group_for(face).select { |f| geo_set.include?(f) && f.valid? }
+          next if group.empty?
+          groups << group
+          group.each { |f| assigned[f] = true }
         end
+        groups
       end
 
-      def place_for_face(face, offset)
-        return unless face.valid?
-        normal = face.normal
-        return if normal.length < 1e-6
-        centroid    = OrienterExpress.send(:face_centroid, face)
-        target      = centroid.offset(normal.normalize, offset)
+      # Place one entity copy for a smooth group using the area-weighted
+      # average normal and centroid of the group's faces.
+      # Returns silently if the geometry is degenerate (e.g. zero-length
+      # average normal on a full cylinder where normals cancel out).
+      def place_for_group(group_faces, offset)
+        valid = group_faces.select(&:valid?)
+        return if valid.empty?
+
+        total_area = 0.0
+        nx = 0.0; ny = 0.0; nz = 0.0
+        cx = 0.0; cy = 0.0; cz = 0.0
+
+        valid.each do |face|
+          area     = face.area
+          normal   = face.normal
+          centroid = OrienterExpress.send(:face_centroid, face)
+          total_area += area
+          nx += normal.x * area; ny += normal.y * area; nz += normal.z * area
+          cx += centroid.x * area; cy += centroid.y * area; cz += centroid.z * area
+        end
+
+        return if total_area < 1e-6
+        avg_normal = Geom::Vector3d.new(nx / total_area, ny / total_area, nz / total_area)
+        return if avg_normal.length < 1e-6
+
+        # Area-weighted centroid — correct for flat groups, but may fall
+        # inside the geometry for curved surfaces (e.g. a cylinder segment).
+        avg_centroid = Geom::Point3d.new(cx / total_area, cy / total_area, cz / total_area)
+
+        # Surface contact point: project avg_centroid onto the surface along
+        # avg_normal. For each face we solve where the ray
+        #   avg_centroid + t * avg_normal
+        # crosses the face plane; the crossing with the smallest |t| is the
+        # surface point closest to avg_centroid along the normal direction.
+        # For flat groups t ≈ 0 so contact ≈ avg_centroid.
+        n = avg_normal.normalize
+        contact   = avg_centroid
+        min_abs_t = Float::INFINITY
+
+        valid.each do |face|
+          denom = face.normal.dot(n)
+          next if denom.abs < 1e-6   # face plane parallel to avg_normal
+
+          fc    = OrienterExpress.send(:face_centroid, face)
+          ray_t = face.normal.dot(fc - avg_centroid) / denom
+          next unless ray_t.abs < min_abs_t
+
+          min_abs_t = ray_t.abs
+          contact   = avg_centroid.offset(n, ray_t)
+        end
+
+        target = contact.offset(n, offset)
+
         entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
         t           = entity_copy.transformation
+
         case @scale_axis
-        when :x then OrienterExpress.align_axis(entity_copy, t.origin, t.xaxis, normal)
-        when :y then OrienterExpress.align_axis(entity_copy, t.origin, t.yaxis, normal)
-        else         OrienterExpress.align_axis(entity_copy, t.origin, t.zaxis, normal)
+        when :x then OrienterExpress.align_axis(entity_copy, t.origin, t.xaxis, avg_normal)
+        when :y then OrienterExpress.align_axis(entity_copy, t.origin, t.yaxis, avg_normal)
+        else         OrienterExpress.align_axis(entity_copy, t.origin, t.zaxis, avg_normal)
         end
+
+        # Use the largest face in the group for edge-based orientation
+        primary = valid.max_by(&:area)
         if @axis_idx == 2
           OrienterExpress.orient_x(entity_copy)
         else
-          OrienterExpress.orient_to_face_edge(entity_copy, face, @axis_idx, @scale_axis)
+          OrienterExpress.orient_to_face_edge(entity_copy, primary, @axis_idx, @scale_axis)
         end
+
         apply_roll(entity_copy)
-        base_axis = @insertion_point == :base ? axis_most_aligned_to(entity_copy, normal) : @scale_axis
+        base_axis = @insertion_point == :base ? axis_most_aligned_to(entity_copy, avg_normal) : @scale_axis
         OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, base_axis)
+
         @previous_entities << entity_copy
-        @placement_map[entity_copy] = face
+        @placement_map[entity_copy] = primary
+      rescue
+        # Degenerate geometry (zero-length vector, cancelled normals, etc.)
+        # — skip this group silently so the rest of the placement continues.
       end
 
     end
 
-    def self.oeface
+    def self.oesurface
       model   = Sketchup.active_model
       faces   = (faces(model.selection) + edges(model.selection).flat_map(&:faces)).uniq
       targets = instances(model.selection)
 
       entity = targets.first
       model.select_tool(
-        OEFaceTool.new(faces, entity)
+        OESurfaceTool.new(faces, entity)
       )
     end
 

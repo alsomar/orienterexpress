@@ -50,10 +50,10 @@ module ASM_Extensions
               no_geometry_hint: "Click on edges or faces to place copies at their vertices",
               vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: insertion point (%<ip>s)  |  Tab: oriented axis (%<axis>s)  |  Alt: mode (%<mode>s)  |  ←/→: adjust offset (%<offset>s)  |  ↑/↓: adjust roll (%<roll>s)"
             },
-            oeface: {
-              label:            "Face Placement",
-              tooltip:          "Face Placement",
-              status:           "Place copies at face centroids with an offset along the face normal.",
+            oesurface: {
+              label:            "Surface Placement",
+              tooltip:          "Surface Placement",
+              status:           "Place copies at the center of each smooth surface group, offset along the average normal.",
               offset_prompt:    "Offset",
               no_sample_hint:   "Click a component to use as sample",
               no_geometry_hint: "Click on faces to place copies on them",
@@ -109,7 +109,8 @@ module ASM_Extensions
               roll_step:      "Roll increment",
               offset_step:    "Offset increment",
               default_roll:   "Default roll",
-              default_offset: "Default offset"
+              default_offset: "Default offset",
+              smooth_groups:  "Treat smooth surfaces as a single face"
             },
             about: {
               title:       "Info",
