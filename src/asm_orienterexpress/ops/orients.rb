@@ -3679,12 +3679,12 @@ module ASM_Extensions
           -sb*cg,             sb*sg,              cb)
       end
 
-      # Phase 1: coarse grid 10° → 9×18×9 = 1,458 evals to find basin
+      # Phase 1: coarse grid 15° → 6×12×6 = 432 evals to find basin
       best_al = 0.0; best_be = 0.0; best_ga = 0.0
       best_vol = Float::INFINITY
-      (0...90).step(10) do |ad|
-        (-90...90).step(10) do |bd|
-          (0...90).step(10) do |gd|
+      (0...90).step(15) do |ad|
+        (-90...90).step(15) do |bd|
+          (0...90).step(15) do |gd|
             vol = eval_zyz.call(ad*deg2rad, bd*deg2rad, gd*deg2rad)
             if vol < best_vol
               best_vol = vol; best_al = ad*deg2rad; best_be = bd*deg2rad; best_ga = gd*deg2rad
@@ -3705,13 +3705,15 @@ module ASM_Extensions
       ]
       fval = simplex.map { |v| eval_zyz.call(*v) }
 
-      200.times do
+      # Safety cap: in practice NM converges in <50 iters with 1e-5 tolerance.
+      # The 500 limit only triggers on degenerate input (e.g. near-collinear pts).
+      500.times do
         # Sort by function value
         order = fval.each_with_index.sort_by { |f, _| f }.map(&:last)
         simplex = order.map { |i| simplex[i] }
         fval    = order.map { |i| fval[i] }
 
-        break if (fval.last - fval.first).abs < 1e-6
+        break if (fval.last - fval.first).abs < 1e-5
 
         # Centroid of all but worst
         c = [0.0, 0.0, 0.0]
