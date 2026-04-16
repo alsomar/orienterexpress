@@ -844,7 +844,7 @@ module ASM_Extensions
     ### MAIN TOOLS ### ------------------------------------------------------------
 
     # Base class for interactive placement tools (OEVertex, OECenter, OEZScale,
-    # OEFlow, OEFace). Handles selection watching, VCB, modifier keys, cursor,
+    # OEFlow, OESurface). Handles selection watching, VCB, modifier keys, cursor,
     # click routing, and key repeating. Subclasses implement the placement logic
     # via hook methods: apply, render_vcb, handle_key, on_drag, and others.
     class OEPlacementTool
@@ -1125,7 +1125,7 @@ module ASM_Extensions
       end
 
       # Default: edges from entity (Face → edges, Edge → [edge]).
-      # Overridden by OEFaceTool to return faces.
+      # Overridden by OESurfaceTool to return faces.
       def pick_geometry_from_entity(entity)
         case entity
         when Sketchup::Edge then [entity]
@@ -1133,7 +1133,7 @@ module ASM_Extensions
         end
       end
 
-      # Default: edge-based flood fill. Overridden by OEFaceTool.
+      # Default: edge-based flood fill. Overridden by OESurfaceTool.
       def connected_geometry(entity)
         start_items = pick_geometry_from_entity(entity)
         return nil unless start_items
@@ -1165,7 +1165,7 @@ module ASM_Extensions
       end
 
       # Default geometry-click handler (edge tools: Vertex, Center, ZScale).
-      # OEFlowTool uses this unchanged; OEFaceTool overrides it.
+      # OEFlowTool uses this unchanged; OESurfaceTool overrides it.
       def handle_geometry_click(ctrl, shift, view, x, y, click_type)
         raw  = pick_entity(view, x, y)
         best = @placement_map.key?(raw) ? @placement_map[raw] : raw
@@ -1249,7 +1249,7 @@ module ASM_Extensions
       end
 
       # Hook: collect geometry items from the current selection.
-      # Overridden by OEFaceTool to collect faces instead of edges.
+      # Overridden by OESurfaceTool to collect faces instead of edges.
       def collect_geometry_from_selection(selection)
         (selection.grep(Sketchup::Edge) +
          selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
@@ -1353,7 +1353,7 @@ module ASM_Extensions
       # most aligned to reference_vec, taking sign into account so that
       # move_insertion_to's min.{axis} always lands on the correct face.
       # Only valid when reference_vec is the direction the scale_axis
-      # was originally aligned to (i.e. OEFaceTool, where scale_axis
+      # was originally aligned to (i.e. OESurfaceTool, where scale_axis
       # stays aligned to normal after all orientations).
       def axis_most_aligned_to(entity_copy, reference_vec)
         return @scale_axis unless reference_vec && reference_vec.length > 1e-6
@@ -2739,7 +2739,7 @@ module ASM_Extensions
         @@cursor_ids ||= {}
         @@cursor_ids[variant] ||= begin
           ext      = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
-          filename = variant == :default ? "oeface_32" : "oeface_#{variant}_32"
+          filename = variant == :default ? "oesurface_32" : "oesurface_#{variant}_32"
           path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
           UI.create_cursor(path, 5, 5)
         end
