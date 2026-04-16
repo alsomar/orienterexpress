@@ -437,44 +437,6 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # align_x_to_dominant_edge — handedness preservation
-      # =========================================================================
-
-      def test_align_x_rh_instance_stays_rh
-        inst = make_instance
-        assert_equal  1, det_sign(inst.transformation)
-        OE.send(:align_x_to_dominant_edge, inst)
-        assert_equal  1, det_sign(inst.transformation),
-          'RH instance must remain RH after align_x_to_dominant_edge'
-      end
-
-      def test_align_x_lh_instance_stays_lh
-        inst = make_lh_instance
-        assert_equal -1, det_sign(inst.transformation)
-        OE.send(:align_x_to_dominant_edge, inst)
-        assert_equal -1, det_sign(inst.transformation),
-          'LH instance must remain LH after align_x_to_dominant_edge'
-      end
-
-      def test_align_x_lh_sibling_rh_unaffected
-        rh_inst = make_instance
-        lh_inst = make_lh_instance(Geom::Point3d.new(500, 0, 0))
-        OE.send(:align_x_to_dominant_edge, lh_inst)
-        assert_equal  1, det_sign(rh_inst.transformation),
-          'RH sibling must remain RH when align_x is applied to the LH instance'
-        assert_equal -1, det_sign(lh_inst.transformation)
-      end
-
-      def test_align_x_rh_sibling_lh_unaffected
-        rh_inst = make_instance
-        lh_inst = make_lh_instance(Geom::Point3d.new(500, 0, 0))
-        OE.send(:align_x_to_dominant_edge, rh_inst)
-        assert_equal  1, det_sign(rh_inst.transformation)
-        assert_equal -1, det_sign(lh_inst.transformation),
-          'LH sibling must remain LH when align_x is applied to the RH instance'
-      end
-
-      # =========================================================================
       # align_to_min_bb — handedness preservation
       # =========================================================================
 
@@ -509,38 +471,6 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # align_x + align_to_min_bb (full OEAlignOptimal) — handedness preservation
-      # =========================================================================
-
-      def test_align_optimal_rh_stays_rh
-        inst = make_instance
-        OE.send(:align_x_to_dominant_edge, inst)
-        OE.send(:align_to_min_bb, inst)
-        assert_equal  1, det_sign(inst.transformation),
-          'RH instance must remain RH after full OEAlignOptimal'
-      end
-
-      def test_align_optimal_lh_stays_lh
-        inst = make_lh_instance
-        OE.send(:align_x_to_dominant_edge, inst)
-        OE.send(:align_to_min_bb, inst)
-        assert_equal -1, det_sign(inst.transformation),
-          'LH instance must remain LH after full OEAlignOptimal'
-      end
-
-      def test_align_optimal_mirror_pair_preserve_handedness
-        rh_inst = make_instance
-        lh_inst = make_lh_instance(Geom::Point3d.new(500, 0, 0))
-        # Apply to LH: definition is modified, both instances compensated
-        OE.send(:align_x_to_dominant_edge, lh_inst)
-        OE.send(:align_to_min_bb, lh_inst)
-        assert_equal  1, det_sign(rh_inst.transformation),
-          'RH sibling must remain RH after applying OEAlignOptimal to LH of the pair'
-        assert_equal -1, det_sign(lh_inst.transformation),
-          'LH instance must remain LH after OEAlignOptimal'
-      end
-
-      # =========================================================================
       # align_to_min_bb — axis orientation
       # =========================================================================
 
@@ -555,14 +485,13 @@ module ASM_Extensions
         assert t.zaxis.z > 0, "Local Z (#{t.zaxis}) should point toward +world Z"
       end
 
-      # For a mirror pair, after running OEAlignOptimal on each:
+      # For a mirror pair, after running align_to_min_bb on each:
       # · Y and Z axes should be in the same world direction for both instances
       # · X axes should be opposite (the mirror is encoded in det=-1, not in axis flip)
       def test_align_optimal_mirror_pair_axis_consistency
         rh_inst = make_instance
         lh_inst = make_lh_instance(Geom::Point3d.new(500, 0, 0))
         [rh_inst, lh_inst].each do |inst|
-          OE.send(:align_x_to_dominant_edge, inst)
           OE.send(:align_to_min_bb, inst)
         end
         rh = rh_inst.transformation

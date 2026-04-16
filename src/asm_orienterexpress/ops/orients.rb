@@ -3325,20 +3325,6 @@ module ASM_Extensions
       faces.compact.flatten.uniq.map { |i| pts[i] }
     end
 
-    # BB volume of pts after XY rotation by angle around [0,0,1] through origin.
-    def self.bb_vol_at_angle(pts, angle)
-      cos_a = Math.cos(angle)
-      sin_a = Math.sin(angle)
-      xs, ys, zs = [], [], []
-      pts.each do |p|
-        xs << p.x * cos_a - p.y * sin_a
-        ys << p.x * sin_a + p.y * cos_a
-        zs << p.z
-      end
-      return Float::INFINITY if xs.empty?
-      (xs.max - xs.min) * (ys.max - ys.min) * (zs.max - zs.min)
-    end
-
     # After alignment, snaps the local axes to best match the pre-operation orientation:
     # 1. If local Z flipped relative to z_pre, apply diag(1,-1,-1) to restore Z direction.
     # 2. Rotate in 90° steps around local Z to bring local X as close as possible to x_pre.
@@ -3393,100 +3379,6 @@ module ASM_Extensions
         inst.transformation = inst.transformation * r_scale_inv
       end
       Debug.log(self, :align_pca, "scale baked: (#{sx.round(4)}, #{sy.round(4)}, #{sz.round(4)})")
-    end
-
-    # Redefines the local axes so that local X aligns with the dominant edge,
-    # chosen by minimum bounding box volume. Geometry stays in world position.
-    #
-    # Strategy:
-    #   1. Extract rotation part of t → r_reset (maps def-local to world-aligned frame)
-    #   2. Virtually apply r_reset to all vertices → world-aligned frame where local Z = world Z
-    #   3. Find best XY rotation angle in that frame using edge candidates + BB volume
-    #   4. Compose: r_combined = r_best * r_reset (applied to geometry)
-    #   5. Compensate all instances: T_new = T_old * r_combined_inv
-    #      → world positions preserved, local X now points along dominant edge
-    def self.align_x_to_dominant_edge(instance)
-      instance.make_unique if instance.is_a?(Sketchup::Group) && instance.definition.instances.size > 1
-      bake_scale(instance)
-      t = instance.transformation
-      a  = t.to_a
-      sx = Math.sqrt(a[0]**2 + a[1]**2 + a[2]**2)
-      sy = Math.sqrt(a[4]**2 + a[5]**2 + a[6]**2)
-      sz = Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2)
-
-      # r_reset = rotation part of t (maps def-local → world-aligned, no translation).
-      # For LH instances det(r_reset) = -1; negate Y column to get a proper rotation
-      # so that r_combined = r_best * r_reset has det=+1 and handedness is preserved.
-      det_sign = (a[0]/sx * (a[5]/sy * a[10]/sz - a[6]/sy * a[9]/sz)) -
-                 (a[1]/sx * (a[4]/sy * a[10]/sz - a[6]/sy * a[8]/sz)) +
-                 (a[2]/sx * (a[4]/sy * a[9]/sz  - a[5]/sy * a[8]/sz)) >= 0 ? 1 : -1
-      r_reset = Geom::Transformation.new([
-        a[0]/sx,            a[1]/sx,            a[2]/sx,            0,
-        a[4]/sy * det_sign, a[5]/sy * det_sign, a[6]/sy * det_sign, 0,
-        a[8]/sz,            a[9]/sz,            a[10]/sz,           0,
-        0, 0, 0, 1
-      ])
-      r_reset_inv = r_reset.inverse
-
-      # Vertices in world-aligned frame
-      pts_reset = collect_vertices(instance.definition.entities, r_reset)
-      Debug.log(self, :align_x, "instance=#{instance.definition.name} pts=#{pts_reset.size}")
-      return if pts_reset.empty?
-
-      # bb_vol_at_angle has period 90° (swapping X/Y extents preserves product),
-      # so we only need to search [0°, 90°).
-      # Phase 1: coarse sweep every 2° over [0°, 88°]
-      deg2rad = Math::PI / 180.0
-      coarse_best_angle = 0.0
-      coarse_best_vol   = bb_vol_at_angle(pts_reset, 0.0)
-      Debug.log(self, :align_x, "current vol=#{coarse_best_vol.round(4)}")
-      (2...90).step(2) do |deg|
-        a2  = deg * deg2rad
-        vol = bb_vol_at_angle(pts_reset, a2)
-        if vol < coarse_best_vol
-          coarse_best_vol   = vol
-          coarse_best_angle = a2
-        end
-      end
-      Debug.log(self, :align_x, "coarse best=#{(coarse_best_angle/deg2rad).round(1)}° vol=#{coarse_best_vol.round(4)}")
-
-      # Phase 2: fine sweep ±2° around coarse minimum in 0.1° steps
-      best_angle = nil
-      best_vol   = bb_vol_at_angle(pts_reset, 0.0)
-      lo = coarse_best_angle - 2.0 * deg2rad
-      hi = coarse_best_angle + 2.0 * deg2rad
-      (lo..hi).step(0.1 * deg2rad) do |a2|
-        vol = bb_vol_at_angle(pts_reset, a2)
-        if vol < best_vol - 1e-4
-          best_vol   = vol
-          best_angle = a2
-        end
-      end
-
-      if best_angle.nil?
-        Debug.log(self, :align_x, "already optimal")
-        return
-      end
-      Debug.log(self, :align_x, "best=#{(best_angle/deg2rad).round(2)}° vol=#{best_vol.round(4)}")
-
-      local_origin = Geom::Point3d.new(0, 0, 0)
-      world_z      = Geom::Vector3d.new(0, 0, 1)
-      r_best     = Geom::Transformation.rotation(local_origin, world_z,  best_angle)
-      r_best_inv = Geom::Transformation.rotation(local_origin, world_z, -best_angle)
-
-      # r_combined = r_best * r_reset  (applied to geometry)
-      # r_combined_inv = r_reset_inv * r_best_inv  (post-multiplied to instances)
-      r_combined     = r_best     * r_reset
-      r_combined_inv = r_reset_inv * r_best_inv
-
-      instance.definition.entities.transform_entities(r_combined, instance.definition.entities.to_a)
-      instance.definition.instances.each do |inst|
-        before = inst.transformation.origin
-        inst.transformation = inst.transformation * r_combined_inv
-        after  = inst.transformation.origin
-        Debug.log(self, :align_x, "  origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}")
-      end
-      Debug.log(self, :align_x, "done")
     end
 
     # BB volume of pts rotated by a row-major 3×3 matrix (no allocation in inner loop).
@@ -3617,6 +3509,11 @@ module ASM_Extensions
     # or normal alignment + 1D sweep for flat/planar geometry.
     # Geometry stays in world position.
     def self.align_to_min_bb(instance)
+      # Isolate siblings so modifying the definition only affects this instance,
+      # and bake non-uniform scale so collect_vertices reflects the scaled shape.
+      instance.make_unique if instance.is_a?(Sketchup::Group) && instance.definition.instances.size > 1
+      bake_scale(instance)
+
       # Work in definition space (identity frame). This makes the algorithm
       # idempotent: after applying, the next call sees already-rotated pts
       # and the sweep returns identity → no further change.
@@ -3891,8 +3788,8 @@ module ASM_Extensions
       Debug.log(self, :align_pca, "done handedness=#{det1}")
     end
 
-    # Tool class that runs align_x_to_dominant_edge then align_to_min_bb in one
-    # operation. Recurrent: stays active for repeated clicks.
+    # Tool class that runs align_to_min_bb in one operation.
+    # Recurrent: stays active for repeated clicks.
     class OEAlignOptimalTool
 
       BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
@@ -3998,15 +3895,19 @@ module ASM_Extensions
         end
 
         @model.start_operation("Orienter Express: Optimal Axis Alignment", true)
-        instances.each do |inst|
-          next unless inst.valid?
-          OrienterExpress.send(:align_x_to_dominant_edge, inst)
-          OrienterExpress.send(:align_to_min_bb, inst)
-          z_pre, x_pre = pre_axes[inst.object_id]
-          OrienterExpress.send(:snap_axes_to_pre_orientation, inst, z_pre, x_pre) if z_pre && x_pre
+        begin
+          instances.each do |inst|
+            next unless inst.valid?
+            OrienterExpress.send(:align_to_min_bb, inst)
+            z_pre, x_pre = pre_axes[inst.object_id]
+            OrienterExpress.send(:snap_axes_to_pre_orientation, inst, z_pre, x_pre) if z_pre && x_pre
+          end
+          @model.commit_operation
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
         end
-        @model.commit_operation
-        @model.active_view.invalidate
       end
 
       def update_vcb
@@ -4028,7 +3929,6 @@ module ASM_Extensions
     private_class_method :align_to_min_bb
     private_class_method :snap_axes_to_pre_orientation
     private_class_method :bake_scale
-    private_class_method :align_x_to_dominant_edge
     private_class_method :orient_ground
     private_class_method :orient_ground_around
     private_class_method :orient_to_flow_around
