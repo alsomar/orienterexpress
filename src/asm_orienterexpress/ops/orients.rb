@@ -3232,10 +3232,42 @@ module ASM_Extensions
       pts
     end
 
+    # 2D convex hull via Andrew's monotone chain. pts is Array<[x, y]>.
+    # Returns CCW-ordered hull vertices (same [x, y] tuples).
+    def self.convex_hull_2d(pts)
+      return pts.dup if pts.size < 3
+      sorted = pts.sort_by { |p| [p[0], p[1]] }.uniq
+      return sorted if sorted.size < 3
+
+      cross = lambda do |o, a, b|
+        (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+      end
+
+      lower = []
+      sorted.each do |p|
+        lower.pop while lower.size >= 2 && cross.call(lower[-2], lower[-1], p) <= 0
+        lower << p
+      end
+
+      upper = []
+      sorted.reverse_each do |p|
+        upper.pop while upper.size >= 2 && cross.call(upper[-2], upper[-1], p) <= 0
+        upper << p
+      end
+
+      lower[0..-2] + upper[0..-2]
+    end
+
     # Returns the subset of pts that form the 3D convex hull (QuickHull algorithm).
     # Guarantees no extreme point is lost, which is required for exact BB computation.
     def self.convex_hull_3d(pts)
-      return pts if pts.size <= 4
+      convex_hull_3d_with_faces(pts).first
+    end
+
+    # Same QuickHull, but also returns outward-oriented triangular faces.
+    # Returns [hull_pts, face_triples] where face_triples indexes into hull_pts.
+    def self.convex_hull_3d_with_faces(pts)
+      return [pts, []] if pts.size <= 3
 
       eps = 1e-8
 
@@ -3264,11 +3296,11 @@ module ASM_Extensions
         p=pts[i]; ex=p.x-la.x; ey=p.y-la.y; ez=p.z-la.z
         cx=ddy*ez-ddz*ey; cy=ddz*ex-ddx*ez; cz=ddx*ey-ddy*ex; cx*cx+cy*cy+cz*cz
       }
-      return pts unless i2
+      return [pts, []] unless i2
       i3 = (0...pts.size).reject{|i|[i0,i1,i2].include?(i)}.max_by { |i|
         sd.call(i0,i1,i2, pts[i]).abs
       }
-      return pts if i3.nil? || sd.call(i0,i1,i2, pts[i3]).abs < eps
+      return [pts, []] if i3.nil? || sd.call(i0,i1,i2, pts[i3]).abs < eps
 
       # Interior reference: centroid of tetrahedron (always inside the final hull)
       ctr = Geom::Point3d.new(
@@ -3322,39 +3354,150 @@ module ASM_Extensions
         end
       end
 
-      faces.compact.flatten.uniq.map { |i| pts[i] }
+      alive     = faces.compact
+      hull_idxs = alive.flatten.uniq
+      idx_map   = {}
+      hull_idxs.each_with_index { |orig, new_i| idx_map[orig] = new_i }
+      hull_pts   = hull_idxs.map { |i| pts[i] }
+      face_tris  = alive.map { |f| [idx_map[f[0]], idx_map[f[1]], idx_map[f[2]]] }
+      [hull_pts, face_tris]
     end
 
-    # After alignment, snaps the local axes to best match the pre-operation orientation:
-    # 1. If local Z flipped relative to z_pre, apply diag(1,-1,-1) to restore Z direction.
-    # 2. Rotate in 90° steps around local Z to bring local X as close as possible to x_pre.
-    # World vertex positions are preserved throughout (definition + instance compensation).
-    def self.snap_axes_to_pre_orientation(instance, z_pre, x_pre)
-      orig = Geom::Point3d.new(0, 0, 0)
+    # O'Rourke face-flush heuristic for 3D min-volume bounding box.
+    # For every convex-hull face, rotates the outward normal to +Z and solves
+    # the 2D min-area rectangle in XY via rotating calipers (edge-flush case).
+    # Volume = area · z_extent. Returns [r00..r22, vol] in row-major, or nil.
+    # At the min-volume optimum at least one BB face is flush with a hull face,
+    # so this set of candidates contains the true optimum.
+    def self.face_flush_min_bb(pts, faces)
+      return nil if pts.empty? || faces.empty?
+      half_pi  = Math::PI / 2.0
+      best_vol = Float::INFINITY
+      best     = nil
 
-      # Step 1: restore Z direction
-      if instance.transformation.zaxis.dot(z_pre) < 0
-        r_flip = Geom::Transformation.new([1,0,0,0, 0,-1,0,0, 0,0,-1,0, 0,0,0,1])
-        instance.definition.entities.transform_entities(r_flip, instance.definition.entities.to_a)
-        instance.definition.instances.each { |i| i.transformation = i.transformation * r_flip }
+      # Flat float arrays avoid Point3d method dispatch in hot loops.
+      n2 = pts.size
+      px = Array.new(n2); py = Array.new(n2); pz = Array.new(n2)
+      pts.each_with_index { |p, i| px[i] = p.x; py[i] = p.y; pz[i] = p.z }
+
+      # Dedupe near-(anti)parallel normals (|dot| > 0.9999 ≈ angle < ~0.8°).
+      dedup_tol = 0.9999
+      unique_normals = []
+      faces.each do |ia, ib, ic|
+        ux = px[ib]-px[ia]; uy = py[ib]-py[ia]; uz = pz[ib]-pz[ia]
+        vx = px[ic]-px[ia]; vy = py[ic]-py[ia]; vz = pz[ic]-pz[ia]
+        nx = uy*vz - uz*vy
+        ny = uz*vx - ux*vz
+        nz = ux*vy - uy*vx
+        nl = Math.sqrt(nx*nx + ny*ny + nz*nz)
+        next if nl < 1e-10
+        nx /= nl; ny /= nl; nz /= nl
+        next if unique_normals.any? { |mx, my, mz| (nx*mx + ny*my + nz*mz).abs > dedup_tol }
+        unique_normals << [nx, ny, nz]
+      end
+      Debug.log(self, :align_pca, "[face-flush] normals dedup: #{faces.size} → #{unique_normals.size}")
+
+      ptsX = Array.new(n2)
+      ptsY = Array.new(n2)
+
+      unique_normals.each do |nx, ny, nz|
+        # Rodrigues: rotation that maps normal n → +Z.
+        # axis = n × ẑ = (ny, -nx, 0), sin(θ) = |axis|, cos(θ) = n·ẑ = nz
+        rax = ny; ray = -nx
+        rl  = Math.sqrt(rax*rax + ray*ray)
+        if rl < 1e-10
+          if nz >= 0
+            r11=1.0;r12=0.0;r13=0.0;  r21=0.0;r22=1.0;r23=0.0;  r31=0.0;r32=0.0;r33=1.0
+          else
+            r11=1.0;r12=0.0;r13=0.0;  r21=0.0;r22=-1.0;r23=0.0; r31=0.0;r32=0.0;r33=-1.0
+          end
+        else
+          kx = rax/rl; ky = ray/rl
+          c = nz; s = rl; t = 1.0 - c
+          r11 = t*kx*kx + c;    r12 = t*kx*ky;       r13 = s*ky
+          r21 = t*kx*ky;        r22 = t*ky*ky + c;   r23 = -s*kx
+          r31 = -s*ky;          r32 = s*kx;          r33 = c
+        end
+
+        # Rotate hull pts into the frame where the face normal is +Z
+        z_min =  Float::INFINITY
+        z_max = -Float::INFINITY
+        i = 0
+        while i < n2
+          x = px[i]; y = py[i]; z = pz[i]
+          ptsX[i] = r11*x + r12*y + r13*z
+          ptsY[i] = r21*x + r22*y + r23*z
+          zv      = r31*x + r32*y + r33*z
+          z_min = zv if zv < z_min
+          z_max = zv if zv > z_max
+          i += 1
+        end
+        z_extent = z_max - z_min
+        next if z_extent < 1e-10
+
+        # 2D convex hull via Andrew's monotone chain (lex sort, no atan2)
+        order = (0...n2).sort_by { |i| [ptsX[i], ptsY[i]] }
+        lo_x = []; lo_y = []
+        order.each do |j|
+          x = ptsX[j]; y = ptsY[j]
+          while lo_x.size >= 2
+            ax = lo_x[-2]; ay = lo_y[-2]; bx = lo_x[-1]; by = lo_y[-1]
+            break if (bx-ax)*(y-ay) - (by-ay)*(x-ax) > 0
+            lo_x.pop; lo_y.pop
+          end
+          lo_x << x; lo_y << y
+        end
+        up_x = []; up_y = []
+        order.reverse_each do |j|
+          x = ptsX[j]; y = ptsY[j]
+          while up_x.size >= 2
+            ax = up_x[-2]; ay = up_y[-2]; bx = up_x[-1]; by = up_y[-1]
+            break if (bx-ax)*(y-ay) - (by-ay)*(x-ax) > 0
+            up_x.pop; up_y.pop
+          end
+          up_x << x; up_y << y
+        end
+        lo_x.pop; lo_y.pop   # drop duplicated endpoints
+        up_x.pop; up_y.pop
+        hx = lo_x + up_x
+        hy = lo_y + up_y
+        next if hx.size < 3
+
+        # Rotating calipers: eval BB area at each edge angle (normalized to [0, π/2))
+        nh = hx.size
+        edges = nh.times.map { |k|
+          j  = (k + 1) % nh
+          dx = hx[j] - hx[k]; dy = hy[j] - hy[k]
+          (-Math.atan2(dy, dx)) % half_pi
+        }.uniq
+
+        # Extremes of a 2D point set coincide with extremes of its convex hull,
+        # so calipers only need to iterate the 2D hull (usually << n2).
+        edges.each do |theta|
+          ct = Math.cos(theta); st = Math.sin(theta)
+          u_min =  Float::INFINITY; u_max = -Float::INFINITY
+          v_min =  Float::INFINITY; v_max = -Float::INFINITY
+          k = 0
+          while k < nh
+            u = hx[k]*ct - hy[k]*st
+            v = hx[k]*st + hy[k]*ct
+            u_min = u if u < u_min; u_max = u if u > u_max
+            v_min = v if v < v_min; v_max = v if v > v_max
+            k += 1
+          end
+          vol = (u_max - u_min) * (v_max - v_min) * z_extent
+          next unless vol < best_vol
+
+          # Compose: Rz(theta) · R_face (row-major, applied to col vectors)
+          f11 = ct*r11 - st*r21; f12 = ct*r12 - st*r22; f13 = ct*r13 - st*r23
+          f21 = st*r11 + ct*r21; f22 = st*r12 + ct*r22; f23 = st*r13 + ct*r23
+          f31 = r31;             f32 = r32;             f33 = r33
+          best_vol = vol
+          best     = [f11, f12, f13, f21, f22, f23, f31, f32, f33, vol]
+        end
       end
 
-      # Step 2: rotate 0/90/180/270° around local Z to best align X with x_pre.
-      # Applying Rz(θ) to definition gives: xaxis_new = cosθ·x_cur - sinθ·y_cur
-      t     = instance.transformation
-      x_cur = t.xaxis
-      y_cur = t.yaxis
-      best_deg = { 0 => x_cur,
-                   90 => Geom::Vector3d.new(-y_cur.x, -y_cur.y, -y_cur.z),
-                  180 => Geom::Vector3d.new(-x_cur.x, -x_cur.y, -x_cur.z),
-                  270 => y_cur
-                 }.max_by { |_, v| v.dot(x_pre) }.first
-      return if best_deg == 0
-
-      angle = best_deg * Math::PI / 180.0
-      r_rot = Geom::Transformation.rotation(orig, Geom::Vector3d.new(0, 0, 1), angle)
-      instance.definition.entities.transform_entities(r_rot, instance.definition.entities.to_a)
-      instance.definition.instances.each { |i| i.transformation = i.transformation * r_rot.inverse }
+      best
     end
 
     # If the instance transformation contains non-uniform scale, bakes it into
@@ -3440,13 +3583,16 @@ module ASM_Extensions
       max_dev / Math.sqrt(span2) < 1e-4 ? [nx, ny, nz] : nil
     end
 
-    # Permutes and/or flips local axes so that:
-    # 1. X has the largest BB extent, Y medium, Z smallest (primary, weight ×100).
-    # 2. Among tied extents (within 0.5% relative), axes align as well as possible
-    #    with world axes (secondary, weight 1).
-    # Searches all 24 proper rotations of the cube (6 permutations × 4 right-handed
-    # sign combinations). Must be called after geometry is in definition space.
-    def self.permute_axes_by_extent(instance)
+    # Permutes and/or flips local axes by picking the best of the 24 proper
+    # rotations of the cube (6 permutations × 4 right-handed sign combinations).
+    # Scoring depends on whether pre-alignment axes are provided:
+    #   - If z_pre/x_pre given: primary = alignment with pre-axes (×100),
+    #     secondary = extent ordering (X largest, Z smallest) as tiebreaker.
+    #     Keeps the instance axes close to their pre-op orientation.
+    #   - Otherwise: primary = extent ordering (×100),
+    #     secondary = alignment with world axes.
+    # Must be called after geometry is in definition space.
+    def self.permute_axes_by_extent(instance, z_pre = nil, x_pre = nil)
       pts = collect_vertices(instance.definition.entities, Geom::Transformation.new)
       return if pts.empty?
 
@@ -3459,11 +3605,13 @@ module ASM_Extensions
 
       t        = instance.transformation
       inst_det = t.xaxis.dot(t.yaxis.cross(t.zaxis)) >= 0 ? 1 : -1
-      # For LH instances negate X before scoring so the search sees the
-      # "equivalent RH" axes → same permutation+signs as the RH counterpart.
+      # For LH instances negate X before world-axis scoring so the search sees
+      # the "equivalent RH" axes → same permutation+signs as the RH counterpart.
       # Proper rotations (det=+1) are used regardless, so handedness is preserved.
       ax = inst_det < 0 ? Geom::Vector3d.new(-t.xaxis.x, -t.xaxis.y, -t.xaxis.z) : t.xaxis
-      axes = [ax, t.yaxis, t.zaxis]
+      axes     = [ax, t.yaxis, t.zaxis]
+      raw_axes = [t.xaxis, t.yaxis, t.zaxis]
+      use_pre  = z_pre && x_pre
 
       best_score = -Float::INFINITY
       best_perm  = [0, 1, 2]
@@ -3477,10 +3625,20 @@ module ASM_Extensions
        [[1,2,0], 1],[[2,0,1], 1],[[2,1,0],-1]].each do |perm, pd|
         (pd > 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]]
                 : [[-1,1,1],[1,-1,1],[1,1,-1],[-1,-1,-1]]).each do |sx, sy, sz|
-          ext_score  = (buckets[perm[0]] >= buckets[perm[1]] ? 100 : -100)
-          ext_score += (buckets[perm[1]] >= buckets[perm[2]] ? 100 : -100)
-          align      = sx * axes[perm[0]].x + sy * axes[perm[1]].y + sz * axes[perm[2]].z
-          score      = ext_score + align
+          if use_pre
+            # Primary: how well new X and new Z match pre-orientation.
+            align_pre = sx * raw_axes[perm[0]].dot(x_pre) +
+                        sz * raw_axes[perm[2]].dot(z_pre)
+            ext_order  = (buckets[perm[0]] >= buckets[perm[1]] ? 1 : -1)
+            ext_order += (buckets[perm[1]] >= buckets[perm[2]] ? 1 : -1)
+            score = 100 * align_pre + ext_order
+          else
+            ext_score  = (buckets[perm[0]] >= buckets[perm[1]] ? 100 : -100)
+            ext_score += (buckets[perm[1]] >= buckets[perm[2]] ? 100 : -100)
+            align = sx * axes[perm[0]].x + sy * axes[perm[1]].y + sz * axes[perm[2]].z
+            score = ext_score + align
+          end
+
           if score > best_score
             best_score = score; best_perm = perm; best_signs = [sx, sy, sz]
           end
@@ -3508,7 +3666,12 @@ module ASM_Extensions
     # (2D flat geometry). Uses a two-phase ZYZ Euler sweep + Nelder-Mead for 3D,
     # or normal alignment + 1D sweep for flat/planar geometry.
     # Geometry stays in world position.
-    def self.align_to_min_bb(instance)
+    def self.align_to_min_bb(instance, z_pre = nil, x_pre = nil)
+      method_id  = __method__
+      start_time = Time.now
+      Debug.log(self, method_id, "Process START")
+
+      begin
       # Isolate siblings so modifying the definition only affects this instance,
       # and bake non-uniform scale so collect_vertices reflects the scaled shape.
       instance.make_unique if instance.is_a?(Sketchup::Group) && instance.definition.instances.size > 1
@@ -3524,8 +3687,9 @@ module ASM_Extensions
       Debug.log(self, :align_pca, "instance=#{instance.definition.name} pts=#{pts.size} handedness=#{det0}")
       return if pts.empty?
 
-      pts = convex_hull_3d(pts)
-      Debug.log(self, :align_pca, "hull pts=#{pts.size}")
+      hull_pts, hull_faces = convex_hull_3d_with_faces(pts)
+      pts = hull_pts
+      Debug.log(self, :align_pca, "hull pts=#{hull_pts.size} faces=#{hull_faces.size}")
 
       deg2rad = Math::PI / 180.0
 
@@ -3653,130 +3817,148 @@ module ASM_Extensions
           after  = inst.transformation.origin
           Debug.log(self, :align_pca, "  origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}")
         end
-        permute_axes_by_extent(instance)
+        permute_axes_by_extent(instance, z_pre, x_pre)
         t1 = instance.transformation
         det1 = t1.xaxis.dot(t1.yaxis.cross(t1.zaxis)) >= 0 ? "RH" : "LH"
         Debug.log(self, :align_pca, "done (2D) handedness=#{det1}")
         return
       end
 
-      # ── 3D path: ZYZ Euler sweep + Nelder-Mead ─────────────────────────────
-      # ZYZ Euler angles: R = Rz(α) * Ry(β) * Rz(γ)
-      # Matrix rows:
-      #   [ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb]
-      #   [sa*cb*cg + ca*sg,  -sa*cb*sg + ca*cg,  sa*sb]
-      #   [-sb*cg,             sb*sg,              cb   ]
-      # BB has 90° period in α and γ → search [0°,90°) × [-90°,90°) × [0°,90°)
+      # ── 3D path: auto-dispatch by hull size ────────────────────────────────
+      # Face-flush (O'Rourke): O(F·N²) but N small → fast on polyhedral objects.
+      # ZYZ + Nelder-Mead: O(K·N) with fixed K → wins as hull size grows.
+      # Crossover empirically at ~300 hull points.
       deg2rad = Math::PI / 180.0
+      fine_vol = nil
+      r_best   = nil
 
-      eval_zyz = lambda do |al, be, ga|
-        ca = Math.cos(al); sa = Math.sin(al)
-        cb = Math.cos(be); sb = Math.sin(be)
-        cg = Math.cos(ga); sg = Math.sin(ga)
-        bb_vol_3d(pts,
-          ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb,
-          sa*cb*cg + ca*sg,  -sa*cb*sg + ca*cg,  sa*sb,
-          -sb*cg,             sb*sg,              cb)
-      end
+      if hull_pts.size < 300 && !hull_faces.empty?
+        # Face-flush heuristic over hull faces
+        best = face_flush_min_bb(pts, hull_faces)
+        if best.nil?
+          Debug.log(self, :align_pca, "face-flush: no valid candidate")
+          return
+        end
+        r11, r12, r13, r21, r22, r23, r31, r32, r33, fine_vol = best
+        Debug.log(self, :align_pca, "face-flush best vol=#{fine_vol.round(4)}")
 
-      # Phase 1: coarse grid 15° → 6×12×6 = 432 evals to find basin
-      best_al = 0.0; best_be = 0.0; best_ga = 0.0
-      best_vol = Float::INFINITY
-      (0...90).step(15) do |ad|
-        (-90...90).step(15) do |bd|
-          (0...90).step(15) do |gd|
-            vol = eval_zyz.call(ad*deg2rad, bd*deg2rad, gd*deg2rad)
-            if vol < best_vol
-              best_vol = vol; best_al = ad*deg2rad; best_be = bd*deg2rad; best_ga = gd*deg2rad
+        # Row-major R → column-major for SketchUp
+        r_best = Geom::Transformation.new([
+          r11, r21, r31, 0,
+          r12, r22, r32, 0,
+          r13, r23, r33, 0,
+          0,   0,   0,   1
+        ])
+      else
+        # ZYZ Euler angles: R = Rz(α) * Ry(β) * Rz(γ)
+        # Matrix rows:
+        #   [ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb]
+        #   [sa*cb*cg + ca*sg,  -sa*cb*sg + ca*cg,  sa*sb]
+        #   [-sb*cg,             sb*sg,              cb   ]
+        # BB has 90° period in α and γ → search [0°,90°) × [-90°,90°) × [0°,90°)
+        eval_zyz = lambda do |al, be, ga|
+          ca = Math.cos(al); sa = Math.sin(al)
+          cb = Math.cos(be); sb = Math.sin(be)
+          cg = Math.cos(ga); sg = Math.sin(ga)
+          bb_vol_3d(pts,
+            ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb,
+            sa*cb*cg + ca*sg,  -sa*cb*sg + ca*cg,  sa*sb,
+            -sb*cg,             sb*sg,              cb)
+        end
+
+        # Phase 1: coarse grid 15° → 6×12×6 = 432 evals to find basin
+        best_al = 0.0; best_be = 0.0; best_ga = 0.0
+        best_vol = Float::INFINITY
+        (0...90).step(15) do |ad|
+          (-90...90).step(15) do |bd|
+            (0...90).step(15) do |gd|
+              vol = eval_zyz.call(ad*deg2rad, bd*deg2rad, gd*deg2rad)
+              if vol < best_vol
+                best_vol = vol; best_al = ad*deg2rad; best_be = bd*deg2rad; best_ga = gd*deg2rad
+              end
             end
           end
         end
-      end
-      Debug.log(self, :align_pca, "coarse best=α#{(best_al/deg2rad).round(1)}° β#{(best_be/deg2rad).round(1)}° γ#{(best_ga/deg2rad).round(1)}° vol=#{best_vol.round(4)}")
+        Debug.log(self, :align_pca, "coarse best=α#{(best_al/deg2rad).round(1)}° β#{(best_be/deg2rad).round(1)}° γ#{(best_ga/deg2rad).round(1)}° vol=#{best_vol.round(4)}")
 
-      # Phase 2: Nelder-Mead simplex from coarse best → converges to exact minimum
-      # Simplex: 4 vertices in (α,β,γ) space, initial edge = 8°
-      s = 8.0 * deg2rad
-      simplex = [
-        [best_al,       best_be,       best_ga      ],
-        [best_al + s,   best_be,       best_ga      ],
-        [best_al,       best_be + s,   best_ga      ],
-        [best_al,       best_be,       best_ga + s  ],
-      ]
-      fval = simplex.map { |v| eval_zyz.call(*v) }
+        # Phase 2: Nelder-Mead simplex from coarse best → converges to exact minimum
+        # Simplex: 4 vertices in (α,β,γ) space, initial edge = 8°
+        s = 8.0 * deg2rad
+        simplex = [
+          [best_al,       best_be,       best_ga      ],
+          [best_al + s,   best_be,       best_ga      ],
+          [best_al,       best_be + s,   best_ga      ],
+          [best_al,       best_be,       best_ga + s  ],
+        ]
+        fval = simplex.map { |v| eval_zyz.call(*v) }
 
-      # Safety cap: in practice NM converges in <50 iters with 1e-5 tolerance.
-      # The 500 limit only triggers on degenerate input (e.g. near-collinear pts).
-      500.times do
-        # Sort by function value
-        order = fval.each_with_index.sort_by { |f, _| f }.map(&:last)
-        simplex = order.map { |i| simplex[i] }
-        fval    = order.map { |i| fval[i] }
+        # Safety cap: in practice NM converges in <50 iters with 1e-5 tolerance.
+        # The 500 limit only triggers on degenerate input (e.g. near-collinear pts).
+        500.times do
+          order = fval.each_with_index.sort_by { |f, _| f }.map(&:last)
+          simplex = order.map { |i| simplex[i] }
+          fval    = order.map { |i| fval[i] }
 
-        break if (fval.last - fval.first).abs < 1e-5
+          break if (fval.last - fval.first).abs < 1e-5
 
-        # Centroid of all but worst
-        c = [0.0, 0.0, 0.0]
-        3.times { |i| 3.times { |d| c[d] += simplex[i][d] / 3.0 } }
+          c = [0.0, 0.0, 0.0]
+          3.times { |i| 3.times { |d| c[d] += simplex[i][d] / 3.0 } }
 
-        worst = simplex[3]; fw = fval[3]
+          worst = simplex[3]; fw = fval[3]
 
-        # Reflection
-        xr  = c.each_with_index.map { |ci, d| 2*ci - worst[d] }
-        fxr = eval_zyz.call(*xr)
+          xr  = c.each_with_index.map { |ci, d| 2*ci - worst[d] }
+          fxr = eval_zyz.call(*xr)
 
-        if fxr < fval[0]
-          # Expansion
-          xe  = c.each_with_index.map { |ci, d| 3*ci - 2*worst[d] }
-          fxe = eval_zyz.call(*xe)
-          if fxe < fxr
-            simplex[3] = xe; fval[3] = fxe
-          else
+          if fxr < fval[0]
+            xe  = c.each_with_index.map { |ci, d| 3*ci - 2*worst[d] }
+            fxe = eval_zyz.call(*xe)
+            if fxe < fxr
+              simplex[3] = xe; fval[3] = fxe
+            else
+              simplex[3] = xr; fval[3] = fxr
+            end
+          elsif fxr < fval[2]
             simplex[3] = xr; fval[3] = fxr
-          end
-        elsif fxr < fval[2]
-          simplex[3] = xr; fval[3] = fxr
-        else
-          # Contraction
-          xc  = c.each_with_index.map { |ci, d| 0.5*(ci + worst[d]) }
-          fxc = eval_zyz.call(*xc)
-          if fxc < fw
-            simplex[3] = xc; fval[3] = fxc
           else
-            # Shrink
-            best = simplex[0]
-            1.upto(3) do |i|
-              simplex[i] = simplex[i].each_with_index.map { |v, d| 0.5*(v + best[d]) }
-              fval[i]    = eval_zyz.call(*simplex[i])
+            xc  = c.each_with_index.map { |ci, d| 0.5*(ci + worst[d]) }
+            fxc = eval_zyz.call(*xc)
+            if fxc < fw
+              simplex[3] = xc; fval[3] = fxc
+            else
+              best = simplex[0]
+              1.upto(3) do |i|
+                simplex[i] = simplex[i].each_with_index.map { |v, d| 0.5*(v + best[d]) }
+                fval[i]    = eval_zyz.call(*simplex[i])
+              end
             end
           end
         end
+
+        fine_al, fine_be, fine_ga = simplex[0]
+        fine_vol = fval[0]
+        Debug.log(self, :align_pca, "nelder-mead best=α#{(fine_al/deg2rad).round(3)}° β#{(fine_be/deg2rad).round(3)}° γ#{(fine_ga/deg2rad).round(3)}° vol=#{fine_vol.round(4)}")
+
+        ca = Math.cos(fine_al); sa = Math.sin(fine_al)
+        cb = Math.cos(fine_be); sb = Math.sin(fine_be)
+        cg = Math.cos(fine_ga); sg = Math.sin(fine_ga)
+
+        # Best rotation in definition space (column-major for SketchUp)
+        r_best = Geom::Transformation.new([
+          ca*cb*cg - sa*sg,   sa*cb*cg + ca*sg,  -sb*cg,  0,
+          -ca*cb*sg - sa*cg,  -sa*cb*sg + ca*cg,  sb*sg,  0,
+          ca*sb,               sa*sb,              cb,     0,
+          0, 0, 0, 1
+        ])
       end
 
-      fine_al, fine_be, fine_ga = simplex[0]
-      fine_vol = fval[0]
-      Debug.log(self, :align_pca, "nelder-mead best=α#{(fine_al/deg2rad).round(3)}° β#{(fine_be/deg2rad).round(3)}° γ#{(fine_ga/deg2rad).round(3)}° vol=#{fine_vol.round(4)}")
-
+      # ── Shared apply tail ──────────────────────────────────────────────────
       current_vol = bb_vol_3d(pts, 1,0,0, 0,1,0, 0,0,1)
       if fine_vol >= current_vol * 0.99
         Debug.log(self, :align_pca, "already optimal (improvement < 1%)")
         return
       end
 
-      al = fine_al; be = fine_be; ga = fine_ga
-      ca = Math.cos(al); sa = Math.sin(al)
-      cb = Math.cos(be); sb = Math.sin(be)
-      cg = Math.cos(ga); sg = Math.sin(ga)
-
-      # Best rotation in definition space (column-major for SketchUp)
-      r_best = Geom::Transformation.new([
-        ca*cb*cg - sa*sg,   sa*cb*cg + ca*sg,  -sb*cg,  0,
-        -ca*cb*sg - sa*cg,  -sa*cb*sg + ca*cg,  sb*sg,  0,
-        ca*sb,               sa*sb,              cb,     0,
-        0, 0, 0, 1
-      ])
       r_best_inv = r_best.inverse
-
       instance.definition.entities.transform_entities(r_best, instance.definition.entities.to_a)
       instance.definition.instances.each do |inst|
         before = inst.transformation.origin
@@ -3784,10 +3966,182 @@ module ASM_Extensions
         after  = inst.transformation.origin
         Debug.log(self, :align_pca, "  origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}")
       end
-      permute_axes_by_extent(instance)
+      permute_axes_by_extent(instance, z_pre, x_pre)
       t1 = instance.transformation
       det1 = t1.xaxis.dot(t1.yaxis.cross(t1.zaxis)) >= 0 ? "RH" : "LH"
       Debug.log(self, :align_pca, "done handedness=#{det1}")
+        Debug.log(self, method_id, "Process DONE")
+      rescue => e
+        Debug.log(self, method_id, "Process ERROR. #{e.message}")
+        Debug.log(self, method_id, e.backtrace.join("\n"))
+        raise
+      ensure
+        elapsed = Time.now - start_time
+        Debug.log(self, method_id, "Elapsed time: #{format('%.3f', elapsed)} sec.")
+      end
+    end
+
+    # Constrained axis alignment: rotates the definition so that the given
+    # face normal (in world space) ends up opposite to the chosen local axis.
+    # The remaining rotational DoF is resolved via the minimum-angle rotation
+    # (Rodrigues), which also minimises angular deviation of the other two
+    # local axes from their pre-op directions.
+    #   lock_axis : :x, :y, :z — the local axis that should point opposite n̂
+    # Reorients the instance so the chosen local axis points along the given
+    # world direction (face outward normal or edge vector), AND the remaining
+    # two axes are rolled around the locked axis to minimize the in-plane
+    # bounding box area. World geometry stays put; only the local axes (and
+    # definition points) change.
+    def self.align_to_direction_lock(instance, dir_world, lock_axis, z_pre = nil, x_pre = nil)
+      method_id  = __method__
+      start_time = Time.now
+      Debug.log(self, method_id, "Process START lock=#{lock_axis}")
+
+      begin
+      instance.make_unique if instance.is_a?(Sketchup::Group) && instance.definition.instances.size > 1
+      bake_scale(instance)
+
+      t  = instance.transformation
+      nl = Math.sqrt(dir_world.x**2 + dir_world.y**2 + dir_world.z**2)
+      return if nl < 1e-12
+      n_hat = Geom::Vector3d.new(dir_world.x / nl, dir_world.y / nl, dir_world.z / nl)
+
+      unless [:x, :y, :z].include?(lock_axis)
+        Debug.log(self, method_id, "invalid lock_axis=#{lock_axis.inspect}")
+        return
+      end
+
+      world_pts = collect_vertices(instance.definition.entities, t)
+      return if world_pts.empty?
+      hull3d = convex_hull_3d(world_pts)
+      hull3d = world_pts if hull3d.nil? || hull3d.size < 3
+
+      # Orthonormal basis (u0, v0, n_hat) spanning the face plane.
+      fb = n_hat.z.abs > 0.9 ? Geom::Vector3d.new(1, 0, 0) : Geom::Vector3d.new(0, 0, 1)
+      u0_raw = n_hat.cross(fb)
+      ul = Math.sqrt(u0_raw.x**2 + u0_raw.y**2 + u0_raw.z**2)
+      return if ul < 1e-12
+      u0 = Geom::Vector3d.new(u0_raw.x / ul, u0_raw.y / ul, u0_raw.z / ul)
+      v0 = n_hat.cross(u0)  # already unit (n_hat ⟂ u0 & both unit)
+
+      proj = hull3d.map { |p| [p.x*u0.x + p.y*u0.y + p.z*u0.z, p.x*v0.x + p.y*v0.y + p.z*v0.z] }
+      hull2d = convex_hull_2d(proj)
+      return if hull2d.size < 2
+
+      # Rotating calipers: edge-aligned rect with minimum area.
+      best_area = Float::INFINITY
+      best_cos  = 1.0
+      best_sin  = 0.0
+      hull2d.each_with_index do |pa, i|
+        pb = hull2d[(i + 1) % hull2d.size]
+        ex = pb[0] - pa[0]; ey = pb[1] - pa[1]
+        el = Math.sqrt(ex*ex + ey*ey)
+        next if el < 1e-12
+        c = ex / el; s = ey / el
+        min_u = min_v = Float::INFINITY
+        max_u = max_v = -Float::INFINITY
+        hull2d.each do |p|
+          pu =  p[0]*c + p[1]*s
+          pv = -p[0]*s + p[1]*c
+          min_u = pu if pu < min_u
+          max_u = pu if pu > max_u
+          min_v = pv if pv < min_v
+          max_v = pv if pv > max_v
+        end
+        area = (max_u - min_u) * (max_v - min_v)
+        if area < best_area
+          best_area = area; best_cos = c; best_sin = s
+        end
+      end
+
+      # Optimized in-plane basis.
+      u_opt = Geom::Vector3d.new(
+        best_cos * u0.x + best_sin * v0.x,
+        best_cos * u0.y + best_sin * v0.y,
+        best_cos * u0.z + best_sin * v0.z
+      )
+      v_opt = Geom::Vector3d.new(
+        -best_sin * u0.x + best_cos * v0.x,
+        -best_sin * u0.y + best_cos * v0.y,
+        -best_sin * u0.z + best_cos * v0.z
+      )
+
+      neg_u = Geom::Vector3d.new(-u_opt.x, -u_opt.y, -u_opt.z)
+      neg_v = Geom::Vector3d.new(-v_opt.x, -v_opt.y, -v_opt.z)
+
+      # Four 90° rotations of the non-locked axes. Pair (a, b) always satisfies a×b = n_hat.
+      rot_pairs = [[u_opt, v_opt], [v_opt, neg_u], [neg_u, neg_v], [neg_v, u_opt]]
+
+      y_pre = nil
+      if z_pre && x_pre
+        y_pre = Geom::Vector3d.new(
+          z_pre.y * x_pre.z - z_pre.z * x_pre.y,
+          z_pre.z * x_pre.x - z_pre.x * x_pre.z,
+          z_pre.x * x_pre.y - z_pre.y * x_pre.x
+        )
+      end
+
+      best_xw = best_yw = best_zw = nil
+      best_score = -Float::INFINITY
+      rot_pairs.each do |a, b|
+        case lock_axis
+        when :x then xw, yw, zw = n_hat, a, b
+        when :y then xw, yw, zw = b, n_hat, a
+        when :z then xw, yw, zw = a, b, n_hat
+        end
+
+        if y_pre
+          score = xw.dot(x_pre) + yw.dot(y_pre) + zw.dot(z_pre)
+        else
+          # Extent ordering: X ≥ Y ≥ Z.
+          min_x = min_y = min_z = Float::INFINITY
+          max_x = max_y = max_z = -Float::INFINITY
+          hull3d.each do |p|
+            px = p.x*xw.x + p.y*xw.y + p.z*xw.z
+            py = p.x*yw.x + p.y*yw.y + p.z*yw.z
+            pz = p.x*zw.x + p.y*zw.y + p.z*zw.z
+            min_x = px if px < min_x; max_x = px if px > max_x
+            min_y = py if py < min_y; max_y = py if py > max_y
+            min_z = pz if pz < min_z; max_z = pz if pz > max_z
+          end
+          dx = max_x - min_x; dy = max_y - min_y; dz = max_z - min_z
+          score = 0
+          score += 1 if dx >= dy
+          score += 1 if dy >= dz
+        end
+
+        if score > best_score
+          best_score = score
+          best_xw = xw; best_yw = yw; best_zw = zw
+        end
+      end
+
+      # Build target transformation (same origin, new orthonormal axes).
+      arr = [
+        best_xw.x, best_xw.y, best_xw.z, 0.0,
+        best_yw.x, best_yw.y, best_yw.z, 0.0,
+        best_zw.x, best_zw.y, best_zw.z, 0.0,
+        t.origin.x, t.origin.y, t.origin.z, 1.0
+      ]
+      t_new = Geom::Transformation.new(arr)
+      r     = t_new.inverse * t
+      r_inv = r.inverse
+
+      instance.definition.entities.transform_entities(r, instance.definition.entities.to_a)
+      instance.definition.instances.each do |i|
+        i.transformation = i.transformation * r_inv
+      end
+
+      Debug.log(self, method_id, "min rect area=#{best_area.round(4)}")
+      Debug.log(self, method_id, "Process DONE")
+      rescue => e
+        Debug.log(self, method_id, "Process ERROR. #{e.message}")
+        Debug.log(self, method_id, e.backtrace.join("\n"))
+        raise
+      ensure
+        elapsed = Time.now - start_time
+        Debug.log(self, method_id, "Elapsed time: #{format('%.3f', elapsed)} sec.")
+      end
     end
 
     # Tool class that runs align_to_min_bb in one operation.
@@ -3795,6 +4149,18 @@ module ASM_Extensions
     class OEAlignOptimalTool
 
       BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
+
+      # TAB cycles: auto → Z (XY plane) → X (YZ plane) → Y (XZ plane) → auto
+      LOCK_CYCLE = [:auto, :z, :x, :y].freeze
+
+      # Mode colors match SketchUp axis convention (X=red, Y=green, Z=blue).
+      MODE_COLOR = {
+        z: Sketchup::Color.new(50, 100, 255),
+        x: Sketchup::Color.new(255, 80, 80),
+        y: Sketchup::Color.new(50, 180, 50),
+      }.freeze
+
+      @@last_lock_mode = :auto
 
       def self.cursor_id
         @@cursor_id ||= begin
@@ -3805,19 +4171,28 @@ module ASM_Extensions
       end
 
       def initialize(instances)
-        @model     = Sketchup.active_model
-        @instances = instances
-        @hovered   = nil
+        @model          = Sketchup.active_model
+        @instances      = instances
+        @hovered        = nil
+        @lock_mode      = @@last_lock_mode
+        @alt_handled    = false
+        @hover_kind     = nil   # :face | :edge | nil
+        @hover_entity   = nil   # Sketchup::Face or Sketchup::Edge
+        @hover_loops    = nil   # Array of Array<Point3d> (face outer + inner loops, world)
+        @hover_segment  = nil   # [Point3d, Point3d] (edge endpoints, world)
+        @hover_dir      = nil   # Vector3d (locked-axis direction, world)
+        @hover_fill_pts = nil   # Flat Array<Point3d>, 3 per triangle (face mesh triangulation)
+        @hover_centroid = nil   # Point3d (face centroid or edge midpoint, world)
       end
 
       def activate
         @model.selection.clear unless @model.selection.empty?
         update_vcb
-        UI.start_timer(0, false) { apply(@instances) unless @instances.empty? }
+        UI.start_timer(0, false) { apply_auto(@instances) unless @instances.empty? }
       end
 
       def deactivate(view)
-        @hovered = nil
+        clear_hover
         view.invalidate
       end
 
@@ -3826,33 +4201,104 @@ module ASM_Extensions
       end
 
       def suspend(view)
-        @hovered = nil
+        clear_hover
         view.invalidate
       end
 
       def onMouseMove(_flags, x, y, view)
         ph = view.pick_helper
         ph.do_pick(x, y)
-        entity = ph.best_picked
-        candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
-        if candidate != @hovered
-          @hovered = candidate
-          view.invalidate
+
+        if @lock_mode == :auto
+          entity = ph.best_picked
+          candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
+          if candidate != @hovered
+            @hovered = candidate
+            clear_hover_geom
+            view.invalidate
+          end
+        else
+          leaf = nil; outer = nil; t_world = nil
+          ph.count.times do |i|
+            cand_leaf = ph.leaf_at(i)
+            next unless cand_leaf.is_a?(Sketchup::Face) || cand_leaf.is_a?(Sketchup::Edge)
+            path = ph.path_at(i) || []
+            candidate = path.first
+            next unless candidate.is_a?(Sketchup::ComponentInstance) || candidate.is_a?(Sketchup::Group)
+            leaf    = cand_leaf
+            outer   = candidate
+            t_world = ph.transformation_at(i)
+            break
+          end
+
+          changed = (leaf != @hover_entity) || (outer != @hovered)
+          if changed
+            @hover_entity = leaf
+            @hovered      = outer
+            clear_hover_geom
+            if leaf && t_world
+              case leaf
+              when Sketchup::Face then capture_hover_face(leaf, t_world)
+              when Sketchup::Edge then capture_hover_edge(leaf, t_world)
+              end
+            end
+            view.invalidate
+          end
         end
       end
 
       def draw(view)
-        return unless @hovered && @hovered.valid?
-        t = @hovered.transformation
-        def_bb = @hovered.definition.bounds
-        corners = 8.times.map { |i| t * def_bb.corner(i) }
         eye = view.camera.eye
-        view.line_width = 2
-        view.drawing_color = Sketchup::Color.new(255, 165, 0)
-        BB_EDGES.each do |a, b|
-          pa = corners[a].offset((eye - corners[a]).normalize, 0.1)
-          pb = corners[b].offset((eye - corners[b]).normalize, 0.1)
-          view.draw(GL_LINES, [pa, pb])
+
+        if @hovered && @hovered.valid?
+          bb_color = @lock_mode == :auto ? Sketchup::Color.new(255, 165, 0) : MODE_COLOR[@lock_mode]
+          t        = @hovered.transformation
+          def_bb   = @hovered.definition.bounds
+          corners  = 8.times.map { |i| t * def_bb.corner(i) }
+          view.line_width     = 2
+          view.drawing_color  = bb_color
+          BB_EDGES.each do |a, b|
+            pa = corners[a].offset((eye - corners[a]).normalize, 0.1)
+            pb = corners[b].offset((eye - corners[b]).normalize, 0.1)
+            view.draw(GL_LINES, [pa, pb])
+          end
+        end
+
+        return if @lock_mode == :auto
+        return unless @hover_entity && @hover_entity.valid?
+
+        color = MODE_COLOR[@lock_mode]
+
+        case @hover_kind
+        when :face
+          return unless @hover_loops
+          fill = Sketchup::Color.new(color.red, color.green, color.blue, 80)
+          if @hover_fill_pts && !@hover_fill_pts.empty?
+            view.drawing_color = fill
+            view.draw(GL_TRIANGLES, @hover_fill_pts)
+          end
+          view.line_width    = 3
+          view.drawing_color = color
+          @hover_loops.each do |loop_pts|
+            offset_pts = loop_pts.map { |p| p.offset((eye - p).normalize, 0.1) }
+            view.draw(GL_LINE_LOOP, offset_pts)
+          end
+        when :edge
+          return unless @hover_segment
+          view.line_width    = 5
+          view.drawing_color = color
+          seg = @hover_segment.map { |p| p.offset((eye - p).normalize, 0.1) }
+          view.draw(GL_LINES, seg)
+        end
+
+        if @hover_kind == :face && @hover_centroid && @hover_dir
+          len_ref = (@hovered && @hovered.valid?) ? @hovered.bounds.diagonal.to_f : 10.0
+          len     = len_ref * 0.12
+          p1      = @hover_centroid.offset((eye - @hover_centroid).normalize, 0.1)
+          p2      = p1.offset(@hover_dir, len)
+          view.line_width    = 4
+          view.drawing_color = color
+          view.draw(GL_LINES, [p1, p2])
         end
       end
 
@@ -3862,6 +4308,8 @@ module ASM_Extensions
           t = @hovered.transformation
           8.times { |i| bb.add(t * @hovered.definition.bounds.corner(i)) }
         end
+        @hover_loops.each { |loop_pts| loop_pts.each { |p| bb.add(p) } } if @hover_loops
+        @hover_segment.each { |p| bb.add(p) } if @hover_segment
         bb
       end
 
@@ -3874,20 +4322,102 @@ module ASM_Extensions
       end
 
       def onLButtonDown(_flags, x, y, view)
-        ph = view.pick_helper
-        ph.do_pick(x, y)
-        entity = ph.best_picked
-        return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
-        apply([entity])
+        if @lock_mode == :auto
+          ph = view.pick_helper
+          ph.do_pick(x, y)
+          entity = ph.best_picked
+          return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
+          apply_auto([entity])
+        else
+          return unless @hovered && @hovered.valid? && @hover_dir
+          apply_lock(@hovered, @hover_dir, @lock_mode)
+        end
       end
 
-      def onKeyDown(key, _repeat, _flags, _view)
-        @model.select_tool(nil) if key == 27 # Escape
+      def onKeyDown(key, _repeat, _flags, view)
+        case key
+        when 27 # Escape
+          @model.select_tool(nil)
+        when 18 # Alt — cycle mode
+          cycle_mode(view)
+          @alt_handled = true
+        end
+      end
+
+      def onKeyUp(key, _repeat, _flags, view)
+        if key == 18 # Alt — fallback if key-down was swallowed by the OS
+          cycle_mode(view) unless @alt_handled
+          @alt_handled = false
+        end
       end
 
       private
 
-      def apply(instances)
+      def cycle_mode(view)
+        idx = LOCK_CYCLE.index(@lock_mode) || 0
+        @lock_mode = LOCK_CYCLE[(idx + 1) % LOCK_CYCLE.size]
+        @@last_lock_mode = @lock_mode
+        clear_hover
+        update_vcb
+        view.invalidate
+      end
+
+      def clear_hover
+        @hover_entity = nil
+        clear_hover_geom
+      end
+
+      def clear_hover_geom
+        @hover_kind     = nil
+        @hover_loops    = nil
+        @hover_segment  = nil
+        @hover_dir      = nil
+        @hover_fill_pts = nil
+        @hover_centroid = nil
+      end
+
+      def capture_hover_face(face, t_world)
+        loops = [face.outer_loop.vertices.map { |v| t_world * v.position }]
+        face.loops.each { |l| loops << l.vertices.map { |v| t_world * v.position } unless l.outer? }
+
+        mesh     = face.mesh
+        fill_pts = []
+        if mesh
+          (1..mesh.count_polygons).each do |i|
+            mesh.polygon_points_at(i).each { |p| fill_pts << (t_world * p) }
+          end
+        end
+
+        outer_pts = loops.first
+        cx = cy = cz = 0.0
+        outer_pts.each { |p| cx += p.x; cy += p.y; cz += p.z }
+        n_outer = outer_pts.size
+
+        nw = t_world * face.normal
+        nl = Math.sqrt(nw.x**2 + nw.y**2 + nw.z**2)
+        return if nl < 1e-12
+
+        @hover_kind     = :face
+        @hover_loops    = loops
+        @hover_fill_pts = fill_pts
+        @hover_centroid = Geom::Point3d.new(cx / n_outer, cy / n_outer, cz / n_outer)
+        @hover_dir      = Geom::Vector3d.new(nw.x / nl, nw.y / nl, nw.z / nl)
+      end
+
+      def capture_hover_edge(edge, t_world)
+        a = t_world * edge.start.position
+        b = t_world * edge.end.position
+        dx = b.x - a.x; dy = b.y - a.y; dz = b.z - a.z
+        dl = Math.sqrt(dx*dx + dy*dy + dz*dz)
+        return if dl < 1e-12
+
+        @hover_kind     = :edge
+        @hover_segment  = [a, b]
+        @hover_centroid = Geom::Point3d.new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
+        @hover_dir      = Geom::Vector3d.new(dx / dl, dy / dl, dz / dl)
+      end
+
+      def apply_auto(instances)
         return if instances.empty?
         # Capture Z and X axes before any modification.
         pre_axes = {}
@@ -3900,9 +4430,8 @@ module ASM_Extensions
         begin
           instances.each do |inst|
             next unless inst.valid?
-            OrienterExpress.send(:align_to_min_bb, inst)
             z_pre, x_pre = pre_axes[inst.object_id]
-            OrienterExpress.send(:snap_axes_to_pre_orientation, inst, z_pre, x_pre) if z_pre && x_pre
+            OrienterExpress.send(:align_to_min_bb, inst, z_pre, x_pre)
           end
           @model.commit_operation
           @model.active_view.invalidate
@@ -3912,8 +4441,30 @@ module ASM_Extensions
         end
       end
 
+      def apply_lock(instance, dir_world, lock_axis)
+        z_pre = instance.transformation.zaxis
+        x_pre = instance.transformation.xaxis
+        @model.start_operation("Orienter Express: Direction-Lock Alignment", true)
+        begin
+          OrienterExpress.send(:align_to_direction_lock, instance, dir_world, lock_axis, z_pre, x_pre)
+          clear_hover
+          @model.commit_operation
+          @model.active_view.invalidate
+        rescue => e
+          @model.abort_operation
+          UI.messagebox("Error: #{e.message}")
+        end
+      end
+
       def update_vcb
-        Sketchup.set_status_text(Lang.commands.oealignoptimal.vcb_hint.to_s, 0)
+        mode_label = case @lock_mode
+                     when :auto then Lang.commands.oealignoptimal.mode_auto
+                     when :z    then Lang.commands.oealignoptimal.mode_z
+                     when :x    then Lang.commands.oealignoptimal.mode_x
+                     when :y    then Lang.commands.oealignoptimal.mode_y
+                     end
+        hint = format(Lang.commands.oealignoptimal.vcb_hint.to_s, mode: mode_label.to_s)
+        Sketchup.set_status_text(hint, 0)
       end
     end
 
@@ -3924,12 +4475,15 @@ module ASM_Extensions
     end
 
     private_class_method :collect_vertices
+    private_class_method :convex_hull_2d
     private_class_method :convex_hull_3d
+    private_class_method :convex_hull_3d_with_faces
+    private_class_method :face_flush_min_bb
     private_class_method :bb_vol_3d
     private_class_method :planar_normal
     private_class_method :permute_axes_by_extent
     private_class_method :align_to_min_bb
-    private_class_method :snap_axes_to_pre_orientation
+    private_class_method :align_to_direction_lock
     private_class_method :bake_scale
     private_class_method :orient_ground
     private_class_method :orient_ground_around

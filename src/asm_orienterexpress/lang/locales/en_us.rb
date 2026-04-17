@@ -63,10 +63,14 @@ module ASM_Extensions
               axis_ground:      "horizontal"
             },
             oealignoptimal: {
-              label:    "Optimize Bounding Box",
-              tooltip:  "Optimize Bounding Box",
-              status:   "Reorients the component axes to minimize the bounding box volume.",
-              vcb_hint: "Click: optimize  |  Esc: exit"
+              label:     "Optimize Bounding Box",
+              tooltip:   "Optimize Bounding Box",
+              status:    "Reorients the component axes to minimize the bounding box volume.",
+              vcb_hint:  "Click: apply  |  Alt: mode (%<mode>s)  |  Esc: exit",
+              mode_auto: "auto",
+              mode_z:    "lock Z",
+              mode_x:    "lock X",
+              mode_y:    "lock Y"
             },
             oereset: {
               label:    "Reset Rotations",
