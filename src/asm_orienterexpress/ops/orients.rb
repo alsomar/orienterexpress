@@ -1520,8 +1520,7 @@ module ASM_Extensions
           end
           target_point = vertex_pos.offset(inward_dir, offset)
           apply_roll(entity_copy)
-          edge_normal  = avg_face_normal_for_edge(edge)
-          place_with_insertion(entity_copy, target_point, edge_normal, edge)
+          OrienterExpress.send(:move_insertion_to, entity_copy, target_point, @insertion_point, @scale_axis)
           @previous_entities << entity_copy
           @placement_map[entity_copy] = edge
         end
@@ -2479,8 +2478,7 @@ module ASM_Extensions
             end
 
             apply_roll(entity_copy)
-            flow_normal = rep_edge ? avg_face_normal_for_edge(rep_edge) : nil
-            place_with_insertion(entity_copy, target, flow_normal, rep_edge)
+            OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
             @previous_entities << entity_copy
             @placement_map[entity_copy] = vertex
           end
