@@ -2687,7 +2687,7 @@ module ASM_Extensions
       end
 
       def handle_mode_key
-        @axis_idx = (@axis_idx + 1) % 3
+        @axis_idx = (@axis_idx + 1) % 2
         update_vcb
         apply(OESurfaceTool.last_offset_str)
       end
@@ -2700,7 +2700,6 @@ module ASM_Extensions
         scale_label  = @scale_axis.to_s.upcase
         orient_label = [
           Lang.commands.oesurface.axis_parallel,
-          Lang.commands.oesurface.axis_perp,
           Lang.commands.oesurface.axis_ground
         ][@axis_idx].to_s.upcase
         ip_key   = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
@@ -2816,10 +2815,10 @@ module ASM_Extensions
         end
 
         primary = valid.max_by(&:area)
-        if @axis_idx == 2
+        if @axis_idx == 1
           OrienterExpress.orient_x(entity_copy)
         else
-          OrienterExpress.orient_to_face_edge(entity_copy, primary, @axis_idx, @scale_axis)
+          OrienterExpress.orient_to_face_edge(entity_copy, primary, 0, @scale_axis)
         end
 
         apply_roll(entity_copy)

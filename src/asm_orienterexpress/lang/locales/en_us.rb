@@ -13,7 +13,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "CTRL = Add geometry to selection  |  SHIFT = toggle insertion point (currently %<ip>s)  |  TAB = toggle oriented axis (currently %<axis>s)  |  ALT = toggle mode (currently %<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
             },
             oecenter: {
               label:            "Edge Center Placement",
@@ -22,7 +22,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "CTRL = Add geometry to selection  |  SHIFT = toggle insertion point (currently %<ip>s)  |  TAB = toggle oriented axis (currently %<axis>s)  |  ALT = toggle mode (currently %<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
             },
             oezscale: {
               label:            "Z-axis Scaling",
@@ -31,7 +31,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "CTRL = Add geometry to selection  |  SHIFT = toggle insertion point (currently %<ip>s)  |  TAB = toggle scaled axis (currently %<axis>s)  |  ALT = toggle mode (currently %<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = scaled axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
             },
             oeuscale: {
               label:            "Uniform Scaling",
@@ -39,7 +39,7 @@ module ASM_Extensions
               status:           "Scale uniformly and place copies along edges.",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "CTRL = Add geometry to selection  |  ALT = toggle mode (currently %<mode>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "ALT = mode (%<mode>s)  |  ↑/↓ = adjust roll (%<roll>s)"
             },
             oeflow: {
               label:            "Vertex Flow Placement",
@@ -48,7 +48,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "CTRL = Add geometry to selection  |  SHIFT = toggle insertion point (currently %<ip>s)  |  TAB = toggle oriented axis (currently %<axis>s)  |  ALT = toggle mode (currently %<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
             },
             oesurface: {
               label:            "Surface Placement",
@@ -57,9 +57,8 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on a face",
-              vcb_hint:         "CTRL = Add geometry to selection  |  SHIFT = toggle insertion point (currently %<ip>s)  |  TAB = toggle oriented axis (currently %<axis>s)  |  ALT = toggle orientation (currently %<orient>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)",
-              axis_parallel:    "parallel to dominant edge",
-              axis_perp:        "perpendicular to dominant edge",
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = alignment (%<orient>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)",
+              axis_parallel:    "dominant",
               axis_ground:      "horizontal"
             },
             oealigner: {
@@ -70,10 +69,10 @@ module ASM_Extensions
               desc_auto:                 "Click on a component",
               desc_reference_ref:        "Click on a reference edge, face, or component",
               desc_reference_target:     "Click on a component or group",
-              vcb_hint_entity:           "TAB = toggle axis (currently %<axis>s)  |  ALT = toggle mode (currently %<mode>s)",
-              vcb_hint_auto:             "ALT = toggle mode (currently %<mode>s)",
-              vcb_hint_reference_ref:    "TAB = toggle axis (currently %<axis>s)  |  ALT = toggle mode (currently %<mode>s)",
-              vcb_hint_reference_target: "CTRL + Click = set new reference  |  TAB = toggle axis (currently %<axis>s)  |  ALT = toggle mode (currently %<mode>s)",
+              vcb_hint_entity:           "TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
+              vcb_hint_auto:             "ALT = mode (%<mode>s)",
+              vcb_hint_reference_ref:    "TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
+              vcb_hint_reference_target: "CTRL + Click = set new reference  |  TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
               mode_entity:    "entity",
               mode_reference: "reference",
               mode_auto:      "auto",
@@ -86,7 +85,7 @@ module ASM_Extensions
               tooltip:          "Reset Rotations",
               status:           "Reset rotation of selected entities to global axes.",
               no_geometry_hint: "Click on a component",
-              vcb_hint:         "TAB = toggle pivot (currently %<ip>s)  |  ESC = cancel and exit"
+              vcb_hint:         "TAB = pivot (%<ip>s)  |  ESC = cancel and exit"
             },
             settings: {
               label:   "#{EXT_NAME} Settings",
@@ -115,7 +114,7 @@ module ASM_Extensions
               rotation_ground: "Ground",
               rotation_flow:   "Flow",
               rotation_normal: "Normal",
-              insertion_point:        "Insertion Point",
+              insertion_point:        "Pivot",
               insertion_base_short:   "base",
               insertion_center_short: "center",
               insertion_origin_short: "origin",
