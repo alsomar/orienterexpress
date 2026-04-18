@@ -56,18 +56,24 @@ module ASM_Extensions
       entity.transformation = Geom::Transformation.new(a)
     end
 
-    def self.uniform_scale(entity, edge)
+    def self.uniform_scale(entity, edge, axis = :z, target_length = nil)
       return unless instance?(entity)
 
-      db    = entity.definition.bounds
-      def_z = (db.max.z - db.min.z).abs
-      return if def_z < 1e-6
+      db      = entity.definition.bounds
+      def_len = case axis
+                when :x then (db.max.x - db.min.x).abs
+                when :y then (db.max.y - db.min.y).abs
+                else         (db.max.z - db.min.z).abs
+                end
+      return if def_len < 1e-6
 
-      a          = entity.transformation.to_a
-      current_sz = Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2)
-      return if current_sz < 1e-6
+      a   = entity.transformation.to_a
+      col = case axis when :x then 0 when :y then 4 else 8 end
+      current_s = Math.sqrt(a[col]**2 + a[col + 1]**2 + a[col + 2]**2)
+      return if current_s < 1e-6
 
-      factor = (edge.length / def_z) / current_sz
+      length = target_length || edge.length
+      factor = (length / def_len) / current_s
       [0, 1, 2, 4, 5, 6, 8, 9, 10].each { |i| a[i] *= factor }
       entity.transformation = Geom::Transformation.new(a)
     end
@@ -2115,10 +2121,12 @@ module ASM_Extensions
       end
 
       def self.last_offset_str
-        Sketchup.format_length(0)
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeuscale_offset)
       end
 
-      def self.last_offset_str=(_val); end
+      def self.last_offset_str=(val)
+        @@last_offset_str = val
+      end
 
       def initialize(edges, entity, flow_map, rotation_mode)
         super(edges, entity)
@@ -2126,12 +2134,37 @@ module ASM_Extensions
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
         ip = OrienterExpress.send(:resolved_insertion_point, :oeuscale).to_sym
-        @insertion_point = %i[center base].include?(ip) ? ip : :center
+        @insertion_point = [:center, :base].include?(ip) ? ip : :center
+      end
+
+      def activate
+        @skipped_edges = []
+        super
+      end
+
+      def draw(view)
+        return if @skipped_edges.nil? || @skipped_edges.empty?
+        eye = view.camera.eye
+        view.line_width = 4
+        view.drawing_color = Sketchup::Color.new(255, 0, 0)
+        @skipped_edges.each do |edge|
+          next unless edge.valid?
+          p1 = edge.start.position.offset((eye - edge.start.position).normalize, 0.1)
+          p2 = edge.end.position.offset((eye - edge.end.position).normalize, 0.1)
+          view.draw(GL_LINES, [p1, p2])
+        end
+      end
+
+      def onMouseMove(flags, x, y, view)
+        super
+        view.invalidate unless @skipped_edges.nil? || @skipped_edges.empty?
       end
 
       private
 
-      def scroll_offset(_dir); end
+      def on_deactivate
+        @skipped_edges = []
+      end
 
       def on_drag(ctrl, shift, view, x, y)
         return unless @lbutton_down && @drag_mode && ctrl
@@ -2143,14 +2176,17 @@ module ASM_Extensions
 
       def on_geometry_changed
         rebuild_flow_map if @rotation_mode == :flow
+        super
       end
 
       def on_selection_changed(new_set, old_set)
         if @rotation_mode == :flow
           rebuild_flow_map
-          apply(nil)
+          apply(OEUScaleTool.last_offset_str)
         else
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
+          rebuild_h_dir_map if @rotation_mode != :flow
+          offset = OrienterExpress.send(:parse_length_safe, OEUScaleTool.last_offset_str)
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
       end
 
@@ -2173,14 +2209,18 @@ module ASM_Extensions
         "Cancel Uniform Scaling"
       end
 
-      def handle_mode_key
-        @rotation_mode = @rotation_mode == :flow ? :ground : :flow
-        rebuild_flow_map if @rotation_mode == :flow
-        update_vcb
-        apply(nil)
+      def handle_key(key)
+        case key
+        when 9 then handle_axis_key
+        end
       end
 
-      def handle_key(_key); end
+      def handle_axis_key
+        @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
+        @first_apply = true
+        update_vcb
+        apply(OEUScaleTool.last_offset_str)
+      end
 
       def handle_ins_key
         @insertion_point = @insertion_point == :center ? :base : :center
@@ -2188,7 +2228,15 @@ module ASM_Extensions
         custom[:oeuscale] = @insertion_point.to_s
         OrienterExpress.user_settings(insertion_point_custom: custom)
         update_vcb
-        apply(nil)
+        apply(OEUScaleTool.last_offset_str)
+      end
+
+      def handle_mode_key
+        @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
+        rebuild_flow_map   if @rotation_mode == :flow
+        rebuild_h_dir_map  if @rotation_mode != :flow
+        update_vcb
+        apply(OEUScaleTool.last_offset_str)
       end
 
       def debug_tool_name;        "oeuscale"; end
@@ -2197,29 +2245,41 @@ module ASM_Extensions
       def no_geometry_hint; Lang.commands.oeuscale.no_geometry_hint.to_s; end
 
       def render_vcb
-        mode_key   = @rotation_mode == :flow ? :rotation_flow : :rotation_ground
+        mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
+        axis_label = @scale_axis.to_s.upcase
         ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oeuscale.vcb_hint.to_s, mode: mode_label, roll: roll_label)
-        Sketchup.set_status_text("", 1)
-        Sketchup.set_status_text("", 2)
+        hint = format(Lang.commands.oeuscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEUScaleTool.last_offset_str)
+        Sketchup.set_status_text(Lang.commands.oeuscale.offset_prompt.to_s, 1)
+        Sketchup.set_status_text(OEUScaleTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
 
-      def apply(_text)
+      def apply(text)
         return unless @entity_def
+        offset = OrienterExpress.send(:parse_length_safe, text)
+        return if offset.nil?
+
         transparent = !@first_apply
         @model.start_operation("Orienter Express: Uniform Scaling", true, false, transparent)
+
         begin
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
           @placement_map     = {}
-          @geometry.each { |edge| place_for_edge(edge) }
+          skipped            = []
+
+          @geometry.each { |edge| place_for_edge(edge, offset, skipped) }
+
           @model.commit_operation
-          @first_apply = false
-          @applied     = true
+          @first_apply   = false
+          @applied       = true
+          @skipped_edges = skipped
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeuscale_offset)
+          OEUScaleTool.last_offset_str = formatted
+          Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -2227,16 +2287,17 @@ module ASM_Extensions
         end
       end
 
-      def apply_diff(added, removed)
-        return unless @entity_def
+      def apply_diff(added, removed, offset)
+        return unless offset && @entity_def
         @model.start_operation("Orienter Express: Uniform Scaling", true, false, true)
         begin
           removed.each do |edge|
+            @skipped_edges.delete(edge)
             to_erase = @placement_map.select { |_, e| e == edge }.keys
             to_erase.each { |ent| ent.erase! if ent.valid? }
             to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
-          added.each { |edge| place_for_edge(edge) }
+          added.each { |edge| place_for_edge(edge, offset, @skipped_edges) }
           @model.commit_operation
           @model.active_view.invalidate
         rescue => e
@@ -2245,33 +2306,70 @@ module ASM_Extensions
         end
       end
 
-      def place_for_edge(edge)
+      def place_for_edge(edge, offset, skipped = nil)
         return if edge.length.zero?
+        effective_length = edge.length - 2 * offset
+        if effective_length <= 1e-6
+          skipped << edge if skipped
+          return
+        end
         entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
-        OrienterExpress.uniform_scale(entity_copy, edge)
-        OrienterExpress.orient_z(entity_copy, edge)
-        if @rotation_mode == :flow
-          OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
-        else
-          OrienterExpress.orient_x(entity_copy)
+        OrienterExpress.uniform_scale(entity_copy, edge, @scale_axis, effective_length)
+        case @scale_axis
+        when :x then OrienterExpress.orient_x_to_edge(entity_copy, edge)
+        when :y then OrienterExpress.orient_y_to_edge(entity_copy, edge)
+        else         OrienterExpress.orient_z(entity_copy, edge)
+        end
+        case @rotation_mode
+        when :flow
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+          end
+        when :normal
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
+          when :y then OrienterExpress.send(:orient_to_face_normal_around, entity_copy, edge, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
+          else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge, @h_dir_map)
+          end
+        else # ground
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
+          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
+          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
+          end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         apply_roll(entity_copy)
-        edge_normal = avg_face_normal_for_edge(edge)
-        place_with_insertion(entity_copy, midpoint, edge_normal, edge)
+        if @insertion_point == :base
+          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, :center, @scale_axis)
+          scale_axis_world = roll_axis(entity_copy).normalize
+          ref_up  = avg_face_normal_for_edge(edge)
+          ref_up ||= OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)
+          ref_up ||= Geom::Vector3d.new(0, 0, 1)
+          s       = ref_up.dot(scale_axis_world)
+          up_perp = Geom::Vector3d.new(
+            ref_up.x - scale_axis_world.x * s,
+            ref_up.y - scale_axis_world.y * s,
+            ref_up.z - scale_axis_world.z * s
+          )
+          move_base_to_surface(entity_copy, midpoint, up_perp) if up_perp.length > 1e-6
+        else
+          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+        end
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
-
     end
 
     def self.oeuscale
-      model  = Sketchup.active_model
-      edges  = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
-      entity = instances(model.selection).first
+      model   = Sketchup.active_model
+      edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
+      targets = instances(model.selection)
 
       rotation_mode = CONFIG[:rotation_mode].to_sym rescue :ground
-      rotation_mode = :ground unless %i[ground flow].include?(rotation_mode)
+      rotation_mode = :ground unless %i[ground flow normal].include?(rotation_mode)
       flow_map = {}
       if rotation_mode == :flow
         vertex_edges = {}
@@ -2284,7 +2382,10 @@ module ASM_Extensions
         flow_map = all_vertex_flow_directions(vertex_edges)
       end
 
-      model.select_tool(OEUScaleTool.new(edges, entity, flow_map, rotation_mode))
+      entity = targets.first
+      model.select_tool(
+        OEUScaleTool.new(edges, entity, flow_map, rotation_mode)
+      )
     end
 
     class OEFlowTool < OEPlacementTool
@@ -3308,6 +3409,29 @@ module ASM_Extensions
       (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
     end
 
+    # Area-weighted sum of face.normal across a definition's top-level faces.
+    # Unlike planar_normal's u×v (sign determined by vertex ordering), this is
+    # signed by each face's front side, so the 2D auto path can use it to pick
+    # the "outward" orientation consistent with the user's face.
+    def self.signed_face_normal_for_def(definition)
+      sum_x = sum_y = sum_z = 0.0
+      total_area = 0.0
+      definition.entities.each do |e|
+        next unless e.is_a?(Sketchup::Face)
+        a = e.area
+        next if a < 1e-12
+        n = e.normal
+        sum_x += n.x * a
+        sum_y += n.y * a
+        sum_z += n.z * a
+        total_area += a
+      end
+      return nil if total_area < 1e-12
+      len = Math.sqrt(sum_x * sum_x + sum_y * sum_y + sum_z * sum_z)
+      return nil if len < 1e-6
+      [sum_x / len, sum_y / len, sum_z / len]
+    end
+
     # Unit plane normal if pts are coplanar (max deviation < 1e-4 * span), else nil.
     def self.planar_normal(pts)
       return nil if pts.size < 3
@@ -3452,6 +3576,13 @@ module ASM_Extensions
       # ── 2D path: flat/planar geometry ──────────────────────────────────────
       normal = planar_normal(pts)
       if normal
+        # planar_normal's sign is set by hull-vertex ordering; flip it to match
+        # the face's front side when the definition has faces, so auto aligns
+        # the chosen local axis with +face.normal, not -face.normal.
+        face_n = signed_face_normal_for_def(instance.definition)
+        if face_n && (normal[0]*face_n[0] + normal[1]*face_n[1] + normal[2]*face_n[2]) < 0
+          normal = [-normal[0], -normal[1], -normal[2]]
+        end
         nx, ny, nz = normal
         Debug.log(self, :align_pca, "planar geometry, normal=[#{nx.round(4)},#{ny.round(4)},#{nz.round(4)}]")
 

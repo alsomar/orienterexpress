@@ -1032,6 +1032,54 @@ module ASM_Extensions
         end
       end
 
+      # =========================================================================
+      # OEAlignerTool auto mode — face-group Z stays on +face.normal
+      # =========================================================================
+      #
+      # Regression: the 2D path of align_to_min_bb chose the face's plane
+      # normal from planar_normal(pts), whose sign is set by hull-vertex order
+      # (u×v), not the face's front side. For some world orientations the
+      # resulting local Z ended up along -face.normal. Fix: when the
+      # definition has faces, flip planar_normal to agree with the
+      # area-weighted face.normal.
+      #
+      # Per-normal test: build a flat face-group whose world face.normal
+      # points at the target direction, run align_to_min_bb (auto path), and
+      # assert the group's local Z axis still points along +face.normal.
+
+      def make_face_group_with_world_normal(target_normal)
+        group = @entities.add_group
+        @to_erase << group
+        # Non-symmetric triangle in local XY plane so min-BB permutation is
+        # unambiguous. Don't assume which sign SketchUp picks for face.normal —
+        # read it back and rotate the group so its *actual* world face.normal
+        # matches the target.
+        group.entities.add_face(
+          Geom::Point3d.new(  0,  0, 0),
+          Geom::Point3d.new(100,  0, 0),
+          Geom::Point3d.new( 50, 60, 0)
+        )
+        face       = group.definition.entities.grep(Sketchup::Face).first
+        face_world = group.transformation * face.normal
+        tn         = target_normal.normalize
+        OE.send(:align_axis, group, group.transformation.origin, face_world, tn)
+        group
+      end
+
+      SURFACE_NORMALS.each_with_index do |n, i|
+        define_method("test_oealigner_auto_face_group_normal_#{i}_keeps_z_on_face_normal") do
+          tn    = n.normalize
+          group = make_face_group_with_world_normal(tn)
+          z_pre = group.transformation.zaxis
+          x_pre = group.transformation.xaxis
+          OE.send(:align_to_min_bb, group, z_pre, x_pre)
+          dot = group.transformation.zaxis.normalize.dot(tn)
+          assert dot > 0.99,
+            "auto face-group normal=#{tn.inspect}: local Z should align " \
+            "with +face.normal (got dot=#{dot})"
+        end
+      end
+
     end
   end
 end

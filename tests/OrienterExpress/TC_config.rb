@@ -11,7 +11,7 @@ module ASM_Extensions
         rotation_mode insertion_point_custom smooth_groups
         roll_step offset_step default_roll default_offset
         dark_mode debug_mode
-        oevertex_offset oecenter_offset oezscale_offset oesurface_offset oeflow_offset
+        oevertex_offset oecenter_offset oezscale_offset oeuscale_offset oesurface_offset oeflow_offset
       ].freeze
 
       # Keys sent by the frontend's currentSettings() — debug_mode is excluded intentionally

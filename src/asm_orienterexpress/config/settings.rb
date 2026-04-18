@@ -22,7 +22,7 @@ module ASM_Extensions
       },
 
       # Step sizes and defaults
-      roll_step:      15,
+      roll_step:      5,
       offset_step:    "1cm",
       default_roll:   0,
       default_offset: "0cm",
@@ -33,15 +33,10 @@ module ASM_Extensions
       smooth_groups: true,
       oevertex_offset: "0cm",
       oecenter_offset: "0cm",
-      oezscale_offset:   "10cm",
+      oezscale_offset:   "0cm",
+      oeuscale_offset:   "0cm",
       oesurface_offset: "0cm",
       oeflow_offset:   "0cm"
-    }.freeze
-
-    MESSAGES = {
-      invalid_sel:      "Please select at least one or more edges AND one group/component.",
-      invalid_face_sel: "Please select at least one or more faces AND one group/component.",
-      no_entities:      "Please select at least one or more groups/components."
     }.freeze
 
     def self.ensure_config

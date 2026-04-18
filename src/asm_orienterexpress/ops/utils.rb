@@ -9,7 +9,7 @@ module ASM_Extensions
         missing << "entities" if targets.empty?
         missing << "edges"    if edges.empty?
 
-        UI.messagebox(MESSAGES[:invalid_sel])
+        UI.messagebox(Lang.t(:errors, :invalid_sel))
         Debug.log(self, method_id, "Invalid selection: missing #{missing.join(' & ')}")
         return false
       end
@@ -25,7 +25,7 @@ module ASM_Extensions
         missing << "entities" if targets.empty?
         missing << "faces"    if faces.empty?
 
-        UI.messagebox(MESSAGES[:invalid_face_sel])
+        UI.messagebox(Lang.t(:errors, :invalid_face_sel))
         Debug.log(self, method_id, "Invalid selection: missing #{missing.join(' & ')}")
         return false
       end
@@ -37,7 +37,7 @@ module ASM_Extensions
       method_id = __method__
 
       if targets.empty?
-        UI.messagebox(MESSAGES[:no_entities])
+        UI.messagebox(Lang.t(:errors, :no_entities))
         Debug.log(self, method_id, "Invalid selection: missing entities")
         return false
       end

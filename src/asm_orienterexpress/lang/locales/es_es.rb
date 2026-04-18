@@ -36,10 +36,11 @@ module ASM_Extensions
             oeuscale: {
               label:            "Escalado uniforme",
               tooltip:          "Escalado uniforme",
-              status:           "Escala uniformemente y coloca copias a lo largo de las aristas.",
-              no_sample_hint:   "Haz clic sobre un componente/grupo",
+              status:           "Escala uniformemente y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
+              offset_prompt:    "Desfase",
+              no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una arista/cara",
-              vcb_hint:         "ALT = modo (%<mode>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
+              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de escala (%<axis>s)  |  ALT = modo (%<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
             },
             oeflow: {
               label:            "Colocación según flujo de vértices",
@@ -92,6 +93,12 @@ module ASM_Extensions
               tooltip: "Ajustes de #{EXT_NAME}",
               status:  "Abrir los ajustes de #{EXT_NAME}."
             }
+          },
+
+          errors: {
+            invalid_sel:      "Selecciona al menos una o más aristas Y un grupo/componente.",
+            invalid_face_sel: "Selecciona al menos una o más caras Y un grupo/componente.",
+            no_entities:      "Selecciona al menos uno o más grupos/componentes."
           },
 
           html: {

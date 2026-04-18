@@ -36,10 +36,11 @@ module ASM_Extensions
             oeuscale: {
               label:            "Uniform Scaling",
               tooltip:          "Uniform Scaling",
-              status:           "Scale uniformly and place copies along edges.",
+              status:           "Scale uniformly and place copies along edges with an offset from each vertex.",
+              offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "ALT = mode (%<mode>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = scaled axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
             },
             oeflow: {
               label:            "Vertex Flow Placement",
@@ -92,6 +93,12 @@ module ASM_Extensions
               tooltip: "#{EXT_NAME} Settings",
               status:  "Open #{EXT_NAME} settings."
             }
+          },
+
+          errors: {
+            invalid_sel:      "Please select at least one or more edges AND one group/component.",
+            invalid_face_sel: "Please select at least one or more faces AND one group/component.",
+            no_entities:      "Please select at least one or more groups/components."
           },
 
           html: {
