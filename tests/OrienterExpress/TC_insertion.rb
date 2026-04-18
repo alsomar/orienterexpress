@@ -968,6 +968,70 @@ module ASM_Extensions
           "scale_axis=Y ground oblique: Z should align to face normal XY"
       end
 
+      # =========================================================================
+      # OESurfaceTool orient pass — scale axis stays aligned with avg_normal
+      # =========================================================================
+      #
+      # Regression: HORIZONTAL mode used to call orient_x unconditionally, which
+      # rotates around local Z. For scale_axis=X/Y on faces not facing straight
+      # up, local Z is arbitrary after align_axis, so the rotation broke the
+      # scale-axis-to-normal alignment — on a faceted sphere the "back-side"
+      # instances ended up pointing inward. Fix dispatches on @scale_axis to
+      # orient_z_ground / orient_y_ground / orient_x, matching the edge tools.
+      #
+      # These tests replay place_for_group's orientation pass (align_axis, then
+      # the mode-specific orient call) on representative sphere-like normals
+      # and assert the scale axis still points along +normal.
+
+      # 14 directions: 6 axis poles + 8 octant diagonals, covering the bug zone.
+      SURFACE_NORMALS = [
+        Geom::Vector3d.new( 1,  0,  0), Geom::Vector3d.new(-1,  0,  0),
+        Geom::Vector3d.new( 0,  1,  0), Geom::Vector3d.new( 0, -1,  0),
+        Geom::Vector3d.new( 0,  0,  1), Geom::Vector3d.new( 0,  0, -1),
+        Geom::Vector3d.new( 1,  1,  1), Geom::Vector3d.new(-1,  1,  1),
+        Geom::Vector3d.new( 1, -1,  1), Geom::Vector3d.new( 1,  1, -1),
+        Geom::Vector3d.new(-1, -1,  1), Geom::Vector3d.new(-1,  1, -1),
+        Geom::Vector3d.new( 1, -1, -1), Geom::Vector3d.new(-1, -1, -1)
+      ].freeze
+
+      def scale_axis_vec(inst, scale_axis)
+        case scale_axis
+        when :x then inst.transformation.xaxis
+        when :y then inst.transformation.yaxis
+        else         inst.transformation.zaxis
+        end
+      end
+
+      # Mirrors OESurfaceTool#place_for_group's align_axis call.
+      def align_scale_axis_to(inst, scale_axis, normal)
+        OE.send(:align_axis, inst, inst.transformation.origin,
+                scale_axis_vec(inst, scale_axis), normal)
+      end
+
+      # Mirrors OESurfaceTool#place_for_group's HORIZONTAL orient dispatch.
+      def orient_horizontal_for(inst, scale_axis)
+        case scale_axis
+        when :x then OE.send(:orient_z_ground, inst)
+        when :y then OE.send(:orient_y_ground, inst)
+        else         OE.orient_x(inst)
+        end
+      end
+
+      SURFACE_NORMALS.each_with_index do |n, i|
+        [:x, :y, :z].each do |sa|
+          define_method("test_oesurface_horizontal_scale_#{sa}_normal_#{i}_stays_on_normal") do
+            normal = n.normalize
+            inst   = make_instance
+            align_scale_axis_to(inst, sa, normal)
+            orient_horizontal_for(inst, sa)
+            dot = scale_axis_vec(inst, sa).normalize.dot(normal)
+            assert dot > 0.99,
+              "HORIZONTAL scale_axis=#{sa}, normal=#{normal.inspect}: " \
+              "scale axis should still point along +normal (got dot=#{dot})"
+          end
+        end
+      end
+
     end
   end
 end

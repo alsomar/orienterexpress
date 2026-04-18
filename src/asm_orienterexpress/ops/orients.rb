@@ -2816,7 +2816,11 @@ module ASM_Extensions
 
         primary = valid.max_by(&:area)
         if @axis_idx == 1
-          OrienterExpress.orient_x(entity_copy)
+          case @scale_axis
+          when :x then OrienterExpress.send(:orient_z_ground, entity_copy)
+          when :y then OrienterExpress.send(:orient_y_ground, entity_copy)
+          else         OrienterExpress.orient_x(entity_copy)
+          end
         else
           OrienterExpress.orient_to_face_edge(entity_copy, primary, 0, @scale_axis)
         end
