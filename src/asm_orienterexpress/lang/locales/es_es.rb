@@ -11,8 +11,8 @@ module ASM_Extensions
               tooltip:          "Colocación en vértices de arista",
               status:           "Coloca copias orientadas en ambos vértices de cada arista, con desfase opcional hacia el interior.",
               offset_prompt:    "Desfase",
-              no_sample_hint:   "Clic sobre componente de muestra",
-              no_geometry_hint: "Clic en aristas o caras para colocar copias en sus vértices",
+              no_sample_hint:   "Haz clic sobre un componente",
+              no_geometry_hint: "Haz clic sobre una arista o una cara",
               vcb_hint:         "Ctrl: añadir a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oecenter: {
@@ -20,8 +20,8 @@ module ASM_Extensions
               tooltip:          "Colocación centrada en arista",
               status:           "Coloca copias centradas sobre las aristas con desfase opcional.",
               offset_prompt:    "Desfase",
-              no_sample_hint:   "Clic sobre componente de muestra",
-              no_geometry_hint: "Clic en aristas/caras para colocar copias a mitad de arista",
+              no_sample_hint:   "Haz clic sobre un componente",
+              no_geometry_hint: "Haz clic sobre una arista o una cara",
               vcb_hint:         "Ctrl: añadir a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oezscale: {
@@ -29,16 +29,16 @@ module ASM_Extensions
               tooltip:          "Escalado en Z",
               status:           "Escala y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
               offset_prompt:    "Desfase",
-              no_sample_hint:   "Clic sobre componente de muestra",
-              no_geometry_hint: "Clic en aristas/caras para orientar y escalar copias en un eje",
+              no_sample_hint:   "Haz clic sobre un componente",
+              no_geometry_hint: "Haz clic sobre una arista o una cara",
               vcb_hint:         "Ctrl: añadir a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de escala (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oeuscale: {
               label:            "Escalado uniforme",
               tooltip:          "Escalado uniforme",
               status:           "Escala uniformemente y coloca copias a lo largo de las aristas.",
-              no_sample_hint:   "Clic sobre componente de muestra",
-              no_geometry_hint: "Clic en aristas/caras para orientar y escalar copias uniformemente",
+              no_sample_hint:   "Haz clic sobre un componente",
+              no_geometry_hint: "Haz clic sobre una arista o una cara",
               vcb_hint:         "Ctrl: añadir a la selección  |  Alt: modo (%<mode>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oeflow: {
@@ -46,8 +46,8 @@ module ASM_Extensions
               tooltip:          "Colocación según flujo de vértices",
               status:           "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes.",
               offset_prompt:    "Desfase",
-              no_sample_hint:   "Clic sobre componente de muestra",
-              no_geometry_hint: "Clic en aristas/caras para colocar copias en sus vértices",
+              no_sample_hint:   "Haz clic sobre un componente",
+              no_geometry_hint: "Haz clic sobre una arista o una cara",
               vcb_hint:         "Ctrl: añadir a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: modo (%<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
             },
             oesurface: {
@@ -55,22 +55,26 @@ module ASM_Extensions
               tooltip:          "Colocación en superficie",
               status:           "Coloca copias en el centro de cada grupo de superficie suave, con desfase a lo largo de la normal promedio.",
               offset_prompt:    "Desfase",
-              no_sample_hint:   "Clic sobre componente de muestra",
-              no_geometry_hint: "Clic sobre caras para colocar copias",
+              no_sample_hint:   "Haz clic sobre un componente",
+              no_geometry_hint: "Haz clic sobre una cara",
               vcb_hint:         "Ctrl: añadir a la selección  |  Shift: punto de inserción (%<ip>s)  |  Tab: eje de orientación (%<axis>s)  |  Alt: orientación (%<orient>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)",
               axis_parallel:    "paralelo a arista dominante",
               axis_perp:        "perpendicular a arista dominante",
               axis_ground:      "horizontal"
             },
-            oealignoptimal: {
-              label:     "Optimizar Bounding Box",
-              tooltip:   "Optimizar Bounding Box",
-              status:    "Reorienta los ejes del componente para minimizar el volumen del bounding box.",
-              vcb_hint:  "Clic: aplicar  |  Alt: modo (%<mode>s)  |  Esc: salir",
-              mode_auto: "auto",
-              mode_z:    "bloqueo Z",
-              mode_x:    "bloqueo X",
-              mode_y:    "bloqueo Y"
+            oealigner: {
+              label:          "Alineador de ejes",
+              tooltip:        "Alineador de ejes",
+              status:         "Alinea los ejes del componente según una cara o arista.",
+              desc_axis:      "Haz clic sobre una arista o una cara",
+              desc_auto:      "Haz clic sobre un componente",
+              vcb_hint_axis:  "Alt: modo (%<mode>s)  |  Tab: eje (%<axis>s)  |  Esc: salir",
+              vcb_hint_auto:  "Alt: modo (%<mode>s)  |  Esc: salir",
+              mode_axis:      "ejes",
+              mode_auto:      "auto",
+              axis_z:         "Z",
+              axis_x:         "X",
+              axis_y:         "Y"
             },
             oereset: {
               label:    "Resetear rotaciones",

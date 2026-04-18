@@ -4146,26 +4146,27 @@ module ASM_Extensions
 
     # Tool class that runs align_to_min_bb in one operation.
     # Recurrent: stays active for repeated clicks.
-    class OEAlignOptimalTool
+    class OEAlignerTool
 
       BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
 
-      # TAB cycles: auto → Z (XY plane) → X (YZ plane) → Y (XZ plane) → auto
-      LOCK_CYCLE = [:auto, :z, :x, :y].freeze
+      # Alt toggles @mode between :axis and :auto. In :axis mode, Tab cycles @lock_axis.
+      AXIS_CYCLE = [:z, :x, :y].freeze
 
-      # Mode colors match SketchUp axis convention (X=red, Y=green, Z=blue).
-      MODE_COLOR = {
+      # Axis colors match SketchUp axis convention (X=red, Y=green, Z=blue).
+      AXIS_COLOR = {
         z: Sketchup::Color.new(50, 100, 255),
         x: Sketchup::Color.new(255, 80, 80),
         y: Sketchup::Color.new(50, 180, 50),
       }.freeze
 
-      @@last_lock_mode = :auto
+      @@last_mode      = :axis
+      @@last_lock_axis = :z
 
       def self.cursor_id
         @@cursor_id ||= begin
           ext  = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
-          path = File.join(PATH_CURSORS, "oe_optimize_32.#{ext}")
+          path = File.join(PATH_CURSORS, "oe_aligner_32.#{ext}")
           UI.create_cursor(path, 5, 5)
         end
       end
@@ -4174,7 +4175,8 @@ module ASM_Extensions
         @model          = Sketchup.active_model
         @instances      = instances
         @hovered        = nil
-        @lock_mode      = @@last_lock_mode
+        @mode           = @@last_mode       # :axis | :auto
+        @lock_axis      = @@last_lock_axis  # :z | :x | :y
         @alt_handled    = false
         @hover_kind     = nil   # :face | :edge | nil
         @hover_entity   = nil   # Sketchup::Face or Sketchup::Edge
@@ -4188,7 +4190,9 @@ module ASM_Extensions
       def activate
         @model.selection.clear unless @model.selection.empty?
         update_vcb
-        UI.start_timer(0, false) { apply_auto(@instances) unless @instances.empty? }
+        if @mode == :auto
+          UI.start_timer(0, false) { apply_auto(@instances) unless @instances.empty? }
+        end
       end
 
       def deactivate(view)
@@ -4209,7 +4213,7 @@ module ASM_Extensions
         ph = view.pick_helper
         ph.do_pick(x, y)
 
-        if @lock_mode == :auto
+        if @mode == :auto
           entity = ph.best_picked
           candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
           if candidate != @hovered
@@ -4251,7 +4255,7 @@ module ASM_Extensions
         eye = view.camera.eye
 
         if @hovered && @hovered.valid?
-          bb_color = @lock_mode == :auto ? Sketchup::Color.new(255, 165, 0) : MODE_COLOR[@lock_mode]
+          bb_color = @mode == :auto ? Sketchup::Color.new(255, 165, 0) : AXIS_COLOR[@lock_axis]
           t        = @hovered.transformation
           def_bb   = @hovered.definition.bounds
           corners  = 8.times.map { |i| t * def_bb.corner(i) }
@@ -4264,10 +4268,10 @@ module ASM_Extensions
           end
         end
 
-        return if @lock_mode == :auto
+        return if @mode == :auto
         return unless @hover_entity && @hover_entity.valid?
 
-        color = MODE_COLOR[@lock_mode]
+        color = AXIS_COLOR[@lock_axis]
 
         case @hover_kind
         when :face
@@ -4277,7 +4281,7 @@ module ASM_Extensions
             view.drawing_color = fill
             view.draw(GL_TRIANGLES, @hover_fill_pts)
           end
-          view.line_width    = 3
+          view.line_width    = 2
           view.drawing_color = color
           @hover_loops.each do |loop_pts|
             offset_pts = loop_pts.map { |p| p.offset((eye - p).normalize, 0.1) }
@@ -4285,7 +4289,7 @@ module ASM_Extensions
           end
         when :edge
           return unless @hover_segment
-          view.line_width    = 5
+          view.line_width    = 4
           view.drawing_color = color
           seg = @hover_segment.map { |p| p.offset((eye - p).normalize, 0.1) }
           view.draw(GL_LINES, seg)
@@ -4318,11 +4322,11 @@ module ASM_Extensions
       end
 
       def onSetCursor
-        UI.set_cursor(OEAlignOptimalTool.cursor_id)
+        UI.set_cursor(OEAlignerTool.cursor_id)
       end
 
       def onLButtonDown(_flags, x, y, view)
-        if @lock_mode == :auto
+        if @mode == :auto
           ph = view.pick_helper
           ph.do_pick(x, y)
           entity = ph.best_picked
@@ -4330,7 +4334,7 @@ module ASM_Extensions
           apply_auto([entity])
         else
           return unless @hovered && @hovered.valid? && @hover_dir
-          apply_lock(@hovered, @hover_dir, @lock_mode)
+          apply_lock(@hovered, @hover_dir, @lock_axis)
         end
       end
 
@@ -4338,25 +4342,35 @@ module ASM_Extensions
         case key
         when 27 # Escape
           @model.select_tool(nil)
-        when 18 # Alt — cycle mode
-          cycle_mode(view)
+        when 18 # Alt — toggle mode (axis ↔ auto)
+          toggle_mode(view)
           @alt_handled = true
+        when 9  # Tab — cycle axis (axis mode only)
+          cycle_axis(view) if @mode == :axis
         end
       end
 
       def onKeyUp(key, _repeat, _flags, view)
         if key == 18 # Alt — fallback if key-down was swallowed by the OS
-          cycle_mode(view) unless @alt_handled
+          toggle_mode(view) unless @alt_handled
           @alt_handled = false
         end
       end
 
       private
 
-      def cycle_mode(view)
-        idx = LOCK_CYCLE.index(@lock_mode) || 0
-        @lock_mode = LOCK_CYCLE[(idx + 1) % LOCK_CYCLE.size]
-        @@last_lock_mode = @lock_mode
+      def toggle_mode(view)
+        @mode = @mode == :axis ? :auto : :axis
+        @@last_mode = @mode
+        clear_hover
+        update_vcb
+        view.invalidate
+      end
+
+      def cycle_axis(view)
+        idx = AXIS_CYCLE.index(@lock_axis) || 0
+        @lock_axis = AXIS_CYCLE[(idx + 1) % AXIS_CYCLE.size]
+        @@last_lock_axis = @lock_axis
         clear_hover
         update_vcb
         view.invalidate
@@ -4457,21 +4471,28 @@ module ASM_Extensions
       end
 
       def update_vcb
-        mode_label = case @lock_mode
-                     when :auto then Lang.commands.oealignoptimal.mode_auto
-                     when :z    then Lang.commands.oealignoptimal.mode_z
-                     when :x    then Lang.commands.oealignoptimal.mode_x
-                     when :y    then Lang.commands.oealignoptimal.mode_y
-                     end
-        hint = format(Lang.commands.oealignoptimal.vcb_hint.to_s, mode: mode_label.to_s)
-        Sketchup.set_status_text(hint, 0)
+        mode_label = @mode == :axis ? Lang.commands.oealigner.mode_axis : Lang.commands.oealigner.mode_auto
+        if @mode == :axis
+          axis_label = case @lock_axis
+                       when :z then Lang.commands.oealigner.axis_z
+                       when :x then Lang.commands.oealigner.axis_x
+                       when :y then Lang.commands.oealigner.axis_y
+                       end
+          desc = Lang.commands.oealigner.desc_axis.to_s
+          hint = format(Lang.commands.oealigner.vcb_hint_axis.to_s,
+                        mode: mode_label.to_s, axis: axis_label.to_s)
+        else
+          desc = Lang.commands.oealigner.desc_auto.to_s
+          hint = format(Lang.commands.oealigner.vcb_hint_auto.to_s, mode: mode_label.to_s)
+        end
+        Sketchup.set_status_text("#{desc}  |  #{hint}", 0)
       end
     end
 
-    def self.oealignoptimal
+    def self.oealigner
       model   = Sketchup.active_model
       targets = instances(model.selection)
-      model.select_tool(OEAlignOptimalTool.new(targets))
+      model.select_tool(OEAlignerTool.new(targets))
     end
 
     private_class_method :collect_vertices

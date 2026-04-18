@@ -11,8 +11,8 @@ module ASM_Extensions
               tooltip:          "Edge Vertex Placement",
               status:           "Place oriented copies at both vertices of each edge, with optional inward offset.",
               offset_prompt:    "Offset",
-              no_sample_hint:   "Click a component to use as sample",
-              no_geometry_hint: "Click on edges or faces to place copies at their vertices",
+              no_sample_hint:   "Click on a component",
+              no_geometry_hint: "Click on an edge or face",
               vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: insertion point (%<ip>s)  |  Tab: oriented axis (%<axis>s)  |  Alt: mode (%<mode>s)  |  ←/→: adjust offset (%<offset>s)  |  ↑/↓: adjust roll (%<roll>s)"
             },
             oecenter: {
@@ -20,8 +20,8 @@ module ASM_Extensions
               tooltip:          "Edge Center Placement",
               status:           "Place copies centered on edges with an optional offset along the edge.",
               offset_prompt:    "Offset",
-              no_sample_hint:   "Click a component to use as sample",
-              no_geometry_hint: "Click on edges or faces to place copies at their centers",
+              no_sample_hint:   "Click on a component",
+              no_geometry_hint: "Click on an edge or face",
               vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: insertion point (%<ip>s)  |  Tab: oriented axis (%<axis>s)  |  Alt: mode (%<mode>s)  |  ←/→: adjust offset (%<offset>s)  |  ↑/↓: adjust roll (%<roll>s)"
             },
             oezscale: {
@@ -29,16 +29,16 @@ module ASM_Extensions
               tooltip:          "Z-axis Scaling",
               status:           "Scale and place copies along edges with an offset from each vertex.",
               offset_prompt:    "Offset",
-              no_sample_hint:   "Click a component to use as sample",
-              no_geometry_hint: "Click on edges or faces to scale copies along them",
+              no_sample_hint:   "Click on a component",
+              no_geometry_hint: "Click on an edge or face",
               vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: insertion point (%<ip>s)  |  Tab: scaled axis (%<axis>s)  |  Alt: mode (%<mode>s)  |  ←/→: adjust offset (%<offset>s)  |  ↑/↓: adjust roll (%<roll>s)"
             },
             oeuscale: {
               label:            "Uniform Scaling",
               tooltip:          "Uniform Scaling",
               status:           "Scale uniformly and place copies along edges.",
-              no_sample_hint:   "Click a component to use as sample",
-              no_geometry_hint: "Click on edges or faces to scale copies along them",
+              no_sample_hint:   "Click on a component",
+              no_geometry_hint: "Click on an edge or face",
               vcb_hint:         "Ctrl: Add geometry to selection  |  Alt: mode (%<mode>s)  |  ↑/↓: adjust roll (%<roll>s)"
             },
             oeflow: {
@@ -46,8 +46,8 @@ module ASM_Extensions
               tooltip:          "Vertex Flow Placement",
               status:           "Place oriented copies at vertices, aligned to the incoming edge flow.",
               offset_prompt:    "Offset",
-              no_sample_hint:   "Click a component to use as sample",
-              no_geometry_hint: "Click on edges or faces to place copies at their vertices",
+              no_sample_hint:   "Click on a component",
+              no_geometry_hint: "Click on an edge or face",
               vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: insertion point (%<ip>s)  |  Tab: oriented axis (%<axis>s)  |  Alt: mode (%<mode>s)  |  ←/→: adjust offset (%<offset>s)  |  ↑/↓: adjust roll (%<roll>s)"
             },
             oesurface: {
@@ -55,22 +55,26 @@ module ASM_Extensions
               tooltip:          "Surface Placement",
               status:           "Place copies at the center of each smooth surface group, offset along the average normal.",
               offset_prompt:    "Offset",
-              no_sample_hint:   "Click a component to use as sample",
-              no_geometry_hint: "Click on faces to place copies on them",
+              no_sample_hint:   "Click on a component",
+              no_geometry_hint: "Click on a face",
               vcb_hint:         "Ctrl: Add geometry to selection  |  Shift: insertion point (%<ip>s)  |  Tab: oriented axis (%<axis>s)  |  Alt: orientation (%<orient>s)  |  ←/→: adjust offset (%<offset>s)  |  ↑/↓: adjust roll (%<roll>s)",
               axis_parallel:    "parallel to dominant edge",
               axis_perp:        "perpendicular to dominant edge",
               axis_ground:      "horizontal"
             },
-            oealignoptimal: {
-              label:     "Optimize Bounding Box",
-              tooltip:   "Optimize Bounding Box",
-              status:    "Reorients the component axes to minimize the bounding box volume.",
-              vcb_hint:  "Click: apply  |  Alt: mode (%<mode>s)  |  Esc: exit",
-              mode_auto: "auto",
-              mode_z:    "lock Z",
-              mode_x:    "lock X",
-              mode_y:    "lock Y"
+            oealigner: {
+              label:          "Axis Aligner",
+              tooltip:        "Axis Aligner",
+              status:         "Aligns the component axes to a face or edge.",
+              desc_axis:      "Click on an edge or face",
+              desc_auto:      "Click on a component",
+              vcb_hint_axis:  "Alt: mode (%<mode>s)  |  Tab: axis (%<axis>s)  |  Esc: exit",
+              vcb_hint_auto:  "Alt: mode (%<mode>s)  |  Esc: exit",
+              mode_axis:      "axis",
+              mode_auto:      "auto",
+              axis_z:         "Z",
+              axis_x:         "X",
+              axis_y:         "Y"
             },
             oereset: {
               label:    "Reset Rotations",

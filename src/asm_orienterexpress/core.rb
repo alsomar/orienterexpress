@@ -71,13 +71,13 @@ module ASM_Extensions
       cmd_oesurface = cmd
       @commands[:oesurface] = cmd
 
-      cmd = UI::Command.new(Lang.commands.oealignoptimal.label.to_s) { self.oealignoptimal_tool }
-      cmd.small_icon = self.icon("oeoptimal_24")
-      cmd.large_icon = self.icon("oeoptimal_32")
-      cmd.status_bar_text = Lang.commands.oealignoptimal.status
-      cmd.tooltip = Lang.commands.oealignoptimal.tooltip
-      cmd_oealignoptimal = cmd
-      @commands[:oealignoptimal] = cmd
+      cmd = UI::Command.new(Lang.commands.oealigner.label.to_s) { self.oealigner_tool }
+      cmd.small_icon = self.icon("oealigner_24")
+      cmd.large_icon = self.icon("oealigner_32")
+      cmd.status_bar_text = Lang.commands.oealigner.status
+      cmd.tooltip = Lang.commands.oealigner.tooltip
+      cmd_oealigner = cmd
+      @commands[:oealigner] = cmd
 
       cmd = UI::Command.new(Lang.commands.oereset.label.to_s) { self.oereset_tool }
       cmd.small_icon = self.icon("oereset_24")
@@ -105,7 +105,7 @@ module ASM_Extensions
       menu.add_item(cmd_oezscale)
       menu.add_item(cmd_oeuscale)
       menu.add_separator
-      menu.add_item(cmd_oealignoptimal)
+      menu.add_item(cmd_oealigner)
       menu.add_item(cmd_oereset)
       menu.add_separator
       menu.add_item(cmd_settings)
@@ -122,7 +122,7 @@ module ASM_Extensions
         menu.add_item(cmd_oezscale)
         menu.add_item(cmd_oeuscale)
         menu.add_separator
-        menu.add_item(cmd_oealignoptimal)
+        menu.add_item(cmd_oealigner)
         menu.add_item(cmd_oereset)
         menu.add_separator
         menu.add_item(cmd_settings)
@@ -138,7 +138,7 @@ module ASM_Extensions
       toolbar.add_item(cmd_oezscale)
       toolbar.add_item(cmd_oeuscale)
       toolbar.add_separator
-      toolbar.add_item(cmd_oealignoptimal)
+      toolbar.add_item(cmd_oealigner)
       toolbar.add_item(cmd_oereset)
       toolbar.add_separator
       toolbar.add_item(cmd_settings)
@@ -175,8 +175,8 @@ module ASM_Extensions
         ASM_Extensions::OrienterExpress.oesurface
       end
 
-      def self.oealignoptimal_tool
-        ASM_Extensions::OrienterExpress.oealignoptimal
+      def self.oealigner_tool
+        ASM_Extensions::OrienterExpress.oealigner
       end
 
       def self.oereset_tool
