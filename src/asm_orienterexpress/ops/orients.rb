@@ -3,8 +3,6 @@ module ASM_Extensions
 
     ### TRANSFORMATIONS ### -------------------------------------------------------
 
-    # Scales the entity along its local Z-axis to match the edge length.
-    # Only the Z column of the transformation matrix is modified.
     def self.z_scale(entity, edge, target_length = nil)
       return unless instance?(entity)
 
@@ -24,8 +22,6 @@ module ASM_Extensions
       entity.transformation = Geom::Transformation.new(a)
     end
 
-    # Scales the entity along its local X-axis to match the edge length.
-    # Only the X column of the transformation matrix is modified.
     def self.x_scale(entity, edge, target_length = nil)
       return unless instance?(entity)
 
@@ -43,8 +39,6 @@ module ASM_Extensions
       entity.transformation = Geom::Transformation.new(a)
     end
 
-    # Scales the entity along its local Y-axis to match the edge length.
-    # Only the Y column of the transformation matrix is modified.
     def self.y_scale(entity, edge, target_length = nil)
       return unless instance?(entity)
 
@@ -62,8 +56,6 @@ module ASM_Extensions
       entity.transformation = Geom::Transformation.new(a)
     end
 
-    # Scales all axes uniformly so that the Z extent matches the edge length.
-    # The ratio between X, Y, Z scales is preserved.
     def self.uniform_scale(entity, edge)
       return unless instance?(entity)
 
@@ -96,9 +88,7 @@ module ASM_Extensions
 
       unless rotation_axis
         if angle > Math::PI - 0.01
-          # Near-antiparallel (≥ ~179.4°): cross product is numerically unreliable —
-          # the residual may exceed the 1e-3 guard and silently suppress the rotation.
-          # Pick any perpendicular axis instead.
+          # Near-antiparallel: cross product unreliable, pick any perpendicular axis.
           rotation_axis = local_n.cross(X_AXIS)
           rotation_axis = local_n.cross(Y_AXIS) if rotation_axis.length < 1e-3
         else
@@ -106,16 +96,12 @@ module ASM_Extensions
         end
       end
 
-      # Use 1e-3 threshold so SketchUp's internal normalization always succeeds.
       return if rotation_axis.length < 1e-3
 
       rotation_transformation = Geom::Transformation.rotation(global_center, rotation_axis, angle)
       entity.transform!(rotation_transformation)
     end
 
-    # Rotates the entity around +rotation_axis+ so that +target_axis+ ends up
-    # parallel to the global ground plane (zero Z component).
-    # Generalization of orient_ground for axes other than local Z.
     def self.orient_ground_around(entity, rotation_axis, target_axis)
       tolerance = 1e-6
 
@@ -125,9 +111,7 @@ module ASM_Extensions
       rot_axis    = rotation_axis.normalize
       target_norm = target_axis.normalize
 
-      # When the rotation axis is vertical, all perpendicular axes are already
-      # ground-parallel — and rotating around a vertical axis cannot change any
-      # axis's Z component anyway, so there is nothing useful to do.
+      # Vertical rotation axis: can't change any axis's Z component.
       return if (rot_axis.z.abs - 1.0).abs < tolerance
 
       cross = rot_axis * target_norm
@@ -144,20 +128,14 @@ module ASM_Extensions
       entity.transform!(rotation)
     end
 
-    # Rotates the entity around its local Z axis so that the local Y axis
-    # ends up parallel to the global ground plane.
     def self.orient_y(entity)
       orient_ground(entity, entity.transformation.yaxis)
     end
 
-    # Rotates the entity around its local Z axis so that the local X axis
-    # ends up parallel to the global ground plane.
     def self.orient_x(entity)
       orient_ground(entity, entity.transformation.xaxis)
     end
 
-    # Rotates the entity around its local Z axis so that the given local axis
-    # ends up parallel to the global ground plane (zero Z component).
     def self.orient_ground(entity, local_axis)
       transformation = entity.transformation
       z_axis         = transformation.zaxis
@@ -169,8 +147,7 @@ module ASM_Extensions
       z_axis     = z_axis.normalize
       local_axis = local_axis.normalize
 
-      # When Z is parallel to world Z, all perpendicular axes are already
-      # ground-parallel — no rotation needed.
+      # Z parallel to world Z: perpendicular axes already ground-parallel.
       return if (z_axis.z.abs - 1.0).abs < tolerance
 
       cross = z_axis * local_axis
@@ -187,9 +164,6 @@ module ASM_Extensions
       entity.transform!(rotation)
     end
 
-    # Rotates the entity around its local Z axis so that the local Y axis
-    # aligns to the average flow direction of the edge's vertices, projected
-    # onto the plane perpendicular to Z. Falls back to orient_x if degenerate.
     def self.orient_to_flow(entity, edge, flow_map)
       z_axis     = entity.transformation.zaxis
       flow_start = flow_map[edge.start]
@@ -208,7 +182,6 @@ module ASM_Extensions
       end
       avg.normalize!
 
-      # Project onto plane perpendicular to local Z
       dot       = z_axis.dot(avg)
       proj_z    = Geom::Vector3d.new(z_axis.x * dot, z_axis.y * dot, z_axis.z * dot)
       projected = avg - proj_z
@@ -221,9 +194,7 @@ module ASM_Extensions
       target   = projected.normalize
       y_before = entity.transformation.yaxis.normalize
 
-      # Signed angle from y to target around z_axis (right-hand rule).
-      # angle_between always returns a positive value, so we compute
-      # the sign from the cross product projected onto z_axis.
+      # Signed angle: angle_between is unsigned, use cross · z_axis for sign.
       dot     = y_before.dot(target)
       cross   = y_before.cross(target)
       sin_val = cross.dot(z_axis.normalize)
@@ -235,16 +206,12 @@ module ASM_Extensions
       end
     end
 
-    # Rotates the entity around its local Z axis so that the local Y axis
-    # aligns to the averaged normal of the faces sharing the edge, projected
-    # onto the plane perpendicular to Z. Falls back to orient_x if degenerate.
-    # For naked vertical edges, orient_x is further refined by h_dir_map so
-    # the component faces the wall rather than defaulting to world X.
+    # Naked vertical edges are refined via h_dir_map so the component faces
+    # the wall rather than defaulting to world X.
     def self.orient_to_face_normal(entity, edge, h_dir_map = nil)
       normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }.map(&:normalize)
       if normals.empty?
         orient_x(entity)
-        # Naked vertical edge: use h_dir_map to orient toward the wall.
         z = entity.transformation.zaxis.normalize
         if (z.z.abs - 1.0).abs < 1e-3
           ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
@@ -273,9 +240,6 @@ module ASM_Extensions
       end
     end
 
-    # Rotates the entity around rot_axis_vec to align face_axis_vec toward the
-    # flow direction projected onto the plane perpendicular to rot_axis_vec.
-    # Used for X and Y scale axes in flow rotation mode.
     def self.orient_to_flow_around(entity, edge, flow_map, rot_axis_vec, face_axis_vec)
       flow_start = flow_map[edge.start]
       flow_end   = flow_map[edge.end]
@@ -313,9 +277,6 @@ module ASM_Extensions
       end
     end
 
-    # Rotates entity around rot_axis_vec so that face_axis_vec aligns toward
-    # the averaged face normal projected onto the plane perpendicular to rot_axis_vec.
-    # Used for X and Y scale axes in normal rotation mode.
     def self.orient_to_face_normal_around(entity, edge, rot_axis_vec, face_axis_vec)
       normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }.map(&:normalize)
       return if normals.empty?
@@ -340,13 +301,8 @@ module ASM_Extensions
       end
     end
 
-    # For a vertical edge (local Z ≈ world Z) in ground mode, orient_x is a no-op
-    # because every horizontal direction is already ground-parallel.  This method
-    # calls orient_x first, then — for vertical edges — tries to find a meaningful
-    # horizontal reference for local X:
-    #   1. Average face normal projected onto XY.
-    #   2. Average of connected-edge XY directions (geometric flow).
-    #   3. No rotation (world X remains — current default).
+    # For vertical edges orient_x is a no-op (all horizontal directions are
+    # already ground-parallel); fall back to h_dir_map for a meaningful X.
     def self.orient_x_ground(entity, edge = nil, h_dir_map = nil)
       orient_x(entity)
       return unless edge
@@ -356,29 +312,21 @@ module ASM_Extensions
       orient_x_to_horizontal(entity, ref) if ref
     end
 
-    # Returns a normalised horizontal (XY) reference vector for a vertical edge.
-    # Priority:
-    #   0. Propagated map built from full geometry (h_dir_map) — most reliable,
-    #      handles symmetric naked-edge meshes where simple averaging cancels.
-    #   1. Face normal XY projection.
-    #   2. XY average of connected non-self edges (local geometric flow).
-    #   Returns nil when all strategies are degenerate.
+    # Priority: propagated h_dir_map (handles symmetric naked-edge meshes where
+    # simple averaging cancels), then face normal XY, then connected-edge XY.
     def self.horizontal_ref_for_vertical_edge(edge, h_dir_map = nil)
-      # 0. Propagated map
       if h_dir_map
         [edge.start, edge.end].each do |v|
           d = h_dir_map[v]
-          return d if d   # already normalised XY
+          return d if d
         end
       end
-      # 1. Face normal XY projection
       normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }
       unless normals.empty?
         avg = normals.reduce(Geom::Vector3d.new(0, 0, 0)) { |s, n| s + n }
         ref = Geom::Vector3d.new(avg.x, avg.y, 0)
         return ref.normalize if ref.length > 1e-6
       end
-      # 2. XY average of connected non-self edges at both vertices
       sum = Geom::Vector3d.new(0, 0, 0)
       [edge.start, edge.end].each do |vertex|
         vertex.edges.each do |e|
@@ -393,8 +341,6 @@ module ASM_Extensions
       ref.length > 1e-6 ? ref.normalize : nil
     end
 
-    # Rotates entity around its current Z axis to align local X toward ref_h
-    # (only the XY component of ref_h is used).
     def self.orient_x_to_horizontal(entity, ref_h)
       ref_xy = Geom::Vector3d.new(ref_h.x, ref_h.y, 0)
       return if ref_xy.length < 1e-6
@@ -406,9 +352,6 @@ module ASM_Extensions
       entity.transform!(Geom::Transformation.rotation(entity.bounds.center, z, angle))
     end
 
-    # Rotates entity around its current X axis to align local Z toward ref_h
-    # (only the XY component of ref_h is used). Analogue of orient_x_to_horizontal
-    # for scale_axis=X.
     def self.orient_z_to_horizontal(entity, ref_h)
       ref_xy = Geom::Vector3d.new(ref_h.x, ref_h.y, 0)
       return if ref_xy.length < 1e-6
@@ -420,9 +363,6 @@ module ASM_Extensions
       entity.transform!(Geom::Transformation.rotation(entity.bounds.center, x, angle))
     end
 
-    # For scale_axis=X in ground mode: makes local Z ground-parallel (by rotating
-    # around X), then orients Z toward the face normal / h_dir_map reference.
-    # Analogue of orient_x_ground for the X-axis scale case.
     def self.orient_z_ground(entity, edge = nil, h_dir_map = nil)
       orient_ground_around(entity, entity.transformation.xaxis, entity.transformation.zaxis)
       return unless edge
@@ -430,9 +370,6 @@ module ASM_Extensions
       orient_z_to_horizontal(entity, ref) if ref
     end
 
-    # For scale_axis=Y in ground mode: makes local Z ground-parallel (by rotating
-    # around Y), then orients Z toward the face normal / h_dir_map reference.
-    # Analogue of orient_z_ground but rotates around Y instead of X.
     def self.orient_y_ground(entity, edge = nil, h_dir_map = nil)
       orient_ground_around(entity, entity.transformation.yaxis, entity.transformation.zaxis)
       return unless edge
@@ -449,60 +386,32 @@ module ASM_Extensions
     end
 
     # Infers a surface normal for a naked edge (no face) for base placement.
-    #
-    # Near-vertical edges (walls): returns the horizontal XY reference from
-    # h_dir_map / connected edges (same direction used for X-axis orientation).
-    #
-    # Horizontal/oblique edges (floor/ceiling): uses the Z component of the 3D
-    # vertex flow direction to determine sign.  A vertex whose connected vertical
-    # edges point downward (neighbor above) lies on a bottom surface → normal -Z;
-    # one whose vertical edges point upward (neighbor below) lies on a top surface
-    # → normal +Z.  Returns nil when the sign is indeterminate (no vertical
-    # connectivity), so callers fall back to world +Z.
+    # Vertical edges → horizontal XY reference (wall). Horizontal/oblique edges
+    # use the vertex flow's Z sign for cap surfaces, falling back to h_dir_map /
+    # z_sign_map / connected-edge XY. Known limitation: rim vertices (wall/cap
+    # junction) get ±Z instead of the bisector.
     def self.naked_edge_surface_normal(edge, h_dir_map = nil, z_sign_map = nil)
       dir = (edge.end.position - edge.start.position).normalize
       if dir.z.abs > 0.7
-        # Near-vertical edge → surface is a wall → use horizontal reference.
         horizontal_ref_for_vertical_edge(edge, h_dir_map)
       else
-        # Horizontal/oblique edge. Determine whether it belongs to a cap
-        # (floor/ceiling) or a lateral ring (vertical wall):
-        #   - Cap vertex:    3D flow has significant Z → use ±Z.
-        #   - Lateral vertex: 3D flow Z ≈ 0 → surface normal is horizontal
-        #                     → use h_dir_map or connected-edge XY average.
-        # We compute the DIRECT (non-propagated) flow for both endpoints and
-        # pick the first one that gives a clear answer.
         [edge.start, edge.end].each do |vertex|
           d = vertex_flow_direction(vertex, vertex.edges.to_a)
           if d && d.z.abs > 0.3
-            # Cap vertex with clear vertical flow → ±Z.
-            # Known limitation: rim vertices (where wall meets cap) also fall
-            # here and receive ±Z instead of the wall/cap bisector.  Fixing
-            # this requires distinguishing rim from interior cap, which proved
-            # error-prone when h_dir_map is used as the discriminator (interior
-            # cap vertices can appear in h_dir_map via XY flow from asymmetric
-            # topology).  Left as a known edge case for naked-edge meshes.
             return Geom::Vector3d.new(0, 0, d.z > 0 ? 1 : -1)
           end
-          # Lateral wall vertex or no flow → prefer horizontal reference.
           ref = h_dir_map && h_dir_map[vertex]
           return ref if ref
-          # No h_dir_map entry: use propagated ±Z from z_sign_map only when
-          # the vertex has no horizontal reference (avoids giving ±Z to wall
-          # ring vertices that have an h_dir_map entry).
-          next if d && d.z.abs <= 0.3  # has flow but it's lateral — skip z_sign
+          next if d && d.z.abs <= 0.3  # lateral flow — don't promote to ±Z
           ref = z_sign_map && z_sign_map[vertex]
           return ref if ref
         end
-        # Last resort: XY geometry of connected edges (works for wall edges).
         horizontal_ref_for_vertical_edge(edge, h_dir_map)
       end
     end
 
-    # Builds a vertex → (0,0,±1) map for horizontal-surface base placement.
-    # Vertices connected to vertical edges get their ±Z sign from the 3D flow
-    # direction; interior vertices (no vertical connectivity) receive the sign
-    # via BFS propagation along all connected edges.
+    # Vertex → (0,0,±1) map. Sign from vertex flow for vertices on vertical
+    # edges; propagated via BFS to interior vertices without vertical connectivity.
     def self.vertical_surface_directions(vertex_edges)
       reliable = {}
       pending  = {}
@@ -532,18 +441,14 @@ module ASM_Extensions
                          :orient_z_to_horizontal, :orient_z_ground, :orient_y_ground,
                          :naked_edge_surface_normal, :vertical_surface_directions
 
-    # Builds a vertex → normalised XY direction map from a vertex_edges hash.
-    # Mirrors all_vertex_flow_directions (same three strategies + BFS sign fix)
-    # but projects the final 3D directions onto XY, discarding any result whose
-    # XY component is negligible (e.g. vertical normals from flat floor meshes).
+    # Mirrors all_vertex_flow_directions but projects to XY, discarding entries
+    # whose XY component is negligible (e.g. vertical normals from flat meshes).
     def self.horizontal_flow_directions(vertex_edges)
       reliable   = {}
       candidates = {}
 
-      # Use ALL edges connected to each vertex (not just selected ones) so
-      # that corner vertices get their true outward direction from face edges,
-      # and strategy 3 can find non-parallel pairs even when only vertical
-      # edges were selected.
+      # Use ALL edges per vertex (not only selected ones) so corner vertices
+      # get their true outward direction and strategy 3 finds non-parallel pairs.
       vertex_edges.each_key do |vertex|
         all_edges = vertex.edges.to_a
         d = vertex_flow_direction(vertex, all_edges)
@@ -567,10 +472,8 @@ module ASM_Extensions
         end
       end
 
-      # BFS: propagate sign from reliable to candidates.
-      # Traverse ALL edges connected to each vertex so the signal can reach
-      # inner vertices even when only a subset of edges is selected.
-      # Only candidates (vertices from the selected geometry) are updated.
+      # BFS sign propagation from reliable to candidates via ALL connected
+      # edges (so the signal reaches inner vertices with partial selections).
       visited = reliable.keys.dup
       queue   = reliable.keys.dup
       until queue.empty?
@@ -590,7 +493,6 @@ module ASM_Extensions
         end
       end
 
-      # Project to XY; discard entries with negligible horizontal component.
       result = {}
       reliable.merge(candidates).each do |vertex, dir|
         xy = Geom::Vector3d.new(dir.x, dir.y, 0)
@@ -600,8 +502,7 @@ module ASM_Extensions
     end
     private_class_method :horizontal_flow_directions
 
-    # Returns [along, perp]: the longest edge direction and its perpendicular,
-    # both lying in the face plane. Returns nil if the face is degenerate.
+    # Returns [along, perp] in the face plane, or nil if degenerate.
     def self.face_longest_edge_axes(face)
       longest = face.edges.max_by(&:length)
       return nil unless longest
@@ -616,9 +517,7 @@ module ASM_Extensions
       [along, perp]
     end
 
-    # Rotates entity around its local Z axis so that its X axis aligns to
-    # the longest edge direction (axis_idx=0) or its perpendicular (axis_idx=1).
-    # Falls back to orient_x if the face is degenerate.
+    # axis_idx=0 → longest edge direction, axis_idx=1 → its perpendicular.
     def self.orient_to_face_edge(entity, face, axis_idx, scale_axis = :z)
       axes = face_longest_edge_axes(face)
       return orient_x(entity) unless axes
@@ -672,42 +571,35 @@ module ASM_Extensions
                  instance.transformation.yaxis, edge_vector.normalize)
     end
 
-    # Parses a length string, falling back to stripping spaces (SketchUp 2017
-    # cannot parse "0 mm" but can parse "0mm"). Returns nil if unparseable.
+    # SketchUp 2017 can't parse "0 mm" but can parse "0mm"; also accepts plain
+    # numeric strings stored in CONFIG (inches).
     def self.parse_length_safe(text)
       result = Sketchup.parse_length(text) rescue nil
       result = Sketchup.parse_length(text.delete(' ')) rescue nil if result.nil?
-      # Last resort: plain numeric string stored in CONFIG (value in inches)
       result = text.to_f if result.nil? && text =~ /\A-?[\d.]+\z/
       result
     end
 
-    # Returns a display string for an offset value in the model's current units.
-    # Persists the raw numeric value (in inches) to config so it survives unit changes.
+    # Persists the raw inches value so offsets survive unit changes.
     def self.format_and_persist_offset(value, config_key)
       OrienterExpress.user_settings(config_key => value.to_s)
       Sketchup.format_length(value)
     end
 
-    # Reads a persisted offset from CONFIG, converting a raw numeric string if needed.
     def self.load_offset_str(config_key)
       raw = CONFIG[config_key]
       return Sketchup.format_length(0) unless raw
-      # If stored as plain number (inches), convert to current model units
       return Sketchup.format_length(raw.to_f) if raw =~ /\A-?[\d.]+\z/
       raw
     end
 
-    # Returns the effective insertion mode for a tool from per-tool config.
     def self.resolved_insertion_point(tool_key)
       custom = CONFIG[:insertion_point_custom]
       (custom.is_a?(Hash) && custom[tool_key]) || 'center'
     end
 
-    # Moves the entity so the given insertion point lands on the target.
-    #   insertion_point: :origin, :base, or :center (default)
-    #   scale_axis:      :x, :y, or :z/:nil — determines which face is "base"
-    #     :x → min-X face center, :y → min-Y face center, else → min-Z face center
+    # insertion_point: :origin, :base, or :center.
+    # scale_axis picks which face is the "base": :x → min-X, :y → min-Y, else → min-Z.
     def self.move_insertion_to(entity, point, insertion_point, scale_axis = nil)
       entity_ref = case insertion_point
                    when :origin
@@ -726,7 +618,6 @@ module ASM_Extensions
       entity.transform!(Geom::Transformation.translation(point - entity_ref))
     end
 
-    # Returns the centroid of a face as the average position of its outer loop vertices.
     def self.face_centroid(face)
       verts = face.outer_loop.vertices
       n = verts.length.to_f
@@ -736,10 +627,8 @@ module ASM_Extensions
       Geom::Point3d.new(x, y, z)
     end
 
-    # Returns the flow direction for a single vertex using reliable strategies only:
-    #   1. Sum of unit vectors from neighbors to vertex (asymmetric nodes).
-    #   2. Average normal of connected faces (symmetric nodes on a surface).
-    # Returns nil when both strategies cancel out or yield no usable data.
+    # Two reliable strategies: sum of unit vectors from neighbors (for asymmetric
+    # nodes), then average face normal (for symmetric nodes on a surface).
     def self.vertex_flow_direction(vertex, edges)
       dirs = []
       edges.each do |edge|
@@ -751,11 +640,9 @@ module ASM_Extensions
 
       return nil if dirs.empty?
 
-      # 1. Sum of direction vectors.
       sum = Geom::Vector3d.new(dirs.inject(0.0) { |s, v| s + v.x }, dirs.inject(0.0) { |s, v| s + v.y }, dirs.inject(0.0) { |s, v| s + v.z })
       return sum.normalize if sum.length > 1e-6
 
-      # 2. Average normals of connected faces.
       face_normals  = []
       seen_face_ids = {}
       edges.each do |edge|
@@ -778,15 +665,10 @@ module ASM_Extensions
       nil
     end
 
-    # Computes flow directions for every vertex in the map, combining all three
-    # strategies and propagating sign from reliable vertices to ambiguous ones.
-    #
-    # Strategy 3 (cross product of coplanar edges) gives a perpendicular direction
-    # but with arbitrary sign. A BFS pass from reliable vertices (strategies 1+2)
-    # corrects the sign of any candidate whose plane normal has a measurable
-    # component along a neighbouring reliable direction — e.g. cube corners
-    # anchoring the orientation of adjacent symmetric faces.
-    # Candidates with no reachable reliable neighbour keep their arbitrary sign.
+    # Strategy 3 (cross product of coplanar edges) gives a perpendicular of
+    # arbitrary sign; a BFS pass from reliable vertices (strategies 1+2) fixes
+    # candidates whose plane normal has a component along a reliable neighbour.
+    # Unreached candidates keep their arbitrary sign.
     def self.all_vertex_flow_directions(vertex_edges)
       reliable   = {}   # vertex => direction  (sign is correct)
       candidates = {}   # vertex => direction  (sign may be flipped)
@@ -843,22 +725,13 @@ module ASM_Extensions
 
     ### MAIN TOOLS ### ------------------------------------------------------------
 
-    # Base class for interactive placement tools (OEVertex, OECenter, OEZScale,
-    # OEFlow, OESurface). Handles selection watching, VCB, modifier keys, cursor,
-    # click routing, and key repeating. Subclasses implement the placement logic
-    # via hook methods: apply, render_vcb, handle_key, on_drag, and others.
     class OEPlacementTool
 
-      # Tracks the currently active placement tool instance so that
-      # user_settings changes (e.g. insertion_point from the settings dialog)
-      # can be pushed to the running tool without requiring a restart.
       @active_instance = nil
       class << self
         attr_accessor :active_instance
       end
 
-      # Called by OrienterExpress.user_settings when config changes while the
-      # tool is running.  Re-reads insertion_point from config if it changed.
       def on_config_changed(changed)
         return unless changed.key?(:insertion_point_custom)
         key = debug_tool_name.to_sym
@@ -1011,7 +884,7 @@ module ASM_Extensions
         case key
         when 17 then @mod_ctrl  = true
         when 16 then @mod_shift = true
-        when 18 then @alt_handled = false  # reset guard on each new press
+        when 18 then @alt_handled = false
         else
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
@@ -1019,12 +892,12 @@ module ASM_Extensions
         update_cursor
         view.invalidate
         case key
-        when 16 # Shift — cycle insertion point (only when not clicking or combining with Ctrl)
+        when 16
           handle_ins_key unless @lbutton_down || @mod_ctrl
-        when 18 # Alt — cycle mode
+        when 18
           handle_mode_key
           @alt_handled = true
-        when 27 # Esc
+        when 27
           if @applied
             @model.start_operation(cancel_op_name, true)
             @previous_entities.each { |e| e.erase! if e.valid? }
@@ -1033,7 +906,7 @@ module ASM_Extensions
             @applied = false
           end
           @model.select_tool(nil)
-        when 37, 39 # Left/Right — adjust offset
+        when 37, 39
           dir = key == 39 ? +1 : -1
           unless @arrow_key_dir == dir
             scroll_offset(dir)
@@ -1042,7 +915,7 @@ module ASM_Extensions
             gen = @key_repeat_gen
             UI.start_timer(0.7, false) { key_repeat(dir, gen) }
           end
-        when 38, 40 # Up/Down — adjust roll by 15°
+        when 38, 40
           dir = key == 38 ? +1 : -1
           unless @roll_key_dir == dir
             scroll_roll(dir)
@@ -1051,7 +924,7 @@ module ASM_Extensions
             gen = @roll_key_rep_gen
             UI.start_timer(0.7, false) { key_repeat_roll(dir, gen) }
           end
-        when 36 # Home — reset offset and roll to defaults
+        when 36
           @roll_angle = CONFIG[:default_roll].to_f.degrees
           update_vcb
           apply(CONFIG[:default_offset].to_s.empty? ? Sketchup.format_length(0) : CONFIG[:default_offset].to_s)
@@ -1064,7 +937,8 @@ module ASM_Extensions
         case key
         when 17 then @mod_ctrl  = false
         when 16 then @mod_shift = false
-        when 18 # Alt — fallback if key-down was swallowed by the OS
+        when 18
+          # Fallback in case key-down Alt was swallowed by the OS.
           handle_mode_key unless @alt_handled
           @alt_handled = false
         else
@@ -1079,25 +953,13 @@ module ASM_Extensions
 
       private
 
-      # Hook: tool-specific cleanup on deactivate (e.g. clear @skipped_edges)
       def on_deactivate; end
-
-      # Hook: tool-specific key handling (Tab, etc.)
       def handle_key(_key); end
-
-      # Hook: Alt keypress — cycle scale/orientation axis
       def handle_axis_key; end
-
-      # Hook: Shift keypress — cycle insertion point
       def handle_ins_key; end
-
-      # Hook: Shift keypress without mouse button — cycle rotation mode or equivalent
       def handle_mode_key; end
-
-      # Hook: drag behaviour in onMouseMove
       def on_drag(_ctrl, _shift, _view, _x, _y); end
 
-      # Hook: operation name used when Esc cancels placed entities
       def cancel_op_name
         "Orienter Express: Cancel"
       end
@@ -1124,8 +986,6 @@ module ASM_Extensions
         ph.best_picked
       end
 
-      # Default: edges from entity (Face → edges, Edge → [edge]).
-      # Overridden by OESurfaceTool to return faces.
       def pick_geometry_from_entity(entity)
         case entity
         when Sketchup::Edge then [entity]
@@ -1133,7 +993,6 @@ module ASM_Extensions
         end
       end
 
-      # Default: edge-based flood fill. Overridden by OESurfaceTool.
       def connected_geometry(entity)
         start_items = pick_geometry_from_entity(entity)
         return nil unless start_items
@@ -1164,8 +1023,6 @@ module ASM_Extensions
         handle_geometry_click(ctrl, shift, view, x, y, click_type)
       end
 
-      # Default geometry-click handler (edge tools: Vertex, Center, ZScale).
-      # OEFlowTool uses this unchanged; OESurfaceTool overrides it.
       def handle_geometry_click(ctrl, shift, view, x, y, click_type)
         raw  = pick_entity(view, x, y)
         best = @placement_map.key?(raw) ? @placement_map[raw] : raw
@@ -1198,8 +1055,6 @@ module ASM_Extensions
         sync_selection
       end
 
-      # Hook: called after geometry set changes (e.g. rebuild flow map).
-      # Base implementation rebuilds the horizontal-direction map for ground mode.
       def on_geometry_changed
         rebuild_h_dir_map if @rotation_mode != :flow
       end
@@ -1248,15 +1103,11 @@ module ASM_Extensions
         @syncing = false
       end
 
-      # Hook: collect geometry items from the current selection.
-      # Overridden by OESurfaceTool to collect faces instead of edges.
       def collect_geometry_from_selection(selection)
         (selection.grep(Sketchup::Edge) +
          selection.grep(Sketchup::Face).flat_map(&:edges)).uniq.select(&:valid?)
       end
 
-      # Hook: react to an external selection change when entity_def is set.
-      # Default does a full re-apply; edge tools override to use apply_diff.
       def on_selection_changed(_new_set, _old_set)
         apply(self.class.last_offset_str)
       end
@@ -1282,14 +1133,10 @@ module ASM_Extensions
         render_vcb
       end
 
-      # Hook: fill in VCB labels/hints when entity_def is set.
       def render_vcb; end
 
-      # Hook: tool name for debug state line (override in subclasses).
       def debug_tool_name; "unknown"; end
 
-      # Logs a compact state line to the Ruby Console when debug_mode is on,
-      # but only when the state has actually changed since the last log.
       def debug_state
         return unless Debug.enabled
         parts  = []
@@ -1304,20 +1151,14 @@ module ASM_Extensions
         Debug.log(self.class, :state, line)
       end
 
-      # Hook: status text when no sample component is selected yet.
       def no_sample_hint;   ""; end
-
-      # Hook: short description shown as prefix when no geometry is selected yet.
       def no_geometry_hint; ""; end
 
-      # Prepends no_geometry_hint as a permanent description before the key hints.
       def build_status(hint_str)
         pfx = no_geometry_hint
         pfx.empty? ? hint_str : "#{pfx}  |  #{hint_str}"
       end
 
-      # Returns the roll axis: the entity axis aligned to the placement direction
-      # (edge inward direction or face normal). Follows @scale_axis if defined.
       def roll_axis(entity_copy)
         t = entity_copy.transformation
         case @scale_axis
@@ -1330,9 +1171,8 @@ module ASM_Extensions
       def apply_roll(entity_copy)
         return if @roll_angle.nil? || @roll_angle.abs < 1e-10
         axis = roll_axis(entity_copy)
-        # Canonicalize: always treat the axis as if its dominant component is positive.
-        # Rotating by -θ around -v = rotating by +θ around v, so the visual direction
-        # is the same for all edges regardless of which way SketchUp oriented them.
+        # Canonicalize sign: rotating by -θ around -v == +θ around v, so flipping
+        # the axis keeps the visual roll direction consistent across edges.
         n    = axis.normalize
         sign = if    n.x.abs >= n.y.abs && n.x.abs >= n.z.abs then n.x >= 0 ? 1 : -1
                 elsif n.y.abs >= n.z.abs                         then n.y >= 0 ? 1 : -1
@@ -1349,12 +1189,8 @@ module ASM_Extensions
         "#{deg_str} deg"
       end
 
-      # Returns which local axis symbol (:x, :y, or nil=z) of entity_copy is
-      # most aligned to reference_vec, taking sign into account so that
-      # move_insertion_to's min.{axis} always lands on the correct face.
-      # Only valid when reference_vec is the direction the scale_axis
-      # was originally aligned to (i.e. OESurfaceTool, where scale_axis
-      # stays aligned to normal after all orientations).
+      # reference_vec must be the direction scale_axis was originally aligned
+      # with (OESurfaceTool territory), so min.{axis} lands on the correct face.
       def axis_most_aligned_to(entity_copy, reference_vec)
         return @scale_axis unless reference_vec && reference_vec.length > 1e-6
         t   = entity_copy.transformation
@@ -1368,14 +1204,11 @@ module ASM_Extensions
         end
       end
 
-      # Places entity_copy so the bounding-box face most in the -normal direction
-      # (closest to the surface) lands at target. Works regardless of roll steps
-      # because it operates entirely in world space.
       def move_base_to_surface(entity_copy, target, surface_normal)
         n   = surface_normal.normalize
         t   = entity_copy.transformation
         db  = entity_copy.definition.bounds
-        # Use definition corners transformed to world space (oriented BB, not AABB)
+        # Oriented BB (world-space corners of definition BB), not an AABB.
         world_corners = 8.times.map { |i| t * db.corner(i) }
         dot_n = ->(pt) { pt.x * n.x + pt.y * n.y + pt.z * n.z }
         min_proj  = world_corners.map { |p| dot_n.call(p) }.min
@@ -1384,12 +1217,10 @@ module ASM_Extensions
         entity_copy.transform!(Geom::Transformation.translation(target - base_pt))
       end
 
-      # For edge tools in base mode: use world-space OBB projection so the result
-      # is correct at all roll steps (sign-safe).
-      # Priority: face normal → naked_edge_surface_normal → +Z (ground/flow only).
-      # Normal mode without a face normal falls back to move_insertion_to since
-      # there is no reliable surface direction to infer.
-      # Other insertion points fall back to move_insertion_to with @scale_axis.
+      # Base mode uses world-space OBB projection so the result is correct at
+      # all roll steps. Surface priority: face normal → naked_edge_surface_normal
+      # → +Z (ground/flow only). Normal mode without a face normal, and every
+      # other insertion point, fall through to move_insertion_to.
       def place_with_insertion(entity_copy, target, edge_normal_vec = nil, edge = nil)
         if @insertion_point == :base
           surface_dir = edge_normal_vec ||
@@ -1405,7 +1236,6 @@ module ASM_Extensions
         end
       end
 
-      # Returns the averaged face normal for an edge, or nil if the edge has no faces.
       def avg_face_normal_for_edge(edge)
         normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }
         return nil if normals.empty?
@@ -1440,10 +1270,9 @@ module ASM_Extensions
         @flow_map = OrienterExpress.send(:all_vertex_flow_directions, vertex_edges)
       end
 
-      # Builds @h_dir_map: vertex → normalised XY direction for ground-mode
-      # orientation of vertical edges.  Uses horizontal_flow_directions which
-      # works purely in XY and propagates reliable directions via BFS to
-      # symmetric vertices where simple averaging cancels.
+      # XY direction per vertex for ground-mode orientation of vertical edges.
+      # Delegates to horizontal_flow_directions, which BFS-propagates reliable
+      # directions to symmetric vertices where simple averaging would cancel.
       def rebuild_h_dir_map
         return unless @geometry
         vertex_edges = {}
@@ -1459,10 +1288,6 @@ module ASM_Extensions
 
     end
 
-    # Interactive tool for Edge Vertex Placement.
-    # Places two copies per edge (one at each vertex), with the active axis
-    # pointing inward along the edge direction, offset along the edge from
-    # the vertex. Supports Tab (cycle axis) and End (cycle rotation mode).
     class OEVertexTool < OEPlacementTool
 
       def self.cursor_id(variant = :default)
@@ -1565,8 +1390,7 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis
-          handle_axis_key
+        when 9 then handle_axis_key
         end
       end
 
@@ -1730,10 +1554,6 @@ module ASM_Extensions
       )
     end
 
-    # Interactive tool for Edge Center Placement.
-    # Places a copy of the component at the midpoint of each selected edge,
-    # offset along the edge direction. Supports Tab (cycle axis) and
-    # End (cycle rotation mode), identical to OEZScaleTool but without scaling.
     class OECenterTool < OEPlacementTool
 
       def self.cursor_id(variant = :default)
@@ -1836,8 +1656,7 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis
-          handle_axis_key
+        when 9 then handle_axis_key
         end
       end
 
@@ -1995,10 +1814,6 @@ module ASM_Extensions
     end
 
 
-    # Tool class for interactive Z-Scaling.
-    # The user adjusts the offset via the VCB; each Enter re-applies the
-    # operation so the result updates in real time.
-    # Escape undoes the last preview and exits. Switching tools commits.
     class OEZScaleTool < OEPlacementTool
 
       def self.cursor_id(variant = :default)
@@ -2102,8 +1917,7 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis
-          handle_axis_key
+        when 9 then handle_axis_key
         end
       end
 
@@ -2240,11 +2054,10 @@ module ASM_Extensions
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         apply_roll(entity_copy)
         if @insertion_point == :base
-          # Step 1 — center the component along the scale axis (same as :center mode).
           OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, :center, @scale_axis)
-          # Step 2 — project the "up" reference onto the cross-section plane (⊥ to scale axis).
-          # All modes use the face normal when available so the base lands on the correct side
-          # of the surface (floor, ceiling, wall). Falls back to world +Z for naked edges.
+          # Project the "up" reference onto the cross-section plane (⊥ scale axis),
+          # so base lands on the correct side of the surface regardless of mode.
+          # Face normal first; fall back to naked_edge_surface_normal, then world +Z.
           scale_axis_world = roll_axis(entity_copy).normalize
           ref_up  = avg_face_normal_for_edge(edge)
           ref_up ||= OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)
@@ -2255,9 +2068,8 @@ module ASM_Extensions
             ref_up.y - scale_axis_world.y * s,
             ref_up.z - scale_axis_world.z * s
           )
-          # Step 3 — shift in the cross-section plane so the "base" face (lowest in
-          # the up_perp direction) lands at midpoint. Skipped for vertical edges where
-          # up_perp degenerates to zero (cross-section has no defined "down").
+          # up_perp degenerates to zero on vertical edges (no defined "down" in
+          # cross-section) — skip the base adjustment there.
           move_base_to_surface(entity_copy, midpoint, up_perp) if up_perp.length > 1e-6
         else
           OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
@@ -2303,7 +2115,6 @@ module ASM_Extensions
         end
       end
 
-      # No persistent offset — always zero, setter is a no-op
       def self.last_offset_str
         Sketchup.format_length(0)
       end
@@ -2321,7 +2132,7 @@ module ASM_Extensions
 
       private
 
-      def scroll_offset(_dir); end  # no offset concept for uniform scale
+      def scroll_offset(_dir); end
 
       def on_drag(ctrl, shift, view, x, y)
         return unless @lbutton_down && @drag_mode && ctrl
@@ -2477,9 +2288,6 @@ module ASM_Extensions
       model.select_tool(OEUScaleTool.new(edges, entity, flow_map, rotation_mode))
     end
 
-    # Tool class for interactive Flow Placement.
-    # Places components at edge vertices aligned to the flow direction.
-    # The user adjusts an offset along the flow direction via the VCB or arrow keys.
     class OEFlowTool < OEPlacementTool
 
       def self.last_offset_str
@@ -2517,12 +2325,11 @@ module ASM_Extensions
         modify_geometry(@drag_mode, picked) if picked
       end
 
-      # OEFlow always does a full re-apply on external selection change
       def on_selection_changed(_new_set, _old_set)
         apply(OEFlowTool.last_offset_str)
       end
 
-      # OEFlow sync_selection does not include full_faces
+      # Flow tool deliberately does not add full_faces to the selection.
       def sync_selection
         source    = (@source_entity && @source_entity.valid?) ? [@source_entity] : []
         target    = (@geometry.select(&:valid?) + source).to_set
@@ -2539,8 +2346,7 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis
-          handle_axis_key
+        when 9 then handle_axis_key
         end
       end
 
@@ -2611,7 +2417,6 @@ module ASM_Extensions
             entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
             t           = entity_copy.transformation
 
-            # Align primary axis to flow direction
             case @scale_axis
             when :x
               OrienterExpress.send(:align_axis, entity_copy, t.origin, t.xaxis, direction)
@@ -2621,10 +2426,8 @@ module ASM_Extensions
               OrienterExpress.send(:align_axis, entity_copy, t.origin, t.zaxis, direction)
             end
 
-            # Representative edge for rotation modes that need an edge reference
             rep_edge = vertex_edges[vertex] ? vertex_edges[vertex].first : nil
 
-            # Secondary orientation (rotation mode)
             case @rotation_mode
             when :flow
               if rep_edge
@@ -2721,10 +2524,6 @@ module ASM_Extensions
       )
     end
 
-    # Tool class for interactive Surface Placement.
-    # Places one component instance per smooth-connected face group, using the
-    # area-weighted average normal and a ray-projected contact point so that
-    # placement lands on the surface rather than inside curved geometry.
     class OESurfaceTool < OEPlacementTool
 
       def self.last_offset_str
@@ -2782,7 +2581,6 @@ module ASM_Extensions
         visited.keys
       end
 
-      # Single click expands the picked face/edge to its full soft group.
       def pick_geometry_from_entity(entity)
         case entity
         when Sketchup::Face
@@ -2792,7 +2590,6 @@ module ASM_Extensions
         end
       end
 
-      # Double-click flood-fill via all edges (selects all connected geometry).
       def connected_geometry(entity)
         start_faces = pick_geometry_from_entity(entity)
         return nil unless start_faces
@@ -2846,8 +2643,7 @@ module ASM_Extensions
          selection.grep(Sketchup::Edge).flat_map(&:faces)).uniq.select(&:valid?)
       end
 
-      # External selection changes trigger a full re-apply because group
-      # boundaries depend on the full set of selected faces.
+      # Full re-apply: group boundaries depend on the full set of selected faces.
       def on_selection_changed(_new_set, _old_set)
         apply(OESurfaceTool.last_offset_str)
       end
@@ -2870,8 +2666,7 @@ module ASM_Extensions
 
       def handle_key(key)
         case key
-        when 9 # Tab — cycle axis
-          handle_axis_key
+        when 9 then handle_axis_key
         end
       end
 
@@ -2917,7 +2712,6 @@ module ASM_Extensions
         debug_state
       end
 
-      # No incremental diff — always do a full re-apply.
       def apply_diff(_added, _removed, _offset)
         apply(OESurfaceTool.last_offset_str)
       end
@@ -2954,7 +2748,6 @@ module ASM_Extensions
         end
       end
 
-      # Partition @geometry into non-overlapping soft groups.
       def compute_groups
         geo_set  = @geometry.to_set
         assigned = {}
@@ -2969,10 +2762,6 @@ module ASM_Extensions
         groups
       end
 
-      # Place one entity copy for a smooth group using the area-weighted
-      # average normal and centroid of the group's faces.
-      # Returns silently if the geometry is degenerate (e.g. zero-length
-      # average normal on a full cylinder where normals cancel out).
       def place_for_group(group_faces, offset)
         valid = group_faces.select(&:valid?)
         return if valid.empty?
@@ -2994,23 +2783,18 @@ module ASM_Extensions
         avg_normal = Geom::Vector3d.new(nx / total_area, ny / total_area, nz / total_area)
         return if avg_normal.length < 1e-6
 
-        # Area-weighted centroid — correct for flat groups, but may fall
-        # inside the geometry for curved surfaces (e.g. a cylinder segment).
+        # Area-weighted centroid is correct for flat groups but may fall inside
+        # the geometry on curved surfaces — below we project it onto the nearest
+        # face plane along avg_normal so placement lands on the surface.
         avg_centroid = Geom::Point3d.new(cx / total_area, cy / total_area, cz / total_area)
 
-        # Surface contact point: project avg_centroid onto the surface along
-        # avg_normal. For each face we solve where the ray
-        #   avg_centroid + t * avg_normal
-        # crosses the face plane; the crossing with the smallest |t| is the
-        # surface point closest to avg_centroid along the normal direction.
-        # For flat groups t ≈ 0 so contact ≈ avg_centroid.
         n = avg_normal.normalize
         contact   = avg_centroid
         min_abs_t = Float::INFINITY
 
         valid.each do |face|
           denom = face.normal.dot(n)
-          next if denom.abs < 1e-6   # face plane parallel to avg_normal
+          next if denom.abs < 1e-6
 
           fc    = OrienterExpress.send(:face_centroid, face)
           ray_t = face.normal.dot(fc - avg_centroid) / denom
@@ -3031,7 +2815,6 @@ module ASM_Extensions
         else         OrienterExpress.align_axis(entity_copy, t.origin, t.zaxis, avg_normal)
         end
 
-        # Use the largest face in the group for edge-based orientation
         primary = valid.max_by(&:area)
         if @axis_idx == 2
           OrienterExpress.orient_x(entity_copy)
@@ -3046,8 +2829,8 @@ module ASM_Extensions
         @previous_entities << entity_copy
         @placement_map[entity_copy] = primary
       rescue
-        # Degenerate geometry (zero-length vector, cancelled normals, etc.)
-        # — skip this group silently so the rest of the placement continues.
+        # Skip degenerate groups (cancelled normals, zero-length vectors, etc.)
+        # so the rest of the placement continues.
       end
 
     end
@@ -3065,8 +2848,6 @@ module ASM_Extensions
 
     ### EXTRA TOOLS ### -----------------------------------------------------------
 
-    # Tool class for interactive Reset Rotations.
-    # Tab cycles the pivot point; the reset is re-applied live on each change.
     class OEResetTool
 
       BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
@@ -3084,7 +2865,6 @@ module ASM_Extensions
         @hovered         = nil
         custom = CONFIG[:insertion_point_custom]
         @insertion_point = (custom.is_a?(Hash) && custom[:oereset] ? custom[:oereset].to_sym : :base)
-        # Apply immediately to any pre-selected targets
         @pending_targets = targets
       end
 
@@ -3161,9 +2941,9 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, _flags, _view)
         case key
-        when 27 # Esc — exit
+        when 27
           @model.select_tool(nil)
-        when 9 # Tab — cycle pivot
+        when 9
           @insertion_point = { center: :origin, origin: :base, base: :center }[@insertion_point]
           custom = CONFIG[:insertion_point_custom] || {}
           OrienterExpress.user_settings(insertion_point_custom: custom.merge(oereset: @insertion_point.to_s))
@@ -3219,7 +2999,6 @@ module ASM_Extensions
       model.select_tool(OEResetTool.new(targets))
     end
 
-    # Recursively collects all vertex positions transformed by t.
     def self.collect_vertices(entities, t)
       pts = []
       entities.each do |e|
@@ -3234,8 +3013,6 @@ module ASM_Extensions
       pts
     end
 
-    # 2D convex hull via Andrew's monotone chain. pts is Array<[x, y]>.
-    # Returns CCW-ordered hull vertices (same [x, y] tuples).
     def self.convex_hull_2d(pts)
       return pts.dup if pts.size < 3
       sorted = pts.sort_by { |p| [p[0], p[1]] }.uniq
@@ -3260,21 +3037,17 @@ module ASM_Extensions
       lower[0..-2] + upper[0..-2]
     end
 
-    # Returns the subset of pts that form the 3D convex hull (QuickHull algorithm).
-    # Guarantees no extreme point is lost, which is required for exact BB computation.
     def self.convex_hull_3d(pts)
       convex_hull_3d_with_faces(pts).first
     end
 
-    # Same QuickHull, but also returns outward-oriented triangular faces.
-    # Returns [hull_pts, face_triples] where face_triples indexes into hull_pts.
+    # Returns [hull_pts, face_triples]; face triples index into hull_pts.
     def self.convex_hull_3d_with_faces(pts)
       return [pts, []] if pts.size <= 3
 
       eps = 1e-8
 
-      # Signed distance from the plane of face [ia,ib,ic] to point p.
-      # Positive = p is on the outside (outward normal side).
+      # Positive signed distance = p lies on the outward-normal side of the face.
       sd = lambda do |ia, ib, ic, p|
         a=pts[ia]; b=pts[ib]; c=pts[ic]
         ux=b.x-a.x; uy=b.y-a.y; uz=b.z-a.z
@@ -3283,13 +3056,12 @@ module ASM_Extensions
         nx*(p.x-a.x) + ny*(p.y-a.y) + nz*(p.z-a.z)
       end
 
-      # Extreme point indices (min/max in each axis)
       ext = [:x,:y,:z].flat_map { |ax|
         [pts.each_with_index.min_by{|p,_| p.send(ax)}[1],
          pts.each_with_index.max_by{|p,_| p.send(ax)}[1]]
       }.uniq
 
-      # Initial tetrahedron: most distant pair, then farthest from line, farthest from plane
+      # Seed tetrahedron: most distant pair, farthest from that line, farthest from plane.
       i0, i1 = ext.combination(2).max_by { |a,b|
         pa=pts[a]; pb=pts[b]; (pa.x-pb.x)**2+(pa.y-pb.y)**2+(pa.z-pb.z)**2
       }
@@ -3304,13 +3076,13 @@ module ASM_Extensions
       }
       return [pts, []] if i3.nil? || sd.call(i0,i1,i2, pts[i3]).abs < eps
 
-      # Interior reference: centroid of tetrahedron (always inside the final hull)
+      # Tetrahedron centroid lives inside the final hull — use as inside reference.
       ctr = Geom::Point3d.new(
         (pts[i0].x+pts[i1].x+pts[i2].x+pts[i3].x)/4.0,
         (pts[i0].y+pts[i1].y+pts[i2].y+pts[i3].y)/4.0,
         (pts[i0].z+pts[i1].z+pts[i2].z+pts[i3].z)/4.0)
 
-      # Orient face [a,b,c] so that ctr is on the inside (negative side)
+      # Orient face [a,b,c] so ctr is on the inside (negative signed distance).
       orient = lambda do |a, b, c|
         aa=pts[a]; bb=pts[b]; cc=pts[c]
         ux=bb.x-aa.x; uy=bb.y-aa.y; uz=bb.z-aa.z
@@ -3335,7 +3107,7 @@ module ASM_Extensions
         apex    = outside[fi].max_by { |i| sd.call(*faces[fi], pts[i]) }
         visible = (0...faces.size).select { |i| faces[i] && sd.call(*faces[i], pts[apex]) > eps }
 
-        # Horizon: edges [a,b] in visible faces whose reverse [b,a] is not in a visible face
+        # Horizon: edges [a,b] on visible faces whose reverse [b,a] isn't visible.
         vis_edges = {}
         visible.each { |vi| f=faces[vi]; [[f[0],f[1]],[f[1],f[2]],[f[2],f[0]]].each{|e| vis_edges[e]=vi} }
         horizon = vis_edges.keys.reject { |a,b| vis_edges.key?([b,a]) }
@@ -3365,12 +3137,9 @@ module ASM_Extensions
       [hull_pts, face_tris]
     end
 
-    # O'Rourke face-flush heuristic for 3D min-volume bounding box.
-    # For every convex-hull face, rotates the outward normal to +Z and solves
-    # the 2D min-area rectangle in XY via rotating calipers (edge-flush case).
-    # Volume = area · z_extent. Returns [r00..r22, vol] in row-major, or nil.
-    # At the min-volume optimum at least one BB face is flush with a hull face,
-    # so this set of candidates contains the true optimum.
+    # O'Rourke face-flush heuristic: at the min-volume optimum at least one BB
+    # face is flush with a hull face, so it's enough to try each hull normal as
+    # +Z and solve the 2D min-area rectangle in XY. Returns [r00..r22, vol].
     def self.face_flush_min_bb(pts, faces)
       return nil if pts.empty? || faces.empty?
       half_pi  = Math::PI / 2.0
@@ -3473,8 +3242,7 @@ module ASM_Extensions
           (-Math.atan2(dy, dx)) % half_pi
         }.uniq
 
-        # Extremes of a 2D point set coincide with extremes of its convex hull,
-        # so calipers only need to iterate the 2D hull (usually << n2).
+        # Calipers only need the 2D hull — extremes of a set coincide with its hull's.
         edges.each do |theta|
           ct = Math.cos(theta); st = Math.sin(theta)
           u_min =  Float::INFINITY; u_max = -Float::INFINITY
@@ -3502,10 +3270,8 @@ module ASM_Extensions
       best
     end
 
-    # If the instance transformation contains non-uniform scale, bakes it into
-    # the definition geometry so all instances are left with pure rotation.
-    # This must run before any alignment so that r_reset extraction and
-    # definition-space vertex collection both see unscaled geometry.
+    # Must run before any alignment: extracting r_reset and collecting
+    # definition-space vertices both require the instance to be scale-free.
     def self.bake_scale(instance)
       t  = instance.transformation
       a  = t.to_a
@@ -3514,8 +3280,6 @@ module ASM_Extensions
       sz = Math.sqrt(a[8]**2 + a[9]**2 + a[10]**2)
       return if (sx - sy).abs < 1e-6 && (sx - sz).abs < 1e-6 && (sy - sz).abs < 1e-6
 
-      # Scale transform in definition space. diag(sx,sy,sz) is its own inverse
-      # only when uniform; for non-uniform we store the inverse explicitly.
       r_scale     = Geom::Transformation.scaling(sx, sy, sz)
       r_scale_inv = Geom::Transformation.scaling(1.0/sx, 1.0/sy, 1.0/sz)
 
@@ -3526,7 +3290,6 @@ module ASM_Extensions
       Debug.log(self, :align_pca, "scale baked: (#{sx.round(4)}, #{sy.round(4)}, #{sz.round(4)})")
     end
 
-    # BB volume of pts rotated by a row-major 3×3 matrix (no allocation in inner loop).
     def self.bb_vol_3d(pts, r00, r01, r02, r10, r11, r12, r20, r21, r22)
       p0 = pts[0]
       qx = r00*p0.x + r01*p0.y + r02*p0.z
@@ -3544,8 +3307,7 @@ module ASM_Extensions
       (xmax - xmin) * (ymax - ymin) * (zmax - zmin)
     end
 
-    # Returns the unit plane normal [nx,ny,nz] if all pts are coplanar
-    # (max off-plane deviation < 1e-4 * max span), otherwise nil.
+    # Unit plane normal if pts are coplanar (max deviation < 1e-4 * span), else nil.
     def self.planar_normal(pts)
       return nil if pts.size < 3
 
@@ -3585,15 +3347,11 @@ module ASM_Extensions
       max_dev / Math.sqrt(span2) < 1e-4 ? [nx, ny, nz] : nil
     end
 
-    # Permutes and/or flips local axes by picking the best of the 24 proper
-    # rotations of the cube (6 permutations × 4 right-handed sign combinations).
-    # Scoring depends on whether pre-alignment axes are provided:
-    #   - If z_pre/x_pre given: primary = alignment with pre-axes (×100),
-    #     secondary = extent ordering (X largest, Z smallest) as tiebreaker.
-    #     Keeps the instance axes close to their pre-op orientation.
-    #   - Otherwise: primary = extent ordering (×100),
-    #     secondary = alignment with world axes.
-    # Must be called after geometry is in definition space.
+    # Picks the best of the 24 proper rotations of the cube (6 perms × 4 sign
+    # combos). With z_pre/x_pre: primary score is alignment with those pre-axes
+    # (×100), extent ordering is a tiebreaker. Without: extent ordering is the
+    # primary score and world-axis alignment is the tiebreaker. Must run with
+    # geometry already in definition space.
     def self.permute_axes_by_extent(instance, z_pre = nil, x_pre = nil)
       pts = collect_vertices(instance.definition.entities, Geom::Transformation.new)
       return if pts.empty?
@@ -3607,9 +3365,9 @@ module ASM_Extensions
 
       t        = instance.transformation
       inst_det = t.xaxis.dot(t.yaxis.cross(t.zaxis)) >= 0 ? 1 : -1
-      # For LH instances negate X before world-axis scoring so the search sees
-      # the "equivalent RH" axes → same permutation+signs as the RH counterpart.
-      # Proper rotations (det=+1) are used regardless, so handedness is preserved.
+      # LH instances: negate X for world-axis scoring so the search produces
+      # the same perm+signs as the equivalent RH case. Only proper rotations
+      # (det=+1) are applied, so handedness is preserved regardless.
       ax = inst_det < 0 ? Geom::Vector3d.new(-t.xaxis.x, -t.xaxis.y, -t.xaxis.z) : t.xaxis
       axes     = [ax, t.yaxis, t.zaxis]
       raw_axes = [t.xaxis, t.yaxis, t.zaxis]
@@ -3619,16 +3377,13 @@ module ASM_Extensions
       best_perm  = [0, 1, 2]
       best_signs = [1, 1, 1]
 
-      # perm_det: determinant of the permutation matrix (+1 even, -1 odd).
-      # We always use proper rotations (det(R_norm)=+1) so that handedness is
-      # preserved: LH instances stay LH, RH instances stay RH.
-      # det(R_norm) = perm_det * sign_product = +1  →  sign_product = perm_det
+      # Enforce proper rotation: det(R_norm) = perm_det * sign_product = +1,
+      # so sign_product must equal the permutation's determinant.
       [[[0,1,2], 1],[[0,2,1],-1],[[1,0,2],-1],
        [[1,2,0], 1],[[2,0,1], 1],[[2,1,0],-1]].each do |perm, pd|
         (pd > 0 ? [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]]
                 : [[-1,1,1],[1,-1,1],[1,1,-1],[-1,-1,-1]]).each do |sx, sy, sz|
           if use_pre
-            # Primary: how well new X and new Z match pre-orientation.
             align_pre = sx * raw_axes[perm[0]].dot(x_pre) +
                         sz * raw_axes[perm[2]].dot(z_pre)
             ext_order  = (buckets[perm[0]] >= buckets[perm[1]] ? 1 : -1)
@@ -3649,8 +3404,8 @@ module ASM_Extensions
 
       return if best_perm == [0, 1, 2] && best_signs == [1, 1, 1]
 
-      # Build column-major SketchUp transform from permutation + signs.
-      # R[i,j] = signs[i] * delta(j, perm[i])  →  col j has one nonzero at row inv_perm[j].
+      # SketchUp expects column-major; permutation + signs map to one nonzero
+      # per column at row inv_perm[col].
       inv_perm = [nil, nil, nil]; 3.times { |i| inv_perm[best_perm[i]] = i }
       arr = Array.new(16, 0.0); arr[15] = 1.0
       3.times { |col| row = inv_perm[col]; arr[col * 4 + row] = best_signs[row].to_f }
@@ -3664,24 +3419,22 @@ module ASM_Extensions
       Debug.log(self, :align_pca, "axes normalized: perm=#{best_perm} signs=(#{best_signs.join(',')})")
     end
 
-    # Redefines the local axes to minimize the bounding box volume (3D) or area
-    # (2D flat geometry). Uses a two-phase ZYZ Euler sweep + Nelder-Mead for 3D,
-    # or normal alignment + 1D sweep for flat/planar geometry.
-    # Geometry stays in world position.
+    # Redefines local axes to minimise BB volume (3D path: two-phase ZYZ sweep
+    # + Nelder-Mead) or area (flat path: normal align + 1D sweep). World
+    # position is unchanged.
     def self.align_to_min_bb(instance, z_pre = nil, x_pre = nil)
       method_id  = __method__
       start_time = Time.now
       Debug.log(self, method_id, "Process START")
 
       begin
-      # Isolate siblings so modifying the definition only affects this instance,
-      # and bake non-uniform scale so collect_vertices reflects the scaled shape.
+      # make_unique isolates siblings; bake_scale makes collect_vertices
+      # reflect the actual shape when the instance has non-uniform scale.
       instance.make_unique if instance.is_a?(Sketchup::Group) && instance.definition.instances.size > 1
       bake_scale(instance)
 
-      # Work in definition space (identity frame). This makes the algorithm
-      # idempotent: after applying, the next call sees already-rotated pts
-      # and the sweep returns identity → no further change.
+      # Working in definition space makes the algorithm idempotent: a second
+      # call sees already-rotated pts and the sweep returns identity.
       id = Geom::Transformation.new
       pts = collect_vertices(instance.definition.entities, id)
       t0  = instance.transformation
@@ -3798,12 +3551,10 @@ module ASM_Extensions
         end
         Debug.log(self, :align_pca, "2D rotating-calipers best=#{(fine_angle/deg2rad).round(3)}° area=#{fine_area.round(4)} (#{edge_angles.size} edges)")
 
-        # Compose r1 (normal align) + r2 (in-plane rotation)
         flat_axis_vec = Geom::Vector3d.new(*axes[axis_idx])
         r2      = Geom::Transformation.rotation(orig, flat_axis_vec, fine_angle)
         r_total = r2 * r1
 
-        # Skip if total rotation is negligible (< 0.006°)
         m = r_total.to_a
         trace = m[0] + m[5] + m[10]
         total_angle = Math.acos([[(trace - 1.0) / 2.0, -1.0].max, 1.0].min)
@@ -3841,15 +3592,13 @@ module ASM_Extensions
       end
 
       # ── 3D path: auto-dispatch by hull size ────────────────────────────────
-      # Face-flush (O'Rourke): O(F·N²) but N small → fast on polyhedral objects.
-      # ZYZ + Nelder-Mead: O(K·N) with fixed K → wins as hull size grows.
-      # Crossover empirically at ~300 hull points.
+      # Crossover ~300 hull pts: face-flush (O(F·N²)) wins on small polyhedra;
+      # ZYZ + Nelder-Mead (O(K·N)) wins as hull size grows.
       deg2rad = Math::PI / 180.0
       fine_vol = nil
       r_best   = nil
 
       if hull_pts.size < 300 && !hull_faces.empty?
-        # Face-flush heuristic over hull faces
         best = face_flush_min_bb(pts, hull_faces)
         if best.nil?
           Debug.log(self, :align_pca, "face-flush: no valid candidate")
@@ -3858,7 +3607,6 @@ module ASM_Extensions
         r11, r12, r13, r21, r22, r23, r31, r32, r33, fine_vol = best
         Debug.log(self, :align_pca, "face-flush best vol=#{fine_vol.round(4)}")
 
-        # Row-major R → column-major for SketchUp
         r_best = Geom::Transformation.new([
           r11, r21, r31, 0,
           r12, r22, r32, 0,
@@ -3866,12 +3614,8 @@ module ASM_Extensions
           0,   0,   0,   1
         ])
       else
-        # ZYZ Euler angles: R = Rz(α) * Ry(β) * Rz(γ)
-        # Matrix rows:
-        #   [ca*cb*cg - sa*sg,  -ca*cb*sg - sa*cg,  ca*sb]
-        #   [sa*cb*cg + ca*sg,  -sa*cb*sg + ca*cg,  sa*sb]
-        #   [-sb*cg,             sb*sg,              cb   ]
-        # BB has 90° period in α and γ → search [0°,90°) × [-90°,90°) × [0°,90°)
+        # ZYZ Euler: R = Rz(α)·Ry(β)·Rz(γ). BB has 90° period in α and γ, so
+        # the search space is [0°,90°) × [-90°,90°) × [0°,90°).
         eval_zyz = lambda do |al, be, ga|
           ca = Math.cos(al); sa = Math.sin(al)
           cb = Math.cos(be); sb = Math.sin(be)
@@ -3882,7 +3626,7 @@ module ASM_Extensions
             -sb*cg,             sb*sg,              cb)
         end
 
-        # Phase 1: coarse grid 15° → 6×12×6 = 432 evals to find basin
+        # Coarse 15° grid (6×12×6 = 432 evals) to locate the basin.
         best_al = 0.0; best_be = 0.0; best_ga = 0.0
         best_vol = Float::INFINITY
         (0...90).step(15) do |ad|
@@ -3897,8 +3641,7 @@ module ASM_Extensions
         end
         Debug.log(self, :align_pca, "coarse best=α#{(best_al/deg2rad).round(1)}° β#{(best_be/deg2rad).round(1)}° γ#{(best_ga/deg2rad).round(1)}° vol=#{best_vol.round(4)}")
 
-        # Phase 2: Nelder-Mead simplex from coarse best → converges to exact minimum
-        # Simplex: 4 vertices in (α,β,γ) space, initial edge = 8°
+        # Nelder-Mead simplex from the coarse best, initial edge 8°.
         s = 8.0 * deg2rad
         simplex = [
           [best_al,       best_be,       best_ga      ],
@@ -3908,8 +3651,8 @@ module ASM_Extensions
         ]
         fval = simplex.map { |v| eval_zyz.call(*v) }
 
-        # Safety cap: in practice NM converges in <50 iters with 1e-5 tolerance.
-        # The 500 limit only triggers on degenerate input (e.g. near-collinear pts).
+        # 500-iter cap is a safety net: NM typically converges in <50 iters at
+        # 1e-5 tolerance. Only near-degenerate input reaches the cap.
         500.times do
           order = fval.each_with_index.sort_by { |f, _| f }.map(&:last)
           simplex = order.map { |i| simplex[i] }
@@ -3958,7 +3701,6 @@ module ASM_Extensions
         cb = Math.cos(fine_be); sb = Math.sin(fine_be)
         cg = Math.cos(fine_ga); sg = Math.sin(fine_ga)
 
-        # Best rotation in definition space (column-major for SketchUp)
         r_best = Geom::Transformation.new([
           ca*cb*cg - sa*sg,   sa*cb*cg + ca*sg,  -sb*cg,  0,
           -ca*cb*sg - sa*cg,  -sa*cb*sg + ca*cg,  sb*sg,  0,
@@ -3997,17 +3739,10 @@ module ASM_Extensions
       end
     end
 
-    # Constrained axis alignment: rotates the definition so that the given
-    # face normal (in world space) ends up opposite to the chosen local axis.
-    # The remaining rotational DoF is resolved via the minimum-angle rotation
-    # (Rodrigues), which also minimises angular deviation of the other two
-    # local axes from their pre-op directions.
-    #   lock_axis : :x, :y, :z — the local axis that should point opposite n̂
-    # Reorients the instance so the chosen local axis points along the given
-    # world direction (face outward normal or edge vector), AND the remaining
-    # two axes are rolled around the locked axis to minimize the in-plane
-    # bounding box area. World geometry stays put; only the local axes (and
-    # definition points) change.
+    # Rotates the definition so the chosen local axis points along dir_world
+    # (world space: face normal or edge vector). The remaining two axes are
+    # rolled around the locked axis to minimise in-plane BB area. World
+    # geometry is unchanged; only local axes (and definition points) move.
     def self.align_to_direction_lock(instance, dir_world, lock_axis, z_pre = nil, x_pre = nil, min_bb: false)
       method_id  = __method__
       start_time = Time.now
@@ -4029,11 +3764,10 @@ module ASM_Extensions
 
       best_xw = best_yw = best_zw = nil
 
-      # Fast-path (O(1), no vertex scan) when pre-op axes are provided AND the
-      # caller didn't request min-BB. Projects the pre-axis that should stay
-      # in-plane onto the plane perpendicular to n_hat; the third axis comes from
-      # the cross product. Falls through to the hull-based path if the chosen
-      # pre-axis is (nearly) parallel to n_hat.
+      # Fast path (O(1), no vertex scan): when pre-op axes are given and the
+      # caller didn't ask for min-BB, project the in-plane pre-axis onto the
+      # plane ⟂ n_hat; the third axis is the cross product. Falls through to
+      # the hull-based path if that pre-axis is ~parallel to n_hat.
       if z_pre && x_pre && !min_bb
         ref = lock_axis == :x ? z_pre : x_pre
         rdot = ref.x * n_hat.x + ref.y * n_hat.y + ref.z * n_hat.z
@@ -4079,19 +3813,17 @@ module ASM_Extensions
         hull3d = convex_hull_3d(world_pts)
         hull3d = world_pts if hull3d.nil? || hull3d.size < 3
 
-        # Orthonormal basis (u0, v0, n_hat) spanning the face plane.
         fb = n_hat.z.abs > 0.9 ? Geom::Vector3d.new(1, 0, 0) : Geom::Vector3d.new(0, 0, 1)
         u0_raw = n_hat.cross(fb)
         ul = Math.sqrt(u0_raw.x**2 + u0_raw.y**2 + u0_raw.z**2)
         return if ul < 1e-12
         u0 = Geom::Vector3d.new(u0_raw.x / ul, u0_raw.y / ul, u0_raw.z / ul)
-        v0 = n_hat.cross(u0)  # already unit (n_hat ⟂ u0 & both unit)
+        v0 = n_hat.cross(u0)
 
         proj = hull3d.map { |p| [p.x*u0.x + p.y*u0.y + p.z*u0.z, p.x*v0.x + p.y*v0.y + p.z*v0.z] }
         hull2d = convex_hull_2d(proj)
         return if hull2d.size < 2
 
-        # Rotating calipers: edge-aligned rect with minimum area.
         best_area = Float::INFINITY
         best_cos  = 1.0
         best_sin  = 0.0
@@ -4117,7 +3849,6 @@ module ASM_Extensions
           end
         end
 
-        # Optimized in-plane basis.
         u_opt = Geom::Vector3d.new(
           best_cos * u0.x + best_sin * v0.x,
           best_cos * u0.y + best_sin * v0.y,
@@ -4132,7 +3863,7 @@ module ASM_Extensions
         neg_u = Geom::Vector3d.new(-u_opt.x, -u_opt.y, -u_opt.z)
         neg_v = Geom::Vector3d.new(-v_opt.x, -v_opt.y, -v_opt.z)
 
-        # Four 90° rotations of the non-locked axes. Pair (a, b) always satisfies a×b = n_hat.
+        # Four 90° rotations of the non-locked axes; each pair (a,b) has a×b = n_hat.
         rot_pairs = [[u_opt, v_opt], [v_opt, neg_u], [neg_u, neg_v], [neg_v, u_opt]]
 
         y_pre = nil
@@ -4181,7 +3912,6 @@ module ASM_Extensions
         Debug.log(self, method_id, "min rect area=#{best_area.round(4)}")
       end
 
-      # Build target transformation (same origin, new orthonormal axes).
       arr = [
         best_xw.x, best_xw.y, best_xw.z, 0.0,
         best_yw.x, best_yw.y, best_yw.z, 0.0,
@@ -4208,24 +3938,18 @@ module ASM_Extensions
       end
     end
 
-    # Rotates the target instance so its axes are parallel (and same-sign) to
-    # the sample's, measured in WORLD coordinates. Target's world origin and
-    # uniform scale are preserved. The definition is not touched — only the
-    # target's own transformation — so other instances of the same definition
-    # are unaffected. Works regardless of edit-context nesting: both sample's
-    # and target's transformations are composed with `edit_transform` to get
-    # world coordinates, then the result is converted back to target-local.
+    # Aligns target's axes to sample's axes in WORLD coordinates, preserving
+    # target's world origin and uniform scale. Groups make_unique (SketchUp
+    # convention); components keep the shared definition so all instances
+    # pick up the new axes together. Composes `edit_transform` so nested
+    # edit contexts don't break the math.
     def self.align_to_sample(target, sample)
       method_id = __method__
-      # Groups should stay independent from siblings (SketchUp convention).
-      # Components intentionally keep their shared definition so axis changes
-      # propagate to every instance.
       target.make_unique if target.is_a?(Sketchup::Group) && target.definition.instances.size > 1
       bake_scale(target)
 
       et = Sketchup.active_model.edit_transform
 
-      # Sample's WORLD basis, re-orthonormalized defensively.
       sw = et * sample.transformation
       xs = sw.xaxis; zs = sw.zaxis
       xl = Math.sqrt(xs.x**2 + xs.y**2 + xs.z**2)
@@ -4252,7 +3976,6 @@ module ASM_Extensions
         "Y=[#{yw.x.round(4)},#{yw.y.round(4)},#{yw.z.round(4)}] " \
         "Z=[#{zw.x.round(4)},#{zw.y.round(4)},#{zw.z.round(4)}]")
 
-      # Target's current world origin + uniform scale + axes BEFORE.
       tw  = et * target.transformation
       twa = tw.to_a
       st  = Math.sqrt(twa[0]**2 + twa[1]**2 + twa[2]**2)
@@ -4276,9 +3999,8 @@ module ASM_Extensions
       ]
       desired_world = Geom::Transformation.new(arr)
 
-      # Keep visible world geometry fixed for every instance of this definition.
-      # Mutate the definition by m, then compensate all instances with m.inverse
-      # so their world positions stay put while sharing the new local axes.
+      # Mutate the definition by m and compensate every instance with m.inverse
+      # so world positions stay put while all instances share the new local axes.
       m     = desired_world.inverse * tw
       m_inv = m.inverse
       ents  = target.definition.entities
@@ -4287,7 +4009,6 @@ module ASM_Extensions
         inst.transformation = inst.transformation * m_inv
       end
 
-      # Verify: target's world axes AFTER.
       tw2  = et * target.transformation
       tx_a = tw2.xaxis; ty_a = tw2.yaxis; tz_a = tw2.zaxis
       txa_l = Math.sqrt(tx_a.x**2 + tx_a.y**2 + tx_a.z**2)
@@ -4299,35 +4020,29 @@ module ASM_Extensions
         "Z=[#{(tz_a.x/tza_l).round(4)},#{(tz_a.y/tza_l).round(4)},#{(tz_a.z/tza_l).round(4)}]")
     end
 
-    # Tool class that runs align_to_min_bb in one operation.
-    # Recurrent: stays active for repeated clicks.
     class OEAlignerTool
 
       BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
-      # Bounding-box faces as quads (CCW from outside). Used for translucent fill.
       BB_FACES = [
         [0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1],
         [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3],
       ].freeze
 
-      # Alt cycles through these modes. Tab cycles @lock_axis in :entity and :reference.
       MODE_CYCLE = [:entity, :reference, :auto].freeze
       AXIS_CYCLE = [:z, :x, :y].freeze
 
-      # Axis colors match SketchUp axis convention (X=red, Y=green, Z=blue).
       AXIS_COLOR = {
         z: Sketchup::Color.new(50, 100, 255),
         x: Sketchup::Color.new(255, 80, 80),
         y: Sketchup::Color.new(50, 180, 50),
       }.freeze
 
-      # Bbox highlight colors, one per mode (avoids confusing the sample's pink
-      # with the "invalid target" red). INVALID_RED flags a :reference target
-      # sharing its definition with the sample (clicking would be a no-op).
-      FUCHSIA     = Sketchup::Color.new(255, 0, 200).freeze   # :entity hover + :reference sample
-      CYAN        = Sketchup::Color.new(0, 180, 200).freeze   # :reference hover target
-      ORANGE      = Sketchup::Color.new(255, 165, 0).freeze   # :auto hover
-      INVALID_RED = Sketchup::Color.new(255, 0, 0).freeze     # :reference same-def copy
+      # Per-mode highlight colours. INVALID_RED flags a :reference target that
+      # shares the sample's definition (clicking would be a no-op).
+      FUCHSIA     = Sketchup::Color.new(255, 0, 200).freeze
+      CYAN        = Sketchup::Color.new(0, 180, 200).freeze
+      ORANGE      = Sketchup::Color.new(255, 165, 0).freeze
+      INVALID_RED = Sketchup::Color.new(255, 0, 0).freeze
 
       @@last_mode      = :entity
       @@last_lock_axis = :z
@@ -4344,20 +4059,20 @@ module ASM_Extensions
         @model          = Sketchup.active_model
         @instances      = instances
         @hovered        = nil
-        @mode           = @@last_mode       # :entity | :reference | :auto
-        @lock_axis      = @@last_lock_axis  # :z | :x | :y
+        @mode           = @@last_mode
+        @lock_axis      = @@last_lock_axis
         @alt_handled    = false
-        @hover_kind     = nil   # :face | :edge | nil
-        @hover_entity   = nil   # Sketchup::Face or Sketchup::Edge
-        @hover_loops    = nil   # Array of Array<Point3d> (face outer + inner loops, world)
-        @hover_segment  = nil   # [Point3d, Point3d] (edge endpoints, world)
-        @hover_dir      = nil   # Vector3d (locked-axis direction, world)
-        @hover_fill_pts = nil   # Flat Array<Point3d>, 3 per triangle (face mesh triangulation)
-        @hover_centroid = nil   # Point3d (face centroid or edge midpoint, world)
-        # :reference-mode source. Edge/face: raw geometry in model root.
-        # Component/group: a sample whose local axis becomes the target direction.
+        @hover_kind     = nil
+        @hover_entity   = nil
+        @hover_loops    = nil
+        @hover_segment  = nil
+        @hover_dir      = nil
+        @hover_fill_pts = nil
+        @hover_centroid = nil
+        # :reference-mode source. Raw edge/face: geometry in model root.
+        # Component/group: sample whose local axis becomes the target direction.
         @ref_entity     = nil
-        @ref_kind       = nil   # :face | :edge | :component | :group | nil
+        @ref_kind       = nil
         @ref_loops      = nil
         @ref_segment    = nil
         @ref_fill_pts   = nil
@@ -4445,9 +4160,9 @@ module ASM_Extensions
         end
       end
 
-      # :reference mode picking. Prefers raw edges/faces (for direction reference);
-      # if none, falls back to component/group hover — clickable as a sample (no
-      # ref yet) or as an alignment target (ref already stored).
+      # Prefers raw edges/faces (direction reference); falls back to a
+      # component/group hover, which is clickable either as a sample (no ref
+      # yet) or as an alignment target (ref already stored).
       def pick_reference(ph, view, force_recapture: false)
         raw_leaf = nil; raw_t = nil
         ph.count.times do |i|
@@ -4773,9 +4488,8 @@ module ASM_Extensions
         sync_hover_preview_selection
       end
 
-      # In :reference mode with no sample set yet, mirror @hovered into the
-      # model selection so SketchUp draws its native bbox for the preview.
-      # No-op in any other state.
+      # Mirrors @hovered into the model selection so SketchUp draws its native
+      # bbox preview. Only active in :reference mode before a sample is set.
       def sync_hover_preview_selection
         return unless @mode == :reference && @ref_entity.nil?
         desired = (@hovered && @hovered.valid?) ? [@hovered] : []
@@ -4814,8 +4528,7 @@ module ASM_Extensions
         @ref_fill_pts = @hover_fill_pts
         @ref_dir      = @hover_dir
         @ref_centroid = @hover_centroid
-        # Drop the previous component/group sample highlight (if any): an edge
-        # or face ref supersedes it.
+        # An edge/face ref supersedes any prior component/group sample highlight.
         @model.selection.clear unless @model.selection.empty?
       end
 
@@ -4867,7 +4580,6 @@ module ASM_Extensions
 
       def apply_auto(instances)
         return if instances.empty?
-        # Capture Z and X axes before any modification.
         pre_axes = {}
         instances.each do |inst|
           next unless inst.valid?
@@ -4889,8 +4601,7 @@ module ASM_Extensions
         end
       end
 
-      # Same-direction check (sign-sensitive): the locked axis must match the
-      # target direction, not just be parallel — antiparallel should trigger a flip.
+      # Sign-sensitive: antiparallel counts as misaligned (triggers a flip).
       def axis_already_aligned?(instance, dir_world, lock_axis)
         current = case lock_axis
                   when :z then instance.transformation.zaxis
@@ -4906,8 +4617,8 @@ module ASM_Extensions
       end
 
       def apply_lock(instance, dir_world, lock_axis)
-        # Component/group sample: copy all three axes from the sample, even if
-        # the locked axis already coincides.
+        # Component/group sample copies all three axes, so skip only if all
+        # three already match — locked-axis coincidence alone is not enough.
         if sample_ref? && @ref_entity && @ref_entity.valid?
           return if fully_aligned_with_sample?(instance, @ref_entity)
           @model.start_operation("Orienter Express: Align to Sample", true)
@@ -4949,7 +4660,6 @@ module ASM_Extensions
         end
       end
 
-      # All three axes parallel (up to sign) to the sample's — skip op entirely.
       def fully_aligned_with_sample?(instance, sample)
         ti = instance.transformation
         ts = sample.transformation
