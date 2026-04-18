@@ -12,8 +12,8 @@ module ASM_Extensions
               status:           "Coloca copias orientadas en ambos vértices de cada arista, con desfase opcional hacia el interior.",
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
-              no_geometry_hint: "Haz clic sobre una arista o una cara",
-              vcb_hint:         "CTRL: añadir a la selección  |  SHIFT: cambiar punto de inserción (actual %<ip>s)  |  TAB: cambiar eje de orientación (actual %<axis>s)  |  ALT: cambiar modo (actual %<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
+              no_geometry_hint: "Haz clic sobre una arista/cara",
+              vcb_hint:         "CTRL = añadir a la selección  |  SHIFT = cambiar punto de inserción (actual %<ip>s)  |  TAB = cambiar eje de orientación (actual %<axis>s)  |  ALT = cambiar modo (actual %<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
             },
             oecenter: {
               label:            "Colocación centrada en arista",
@@ -21,8 +21,8 @@ module ASM_Extensions
               status:           "Coloca copias centradas sobre las aristas con desfase opcional.",
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
-              no_geometry_hint: "Haz clic sobre una arista o una cara",
-              vcb_hint:         "CTRL: añadir a la selección  |  SHIFT: cambiar punto de inserción (actual %<ip>s)  |  TAB: cambiar eje de orientación (actual %<axis>s)  |  ALT: cambiar modo (actual %<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
+              no_geometry_hint: "Haz clic sobre una arista/cara",
+              vcb_hint:         "CTRL = añadir a la selección  |  SHIFT = cambiar punto de inserción (actual %<ip>s)  |  TAB = cambiar eje de orientación (actual %<axis>s)  |  ALT = cambiar modo (actual %<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
             },
             oezscale: {
               label:            "Escalado en Z",
@@ -30,16 +30,16 @@ module ASM_Extensions
               status:           "Escala y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
-              no_geometry_hint: "Haz clic sobre una arista o una cara",
-              vcb_hint:         "CTRL: añadir a la selección  |  SHIFT: cambiar punto de inserción (actual %<ip>s)  |  TAB: cambiar eje de escala (actual %<axis>s)  |  ALT: cambiar modo (actual %<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
+              no_geometry_hint: "Haz clic sobre una arista/cara",
+              vcb_hint:         "CTRL = añadir a la selección  |  SHIFT = cambiar punto de inserción (actual %<ip>s)  |  TAB = cambiar eje de escala (actual %<axis>s)  |  ALT = cambiar modo (actual %<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
             },
             oeuscale: {
               label:            "Escalado uniforme",
               tooltip:          "Escalado uniforme",
               status:           "Escala uniformemente y coloca copias a lo largo de las aristas.",
-              no_sample_hint:   "Haz clic sobre un componente",
-              no_geometry_hint: "Haz clic sobre una arista o una cara",
-              vcb_hint:         "CTRL: añadir a la selección  |  ALT: cambiar modo (actual %<mode>s)  |  ↑/↓: ajustar giro (%<roll>s)"
+              no_sample_hint:   "Haz clic sobre un componente/grupo",
+              no_geometry_hint: "Haz clic sobre una arista/cara",
+              vcb_hint:         "CTRL = añadir a la selección  |  ALT = cambiar modo (actual %<mode>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
             },
             oeflow: {
               label:            "Colocación según flujo de vértices",
@@ -47,8 +47,8 @@ module ASM_Extensions
               status:           "Coloca copias orientadas en vértices, alineadas al flujo de las aristas entrantes.",
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
-              no_geometry_hint: "Haz clic sobre una arista o una cara",
-              vcb_hint:         "CTRL: añadir a la selección  |  SHIFT: cambiar punto de inserción (actual %<ip>s)  |  TAB: cambiar eje de orientación (actual %<axis>s)  |  ALT: cambiar modo (actual %<mode>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)"
+              no_geometry_hint: "Haz clic sobre una arista/cara",
+              vcb_hint:         "CTRL = añadir a la selección  |  SHIFT = cambiar punto de inserción (actual %<ip>s)  |  TAB = cambiar eje de orientación (actual %<axis>s)  |  ALT = cambiar modo (actual %<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
             },
             oesurface: {
               label:            "Colocación en superficie",
@@ -57,20 +57,25 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una cara",
-              vcb_hint:         "CTRL: añadir a la selección  |  SHIFT: cambiar punto de inserción (actual %<ip>s)  |  TAB: cambiar eje de orientación (actual %<axis>s)  |  ALT: cambiar orientación (actual %<orient>s)  |  ←/→: ajustar desfase (%<offset>s)  |  ↑/↓: ajustar giro (%<roll>s)",
+              vcb_hint:         "CTRL = añadir a la selección  |  SHIFT = cambiar punto de inserción (actual %<ip>s)  |  TAB = cambiar eje de orientación (actual %<axis>s)  |  ALT = cambiar orientación (actual %<orient>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)",
               axis_parallel:    "paralelo a arista dominante",
               axis_perp:        "perpendicular a arista dominante",
               axis_ground:      "horizontal"
             },
             oealigner: {
-              label:          "Alineador de ejes",
-              tooltip:        "Alineador de ejes",
-              status:         "Alinea los ejes del componente según una cara o arista.",
-              desc_axis:      "Haz clic sobre una arista o una cara de un componente o grupo",
-              desc_auto:      "Haz clic sobre un componente",
-              vcb_hint_axis:  "TAB: cambiar eje (actual %<axis>s)  |  ALT: cambiar modo (actual %<mode>s)",
-              vcb_hint_auto:  "ALT: cambiar modo (actual %<mode>s)",
-              mode_axis:      "ejes",
+              label:                     "Alineador de ejes",
+              tooltip:                   "Alineador de ejes",
+              status:                    "Alinea los ejes de un componente/grupo según una arista/cara.",
+              desc_entity:               "Haz clic sobre una arista/cara de un componente/grupo",
+              desc_auto:                 "Haz clic sobre un componente",
+              desc_reference_ref:        "Haz clic sobre una arista/cara o componente/grupo",
+              desc_reference_target:     "Haz clic sobre un componente/grupo",
+              vcb_hint_entity:           "TAB = cambiar eje (actual %<axis>s)  |  ALT = cambiar modo (actual %<mode>s)",
+              vcb_hint_auto:             "ALT = cambiar modo (actual %<mode>s)",
+              vcb_hint_reference_ref:    "TAB = cambiar eje (actual %<axis>s)  |  ALT = cambiar modo (actual %<mode>s)",
+              vcb_hint_reference_target: "CTRL + Clic = fijar nueva referencia  |  TAB = cambiar eje (actual %<axis>s)  |  ALT = cambiar modo (actual %<mode>s)",
+              mode_entity:    "entidad",
+              mode_reference: "referencia",
               mode_auto:      "auto",
               axis_z:         "Z",
               axis_x:         "X",
@@ -81,7 +86,7 @@ module ASM_Extensions
               tooltip:          "Resetear rotaciones",
               status:           "Resetea la rotación de las entidades seleccionadas a los ejes globales.",
               no_geometry_hint: "Haz clic sobre un componente",
-              vcb_hint:         "TAB: cambiar de pivote (actual %<ip>s)  |  ESC: cancelar y salir"
+              vcb_hint:         "TAB = cambiar de pivote (actual %<ip>s)  |  ESC = cancelar y salir"
             },
             settings: {
               label:   "Ajustes de #{EXT_NAME}",

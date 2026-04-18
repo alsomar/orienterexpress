@@ -3701,12 +3701,13 @@ module ASM_Extensions
         nx, ny, nz = normal
         Debug.log(self, :align_pca, "planar geometry, normal=[#{nx.round(4)},#{ny.round(4)},#{nz.round(4)}]")
 
-        # Nearest world axis to the normal (preserve sign so local Z matches normal)
+        # Nearest world axis to the normal. Always target the +axis so the chosen
+        # local axis ends up pointing in the face's world-normal direction (not
+        # just parallel). When antiparallel (cos_a < 0), the rl < 1e-8 branch
+        # below generates the 180° flip that gets the sign right.
         axis_idx  = [[nx.abs, 0],[ny.abs, 1],[nz.abs, 2]].max_by{|v,_| v}[1]
         axes      = [[1,0,0],[0,1,0],[0,0,1]]
         ax, ay, az = axes[axis_idx]
-        # Flip target axis if normal points opposite to it
-        ax, ay, az = -ax, -ay, -az if (nx*ax + ny*ay + nz*az) < 0
 
         # Rodrigues rotation: map normal → world axis
         # rot_axis = normal × axis_vec,  angle = atan2(|cross|, dot)
@@ -3819,7 +3820,20 @@ module ASM_Extensions
           after  = inst.transformation.origin
           Debug.log(self, :align_pca, "  origin: #{before.to_a.map{|v|v.round(3)}} → #{after.to_a.map{|v|v.round(3)}}")
         end
-        permute_axes_by_extent(instance, z_pre, x_pre)
+        # The axis that r_total mapped the face normal onto must keep pointing
+        # in the face's world-normal direction. Feed permute that world vector
+        # as pre for the matching axis so its axis-preservation scoring doesn't
+        # flip the sign back.
+        n_world = t0 * Geom::Vector3d.new(nx, ny, nz)
+        nwl     = Math.sqrt(n_world.x**2 + n_world.y**2 + n_world.z**2)
+        if nwl > 1e-12
+          n_world = Geom::Vector3d.new(n_world.x / nwl, n_world.y / nwl, n_world.z / nwl)
+          z_pre_p = axis_idx == 2 ? n_world : z_pre
+          x_pre_p = axis_idx == 0 ? n_world : x_pre
+        else
+          z_pre_p = z_pre; x_pre_p = x_pre
+        end
+        permute_axes_by_extent(instance, z_pre_p, x_pre_p)
         t1 = instance.transformation
         det1 = t1.xaxis.dot(t1.yaxis.cross(t1.zaxis)) >= 0 ? "RH" : "LH"
         Debug.log(self, :align_pca, "done (2D) handedness=#{det1}")
@@ -3994,7 +4008,7 @@ module ASM_Extensions
     # two axes are rolled around the locked axis to minimize the in-plane
     # bounding box area. World geometry stays put; only the local axes (and
     # definition points) change.
-    def self.align_to_direction_lock(instance, dir_world, lock_axis, z_pre = nil, x_pre = nil)
+    def self.align_to_direction_lock(instance, dir_world, lock_axis, z_pre = nil, x_pre = nil, min_bb: false)
       method_id  = __method__
       start_time = Time.now
       Debug.log(self, method_id, "Process START lock=#{lock_axis}")
@@ -4013,109 +4027,158 @@ module ASM_Extensions
         return
       end
 
-      world_pts = collect_vertices(instance.definition.entities, t)
-      return if world_pts.empty?
-      hull3d = convex_hull_3d(world_pts)
-      hull3d = world_pts if hull3d.nil? || hull3d.size < 3
-
-      # Orthonormal basis (u0, v0, n_hat) spanning the face plane.
-      fb = n_hat.z.abs > 0.9 ? Geom::Vector3d.new(1, 0, 0) : Geom::Vector3d.new(0, 0, 1)
-      u0_raw = n_hat.cross(fb)
-      ul = Math.sqrt(u0_raw.x**2 + u0_raw.y**2 + u0_raw.z**2)
-      return if ul < 1e-12
-      u0 = Geom::Vector3d.new(u0_raw.x / ul, u0_raw.y / ul, u0_raw.z / ul)
-      v0 = n_hat.cross(u0)  # already unit (n_hat ⟂ u0 & both unit)
-
-      proj = hull3d.map { |p| [p.x*u0.x + p.y*u0.y + p.z*u0.z, p.x*v0.x + p.y*v0.y + p.z*v0.z] }
-      hull2d = convex_hull_2d(proj)
-      return if hull2d.size < 2
-
-      # Rotating calipers: edge-aligned rect with minimum area.
-      best_area = Float::INFINITY
-      best_cos  = 1.0
-      best_sin  = 0.0
-      hull2d.each_with_index do |pa, i|
-        pb = hull2d[(i + 1) % hull2d.size]
-        ex = pb[0] - pa[0]; ey = pb[1] - pa[1]
-        el = Math.sqrt(ex*ex + ey*ey)
-        next if el < 1e-12
-        c = ex / el; s = ey / el
-        min_u = min_v = Float::INFINITY
-        max_u = max_v = -Float::INFINITY
-        hull2d.each do |p|
-          pu =  p[0]*c + p[1]*s
-          pv = -p[0]*s + p[1]*c
-          min_u = pu if pu < min_u
-          max_u = pu if pu > max_u
-          min_v = pv if pv < min_v
-          max_v = pv if pv > max_v
-        end
-        area = (max_u - min_u) * (max_v - min_v)
-        if area < best_area
-          best_area = area; best_cos = c; best_sin = s
-        end
-      end
-
-      # Optimized in-plane basis.
-      u_opt = Geom::Vector3d.new(
-        best_cos * u0.x + best_sin * v0.x,
-        best_cos * u0.y + best_sin * v0.y,
-        best_cos * u0.z + best_sin * v0.z
-      )
-      v_opt = Geom::Vector3d.new(
-        -best_sin * u0.x + best_cos * v0.x,
-        -best_sin * u0.y + best_cos * v0.y,
-        -best_sin * u0.z + best_cos * v0.z
-      )
-
-      neg_u = Geom::Vector3d.new(-u_opt.x, -u_opt.y, -u_opt.z)
-      neg_v = Geom::Vector3d.new(-v_opt.x, -v_opt.y, -v_opt.z)
-
-      # Four 90° rotations of the non-locked axes. Pair (a, b) always satisfies a×b = n_hat.
-      rot_pairs = [[u_opt, v_opt], [v_opt, neg_u], [neg_u, neg_v], [neg_v, u_opt]]
-
-      y_pre = nil
-      if z_pre && x_pre
-        y_pre = Geom::Vector3d.new(
-          z_pre.y * x_pre.z - z_pre.z * x_pre.y,
-          z_pre.z * x_pre.x - z_pre.x * x_pre.z,
-          z_pre.x * x_pre.y - z_pre.y * x_pre.x
-        )
-      end
-
       best_xw = best_yw = best_zw = nil
-      best_score = -Float::INFINITY
-      rot_pairs.each do |a, b|
-        case lock_axis
-        when :x then xw, yw, zw = n_hat, a, b
-        when :y then xw, yw, zw = b, n_hat, a
-        when :z then xw, yw, zw = a, b, n_hat
-        end
 
-        if y_pre
-          score = xw.dot(x_pre) + yw.dot(y_pre) + zw.dot(z_pre)
-        else
-          # Extent ordering: X ≥ Y ≥ Z.
-          min_x = min_y = min_z = Float::INFINITY
-          max_x = max_y = max_z = -Float::INFINITY
-          hull3d.each do |p|
-            px = p.x*xw.x + p.y*xw.y + p.z*xw.z
-            py = p.x*yw.x + p.y*yw.y + p.z*yw.z
-            pz = p.x*zw.x + p.y*zw.y + p.z*zw.z
-            min_x = px if px < min_x; max_x = px if px > max_x
-            min_y = py if py < min_y; max_y = py if py > max_y
-            min_z = pz if pz < min_z; max_z = pz if pz > max_z
+      # Fast-path (O(1), no vertex scan) when pre-op axes are provided AND the
+      # caller didn't request min-BB. Projects the pre-axis that should stay
+      # in-plane onto the plane perpendicular to n_hat; the third axis comes from
+      # the cross product. Falls through to the hull-based path if the chosen
+      # pre-axis is (nearly) parallel to n_hat.
+      if z_pre && x_pre && !min_bb
+        ref = lock_axis == :x ? z_pre : x_pre
+        rdot = ref.x * n_hat.x + ref.y * n_hat.y + ref.z * n_hat.z
+        px = ref.x - rdot * n_hat.x
+        py = ref.y - rdot * n_hat.y
+        pz = ref.z - rdot * n_hat.z
+        pl = Math.sqrt(px*px + py*py + pz*pz)
+        if pl >= 1e-9
+          in_plane = Geom::Vector3d.new(px / pl, py / pl, pz / pl)
+          case lock_axis
+          when :z
+            best_xw = in_plane
+            best_zw = n_hat
+            best_yw = Geom::Vector3d.new(
+              n_hat.y * in_plane.z - n_hat.z * in_plane.y,
+              n_hat.z * in_plane.x - n_hat.x * in_plane.z,
+              n_hat.x * in_plane.y - n_hat.y * in_plane.x
+            )
+          when :x
+            best_zw = in_plane
+            best_xw = n_hat
+            best_yw = Geom::Vector3d.new(
+              in_plane.y * n_hat.z - in_plane.z * n_hat.y,
+              in_plane.z * n_hat.x - in_plane.x * n_hat.z,
+              in_plane.x * n_hat.y - in_plane.y * n_hat.x
+            )
+          when :y
+            best_xw = in_plane
+            best_yw = n_hat
+            best_zw = Geom::Vector3d.new(
+              in_plane.y * n_hat.z - in_plane.z * n_hat.y,
+              in_plane.z * n_hat.x - in_plane.x * n_hat.z,
+              in_plane.x * n_hat.y - in_plane.y * n_hat.x
+            )
           end
-          dx = max_x - min_x; dy = max_y - min_y; dz = max_z - min_z
-          score = 0
-          score += 1 if dx >= dy
-          score += 1 if dy >= dz
+          Debug.log(self, method_id, "fast-path (analytical, no hull)")
+        end
+      end
+
+      if best_xw.nil?
+        world_pts = collect_vertices(instance.definition.entities, t)
+        return if world_pts.empty?
+        hull3d = convex_hull_3d(world_pts)
+        hull3d = world_pts if hull3d.nil? || hull3d.size < 3
+
+        # Orthonormal basis (u0, v0, n_hat) spanning the face plane.
+        fb = n_hat.z.abs > 0.9 ? Geom::Vector3d.new(1, 0, 0) : Geom::Vector3d.new(0, 0, 1)
+        u0_raw = n_hat.cross(fb)
+        ul = Math.sqrt(u0_raw.x**2 + u0_raw.y**2 + u0_raw.z**2)
+        return if ul < 1e-12
+        u0 = Geom::Vector3d.new(u0_raw.x / ul, u0_raw.y / ul, u0_raw.z / ul)
+        v0 = n_hat.cross(u0)  # already unit (n_hat ⟂ u0 & both unit)
+
+        proj = hull3d.map { |p| [p.x*u0.x + p.y*u0.y + p.z*u0.z, p.x*v0.x + p.y*v0.y + p.z*v0.z] }
+        hull2d = convex_hull_2d(proj)
+        return if hull2d.size < 2
+
+        # Rotating calipers: edge-aligned rect with minimum area.
+        best_area = Float::INFINITY
+        best_cos  = 1.0
+        best_sin  = 0.0
+        hull2d.each_with_index do |pa, i|
+          pb = hull2d[(i + 1) % hull2d.size]
+          ex = pb[0] - pa[0]; ey = pb[1] - pa[1]
+          el = Math.sqrt(ex*ex + ey*ey)
+          next if el < 1e-12
+          c = ex / el; s = ey / el
+          min_u = min_v = Float::INFINITY
+          max_u = max_v = -Float::INFINITY
+          hull2d.each do |p|
+            pu =  p[0]*c + p[1]*s
+            pv = -p[0]*s + p[1]*c
+            min_u = pu if pu < min_u
+            max_u = pu if pu > max_u
+            min_v = pv if pv < min_v
+            max_v = pv if pv > max_v
+          end
+          area = (max_u - min_u) * (max_v - min_v)
+          if area < best_area
+            best_area = area; best_cos = c; best_sin = s
+          end
         end
 
-        if score > best_score
-          best_score = score
-          best_xw = xw; best_yw = yw; best_zw = zw
+        # Optimized in-plane basis.
+        u_opt = Geom::Vector3d.new(
+          best_cos * u0.x + best_sin * v0.x,
+          best_cos * u0.y + best_sin * v0.y,
+          best_cos * u0.z + best_sin * v0.z
+        )
+        v_opt = Geom::Vector3d.new(
+          -best_sin * u0.x + best_cos * v0.x,
+          -best_sin * u0.y + best_cos * v0.y,
+          -best_sin * u0.z + best_cos * v0.z
+        )
+
+        neg_u = Geom::Vector3d.new(-u_opt.x, -u_opt.y, -u_opt.z)
+        neg_v = Geom::Vector3d.new(-v_opt.x, -v_opt.y, -v_opt.z)
+
+        # Four 90° rotations of the non-locked axes. Pair (a, b) always satisfies a×b = n_hat.
+        rot_pairs = [[u_opt, v_opt], [v_opt, neg_u], [neg_u, neg_v], [neg_v, u_opt]]
+
+        y_pre = nil
+        if z_pre && x_pre
+          y_pre = Geom::Vector3d.new(
+            z_pre.y * x_pre.z - z_pre.z * x_pre.y,
+            z_pre.z * x_pre.x - z_pre.x * x_pre.z,
+            z_pre.x * x_pre.y - z_pre.y * x_pre.x
+          )
         end
+
+        best_score = -Float::INFINITY
+        rot_pairs.each do |a, b|
+          case lock_axis
+          when :x then xw, yw, zw = n_hat, a, b
+          when :y then xw, yw, zw = b, n_hat, a
+          when :z then xw, yw, zw = a, b, n_hat
+          end
+
+          if y_pre
+            score = xw.dot(x_pre) + yw.dot(y_pre) + zw.dot(z_pre)
+          else
+            # Extent ordering: X ≥ Y ≥ Z.
+            min_x = min_y = min_z = Float::INFINITY
+            max_x = max_y = max_z = -Float::INFINITY
+            hull3d.each do |p|
+              px = p.x*xw.x + p.y*xw.y + p.z*xw.z
+              py = p.x*yw.x + p.y*yw.y + p.z*yw.z
+              pz = p.x*zw.x + p.y*zw.y + p.z*zw.z
+              min_x = px if px < min_x; max_x = px if px > max_x
+              min_y = py if py < min_y; max_y = py if py > max_y
+              min_z = pz if pz < min_z; max_z = pz if pz > max_z
+            end
+            dx = max_x - min_x; dy = max_y - min_y; dz = max_z - min_z
+            score = 0
+            score += 1 if dx >= dy
+            score += 1 if dy >= dz
+          end
+
+          if score > best_score
+            best_score = score
+            best_xw = xw; best_yw = yw; best_zw = zw
+          end
+        end
+
+        Debug.log(self, method_id, "min rect area=#{best_area.round(4)}")
       end
 
       # Build target transformation (same origin, new orthonormal axes).
@@ -4134,7 +4197,6 @@ module ASM_Extensions
         i.transformation = i.transformation * r_inv
       end
 
-      Debug.log(self, method_id, "min rect area=#{best_area.round(4)}")
       Debug.log(self, method_id, "Process DONE")
       rescue => e
         Debug.log(self, method_id, "Process ERROR. #{e.message}")
@@ -4146,13 +4208,110 @@ module ASM_Extensions
       end
     end
 
+    # Rotates the target instance so its axes are parallel (and same-sign) to
+    # the sample's, measured in WORLD coordinates. Target's world origin and
+    # uniform scale are preserved. The definition is not touched — only the
+    # target's own transformation — so other instances of the same definition
+    # are unaffected. Works regardless of edit-context nesting: both sample's
+    # and target's transformations are composed with `edit_transform` to get
+    # world coordinates, then the result is converted back to target-local.
+    def self.align_to_sample(target, sample)
+      method_id = __method__
+      # Groups should stay independent from siblings (SketchUp convention).
+      # Components intentionally keep their shared definition so axis changes
+      # propagate to every instance.
+      target.make_unique if target.is_a?(Sketchup::Group) && target.definition.instances.size > 1
+      bake_scale(target)
+
+      et = Sketchup.active_model.edit_transform
+
+      # Sample's WORLD basis, re-orthonormalized defensively.
+      sw = et * sample.transformation
+      xs = sw.xaxis; zs = sw.zaxis
+      xl = Math.sqrt(xs.x**2 + xs.y**2 + xs.z**2)
+      zl = Math.sqrt(zs.x**2 + zs.y**2 + zs.z**2)
+      return if xl < 1e-12 || zl < 1e-12
+      xw = Geom::Vector3d.new(xs.x / xl, xs.y / xl, xs.z / xl)
+      zw = Geom::Vector3d.new(zs.x / zl, zs.y / zl, zs.z / zl)
+      yw = Geom::Vector3d.new(
+        zw.y * xw.z - zw.z * xw.y,
+        zw.z * xw.x - zw.x * xw.z,
+        zw.x * xw.y - zw.y * xw.x
+      )
+      yl = Math.sqrt(yw.x**2 + yw.y**2 + yw.z**2)
+      return if yl < 1e-9
+      yw = Geom::Vector3d.new(yw.x / yl, yw.y / yl, yw.z / yl)
+      zw = Geom::Vector3d.new(
+        xw.y * yw.z - xw.z * yw.y,
+        xw.z * yw.x - xw.x * yw.z,
+        xw.x * yw.y - xw.y * yw.x
+      )
+
+      Debug.log(self, method_id, "sample world axes: " \
+        "X=[#{xw.x.round(4)},#{xw.y.round(4)},#{xw.z.round(4)}] " \
+        "Y=[#{yw.x.round(4)},#{yw.y.round(4)},#{yw.z.round(4)}] " \
+        "Z=[#{zw.x.round(4)},#{zw.y.round(4)},#{zw.z.round(4)}]")
+
+      # Target's current world origin + uniform scale + axes BEFORE.
+      tw  = et * target.transformation
+      twa = tw.to_a
+      st  = Math.sqrt(twa[0]**2 + twa[1]**2 + twa[2]**2)
+      st  = 1.0 if st < 1e-12
+      ow  = tw.origin
+
+      tx_b = tw.xaxis; ty_b = tw.yaxis; tz_b = tw.zaxis
+      txb_l = Math.sqrt(tx_b.x**2 + tx_b.y**2 + tx_b.z**2)
+      tyb_l = Math.sqrt(ty_b.x**2 + ty_b.y**2 + ty_b.z**2)
+      tzb_l = Math.sqrt(tz_b.x**2 + tz_b.y**2 + tz_b.z**2)
+      Debug.log(self, method_id, "target world axes BEFORE: " \
+        "X=[#{(tx_b.x/txb_l).round(4)},#{(tx_b.y/txb_l).round(4)},#{(tx_b.z/txb_l).round(4)}] " \
+        "Y=[#{(ty_b.x/tyb_l).round(4)},#{(ty_b.y/tyb_l).round(4)},#{(ty_b.z/tyb_l).round(4)}] " \
+        "Z=[#{(tz_b.x/tzb_l).round(4)},#{(tz_b.y/tzb_l).round(4)},#{(tz_b.z/tzb_l).round(4)}]")
+
+      arr = [
+        xw.x * st, xw.y * st, xw.z * st, 0.0,
+        yw.x * st, yw.y * st, yw.z * st, 0.0,
+        zw.x * st, zw.y * st, zw.z * st, 0.0,
+        ow.x,      ow.y,      ow.z,      1.0
+      ]
+      desired_world = Geom::Transformation.new(arr)
+
+      # Keep visible world geometry fixed for every instance of this definition.
+      # Mutate the definition by m, then compensate all instances with m.inverse
+      # so their world positions stay put while sharing the new local axes.
+      m     = desired_world.inverse * tw
+      m_inv = m.inverse
+      ents  = target.definition.entities
+      ents.transform_entities(m, ents.to_a)
+      target.definition.instances.each do |inst|
+        inst.transformation = inst.transformation * m_inv
+      end
+
+      # Verify: target's world axes AFTER.
+      tw2  = et * target.transformation
+      tx_a = tw2.xaxis; ty_a = tw2.yaxis; tz_a = tw2.zaxis
+      txa_l = Math.sqrt(tx_a.x**2 + tx_a.y**2 + tx_a.z**2)
+      tya_l = Math.sqrt(ty_a.x**2 + ty_a.y**2 + ty_a.z**2)
+      tza_l = Math.sqrt(tz_a.x**2 + tz_a.y**2 + tz_a.z**2)
+      Debug.log(self, method_id, "target world axes AFTER:  " \
+        "X=[#{(tx_a.x/txa_l).round(4)},#{(tx_a.y/txa_l).round(4)},#{(tx_a.z/txa_l).round(4)}] " \
+        "Y=[#{(ty_a.x/tya_l).round(4)},#{(ty_a.y/tya_l).round(4)},#{(ty_a.z/tya_l).round(4)}] " \
+        "Z=[#{(tz_a.x/tza_l).round(4)},#{(tz_a.y/tza_l).round(4)},#{(tz_a.z/tza_l).round(4)}]")
+    end
+
     # Tool class that runs align_to_min_bb in one operation.
     # Recurrent: stays active for repeated clicks.
     class OEAlignerTool
 
       BB_EDGES = [[0,1],[0,2],[1,3],[2,3],[4,5],[4,6],[5,7],[6,7],[0,4],[1,5],[2,6],[3,7]].freeze
+      # Bounding-box faces as quads (CCW from outside). Used for translucent fill.
+      BB_FACES = [
+        [0, 1, 3, 2], [4, 6, 7, 5], [0, 4, 5, 1],
+        [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3],
+      ].freeze
 
-      # Alt toggles @mode between :axis and :auto. In :axis mode, Tab cycles @lock_axis.
+      # Alt cycles through these modes. Tab cycles @lock_axis in :entity and :reference.
+      MODE_CYCLE = [:entity, :reference, :auto].freeze
       AXIS_CYCLE = [:z, :x, :y].freeze
 
       # Axis colors match SketchUp axis convention (X=red, Y=green, Z=blue).
@@ -4162,7 +4321,15 @@ module ASM_Extensions
         y: Sketchup::Color.new(50, 180, 50),
       }.freeze
 
-      @@last_mode      = :axis
+      # Bbox highlight colors, one per mode (avoids confusing the sample's pink
+      # with the "invalid target" red). INVALID_RED flags a :reference target
+      # sharing its definition with the sample (clicking would be a no-op).
+      FUCHSIA     = Sketchup::Color.new(255, 0, 200).freeze   # :entity hover + :reference sample
+      CYAN        = Sketchup::Color.new(0, 180, 200).freeze   # :reference hover target
+      ORANGE      = Sketchup::Color.new(255, 165, 0).freeze   # :auto hover
+      INVALID_RED = Sketchup::Color.new(255, 0, 0).freeze     # :reference same-def copy
+
+      @@last_mode      = :entity
       @@last_lock_axis = :z
 
       def self.cursor_id
@@ -4177,7 +4344,7 @@ module ASM_Extensions
         @model          = Sketchup.active_model
         @instances      = instances
         @hovered        = nil
-        @mode           = @@last_mode       # :axis | :auto
+        @mode           = @@last_mode       # :entity | :reference | :auto
         @lock_axis      = @@last_lock_axis  # :z | :x | :y
         @alt_handled    = false
         @hover_kind     = nil   # :face | :edge | nil
@@ -4187,6 +4354,15 @@ module ASM_Extensions
         @hover_dir      = nil   # Vector3d (locked-axis direction, world)
         @hover_fill_pts = nil   # Flat Array<Point3d>, 3 per triangle (face mesh triangulation)
         @hover_centroid = nil   # Point3d (face centroid or edge midpoint, world)
+        # :reference-mode source. Edge/face: raw geometry in model root.
+        # Component/group: a sample whose local axis becomes the target direction.
+        @ref_entity     = nil
+        @ref_kind       = nil   # :face | :edge | :component | :group | nil
+        @ref_loops      = nil
+        @ref_segment    = nil
+        @ref_fill_pts   = nil
+        @ref_dir        = nil
+        @ref_centroid   = nil
         @last_x         = nil
         @last_y         = nil
       end
@@ -4223,66 +4399,172 @@ module ASM_Extensions
         ph = view.pick_helper
         ph.do_pick(x, y)
 
-        if @mode == :auto
-          entity = ph.best_picked
-          candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
-          if candidate != @hovered
-            @hovered = candidate
+        case @mode
+        when :auto      then pick_auto(ph, view)
+        when :reference then pick_reference(ph, view, force_recapture: force_recapture)
+        else                 pick_entity(ph, view, force_recapture: force_recapture)
+        end
+      end
+
+      def pick_auto(ph, view)
+        entity = ph.best_picked
+        candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
+        if candidate != @hovered
+          @hovered = candidate
+          clear_hover_geom
+          view.invalidate
+        end
+      end
+
+      def pick_entity(ph, view, force_recapture: false)
+        leaf = nil; outer = nil; t_world = nil
+        ph.count.times do |i|
+          cand_leaf = ph.leaf_at(i)
+          next unless cand_leaf.is_a?(Sketchup::Face) || cand_leaf.is_a?(Sketchup::Edge)
+          path = ph.path_at(i) || []
+          candidate = path.first
+          next unless candidate.is_a?(Sketchup::ComponentInstance) || candidate.is_a?(Sketchup::Group)
+          leaf    = cand_leaf
+          outer   = candidate
+          t_world = ph.transformation_at(i)
+          break
+        end
+
+        changed = force_recapture || (leaf != @hover_entity) || (outer != @hovered)
+        if changed
+          @hover_entity = leaf
+          @hovered      = outer
+          clear_hover_geom
+          if leaf && t_world
+            case leaf
+            when Sketchup::Face then capture_hover_face(leaf, t_world)
+            when Sketchup::Edge then capture_hover_edge(leaf, t_world)
+            end
+          end
+          view.invalidate
+        end
+      end
+
+      # :reference mode picking. Prefers raw edges/faces (for direction reference);
+      # if none, falls back to component/group hover — clickable as a sample (no
+      # ref yet) or as an alignment target (ref already stored).
+      def pick_reference(ph, view, force_recapture: false)
+        raw_leaf = nil; raw_t = nil
+        ph.count.times do |i|
+          cand = ph.leaf_at(i)
+          next unless cand.is_a?(Sketchup::Face) || cand.is_a?(Sketchup::Edge)
+          path = ph.path_at(i) || []
+          next if path.any? { |e| e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group) }
+          raw_leaf = cand
+          raw_t    = ph.transformation_at(i) || Geom::Transformation.new
+          break
+        end
+
+        if raw_leaf
+          changed = force_recapture || raw_leaf != @hover_entity || @hovered
+          if changed
+            @hover_entity = raw_leaf
+            @hovered      = nil
             clear_hover_geom
+            case raw_leaf
+            when Sketchup::Face then capture_hover_face(raw_leaf, raw_t)
+            when Sketchup::Edge then capture_hover_edge(raw_leaf, raw_t)
+            end
+            sync_hover_preview_selection
             view.invalidate
           end
-        else
-          leaf = nil; outer = nil; t_world = nil
-          ph.count.times do |i|
-            cand_leaf = ph.leaf_at(i)
-            next unless cand_leaf.is_a?(Sketchup::Face) || cand_leaf.is_a?(Sketchup::Edge)
-            path = ph.path_at(i) || []
-            candidate = path.first
-            next unless candidate.is_a?(Sketchup::ComponentInstance) || candidate.is_a?(Sketchup::Group)
-            leaf    = cand_leaf
-            outer   = candidate
-            t_world = ph.transformation_at(i)
+          return
+        end
+
+        instance = nil
+        ph.count.times do |i|
+          path = ph.path_at(i) || []
+          inst = path.first
+          if inst.is_a?(Sketchup::ComponentInstance) || inst.is_a?(Sketchup::Group)
+            instance = inst
             break
           end
+        end
 
-          changed = force_recapture || (leaf != @hover_entity) || (outer != @hovered)
-          if changed
-            @hover_entity = leaf
-            @hovered      = outer
-            clear_hover_geom
-            if leaf && t_world
-              case leaf
-              when Sketchup::Face then capture_hover_face(leaf, t_world)
-              when Sketchup::Edge then capture_hover_edge(leaf, t_world)
-              end
-            end
-            view.invalidate
-          end
+        if instance != @hovered || @hover_entity
+          @hovered      = instance
+          @hover_entity = nil
+          clear_hover_geom
+          sync_hover_preview_selection
+          view.invalidate
         end
       end
 
       def draw(view)
         eye = view.camera.eye
 
-        if @hovered && @hovered.valid?
-          bb_color = @mode == :auto ? Sketchup::Color.new(255, 165, 0) : AXIS_COLOR[@lock_axis]
-          t        = @hovered.transformation
-          def_bb   = @hovered.definition.bounds
-          corners  = 8.times.map { |i| t * def_bb.corner(i) }
-          view.line_width     = 2
-          view.drawing_color  = bb_color
-          BB_EDGES.each do |a, b|
-            pa = corners[a].offset((eye - corners[a]).normalize, 0.1)
-            pb = corners[b].offset((eye - corners[b]).normalize, 0.1)
-            view.draw(GL_LINES, [pa, pb])
+        # Sample visualisation: SketchUp draws it natively via model.selection
+        # (added in promote_hovered_to_sample). Same goes for the hover preview
+        # in :reference mode when no sample has been set yet.
+
+        if @hovered && @hovered.valid? && @hovered != @ref_entity
+          native_preview = @mode == :reference && @ref_entity.nil?
+          unless native_preview
+            invalid  = @mode == :reference && hover_invalid?
+            bb_color = case @mode
+                       when :auto      then ORANGE
+                       when :reference then invalid ? INVALID_RED : CYAN
+                       else                 FUCHSIA
+                       end
+            draw_bbox(view, eye, @hovered, bb_color, fill: invalid)
           end
         end
 
         return if @mode == :auto
-        return unless @hover_entity && @hover_entity.valid?
 
-        color = AXIS_COLOR[@lock_axis]
+        axis_color = AXIS_COLOR[@lock_axis]
+        draw_reference_ref(view, eye, axis_color) if @mode == :reference
 
+        if @hover_entity && @hover_entity.valid?
+          if @mode == :reference
+            draw_reference_hover(view, eye, axis_color)
+          else
+            draw_entity_hover(view, eye, axis_color)
+          end
+        end
+      end
+
+      def draw_bbox(view, eye, instance, color, fill: false)
+        t       = instance.transformation
+        def_bb  = instance.definition.bounds
+        corners = 8.times.map { |i| t * def_bb.corner(i) }
+        if fill
+          view.drawing_color = Sketchup::Color.new(color.red, color.green, color.blue, 80)
+          BB_FACES.each do |quad|
+            view.draw(GL_QUADS, quad.map { |i| corners[i] })
+          end
+        end
+        view.line_width    = 2
+        view.drawing_color = color
+        BB_EDGES.each do |a, b|
+          pa = corners[a].offset((eye - corners[a]).normalize, 0.1)
+          pb = corners[b].offset((eye - corners[b]).normalize, 0.1)
+          view.draw(GL_LINES, [pa, pb])
+        end
+      end
+
+      def sample_ref?
+        @ref_kind == :component || @ref_kind == :group
+      end
+
+      # Hovered target is a copy of the sample component (same definition) →
+      # clicking would rotate the sample relative to itself. Groups are skipped:
+      # each group carries its own geometry, so "same group" can only mean the
+      # literal sample instance, handled by the earlier `@hovered != @ref_entity`
+      # guard.
+      def hover_invalid?
+        return false unless @ref_kind == :component
+        return false unless @hovered.is_a?(Sketchup::ComponentInstance)
+        return false unless @ref_entity && @ref_entity.valid?
+        @hovered.definition == @ref_entity.definition
+      end
+
+      def draw_entity_hover(view, eye, color)
         case @hover_kind
         when :face
           return unless @hover_loops
@@ -4297,6 +4579,7 @@ module ASM_Extensions
             offset_pts = loop_pts.map { |p| p.offset((eye - p).normalize, 0.1) }
             view.draw(GL_LINE_LOOP, offset_pts)
           end
+          draw_direction_arrow(view, @hover_centroid, @hover_dir, color) if @hover_centroid && @hover_dir
         when :edge
           return unless @hover_segment
           view.line_width    = 4
@@ -4304,16 +4587,62 @@ module ASM_Extensions
           seg = @hover_segment.map { |p| p.offset((eye - p).normalize, 0.1) }
           view.draw(GL_LINES, seg)
         end
+      end
 
-        if @hover_kind == :face && @hover_centroid && @hover_dir
-          p1     = @hover_centroid.offset((eye - @hover_centroid).normalize, 0.1)
-          len_px = [view.vpheight * 0.1, 50].max
-          len    = view.pixels_to_model(len_px, p1)
-          p2     = p1.offset(@hover_dir, len)
+      def draw_reference_hover(view, eye, axis_color)
+        return if @hover_entity == @ref_entity  # avoid overdrawing the reference
+        case @hover_kind
+        when :face
+          return unless @hover_loops
+          draw_face_body(view, eye, @hover_loops, @hover_fill_pts, axis_color, axis_color)
+          draw_direction_arrow(view, @hover_centroid, @hover_dir, axis_color) if @hover_centroid && @hover_dir
+        when :edge
+          return unless @hover_segment
           view.line_width    = 4
-          view.drawing_color = color
-          view.draw(GL_LINES, [p1, p2])
+          view.drawing_color = axis_color
+          seg = @hover_segment.map { |p| p.offset((eye - p).normalize, 0.1) }
+          view.draw(GL_LINES, seg)
         end
+      end
+
+      def draw_reference_ref(view, eye, axis_color)
+        return unless @ref_entity && @ref_entity.valid?
+        case @ref_kind
+        when :face
+          return unless @ref_loops
+          draw_face_body(view, eye, @ref_loops, @ref_fill_pts, axis_color, axis_color)
+          draw_direction_arrow(view, @ref_centroid, @ref_dir, axis_color) if @ref_centroid && @ref_dir
+        when :edge
+          return unless @ref_segment
+          view.line_width    = 4
+          view.drawing_color = axis_color
+          seg = @ref_segment.map { |p| p.offset((eye - p).normalize, 0.1) }
+          view.draw(GL_LINES, seg)
+        end
+      end
+
+      def draw_face_body(view, eye, loops, fill_pts, fill_color, border_color)
+        fill = Sketchup::Color.new(fill_color.red, fill_color.green, fill_color.blue, 80)
+        if fill_pts && !fill_pts.empty?
+          view.drawing_color = fill
+          view.draw(GL_TRIANGLES, fill_pts)
+        end
+        view.line_width    = 2
+        view.drawing_color = border_color
+        loops.each do |loop_pts|
+          offset_pts = loop_pts.map { |p| p.offset((eye - p).normalize, 0.1) }
+          view.draw(GL_LINE_LOOP, offset_pts)
+        end
+      end
+
+      def draw_direction_arrow(view, centroid, dir, color)
+        p1     = centroid.offset((view.camera.eye - centroid).normalize, 0.1)
+        len_px = [view.vpheight * 0.1, 50].max
+        len    = view.pixels_to_model(len_px, p1)
+        p2     = p1.offset(dir, len)
+        view.line_width    = 4
+        view.drawing_color = color
+        view.draw(GL_LINES, [p1, p2])
       end
 
       def getExtents
@@ -4324,6 +4653,8 @@ module ASM_Extensions
         end
         @hover_loops.each { |loop_pts| loop_pts.each { |p| bb.add(p) } } if @hover_loops
         @hover_segment.each { |p| bb.add(p) } if @hover_segment
+        @ref_loops.each   { |loop_pts| loop_pts.each { |p| bb.add(p) } } if @ref_loops
+        @ref_segment.each { |p| bb.add(p) } if @ref_segment
         bb
       end
 
@@ -4335,13 +4666,28 @@ module ASM_Extensions
         UI.set_cursor(OEAlignerTool.cursor_id)
       end
 
-      def onLButtonDown(_flags, x, y, view)
-        if @mode == :auto
+      def onLButtonDown(flags, x, y, view)
+        case @mode
+        when :auto
           ph = view.pick_helper
           ph.do_pick(x, y)
           entity = ph.best_picked
           return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
           apply_auto([entity])
+        when :reference
+          ctrl = (flags & COPY_MODIFIER_MASK) != 0
+          if @hover_entity && @hover_entity.valid? && @hover_dir
+            return if @hover_entity == @ref_entity  # click on current ref: no-op
+            promote_hover_to_reference
+            update_vcb
+            view.invalidate
+          elsif @hovered && @hovered.valid?
+            if ctrl || @ref_entity.nil?
+              promote_hovered_to_sample(view)
+            elsif @ref_dir && !hover_invalid?
+              apply_lock(@hovered, @ref_dir, @lock_axis)
+            end
+          end
         else
           return unless @hovered && @hovered.valid? && @hover_dir
           apply_lock(@hovered, @hover_dir, @lock_axis)
@@ -4350,11 +4696,11 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, _flags, view)
         case key
-        when 18 # Alt — toggle mode (axis ↔ auto)
+        when 18 # Alt — cycle mode (entity → reference → auto)
           toggle_mode(view)
           @alt_handled = true
-        when 9  # Tab — cycle axis (axis mode only)
-          cycle_axis(view) if @mode == :axis
+        when 9  # Tab — cycle axis (entity or reference mode)
+          cycle_axis(view) if @mode == :entity || @mode == :reference
         end
       end
 
@@ -4368,8 +4714,10 @@ module ASM_Extensions
       private
 
       def toggle_mode(view)
-        @mode = @mode == :axis ? :auto : :axis
+        idx = MODE_CYCLE.index(@mode) || 0
+        @mode = MODE_CYCLE[(idx + 1) % MODE_CYCLE.size]
         @@last_mode = @mode
+        clear_reference
         clear_hover
         update_vcb
         view.invalidate
@@ -4379,13 +4727,63 @@ module ASM_Extensions
         idx = AXIS_CYCLE.index(@lock_axis) || 0
         @lock_axis = AXIS_CYCLE[(idx + 1) % AXIS_CYCLE.size]
         @@last_lock_axis = @lock_axis
+        refresh_sample_direction
         update_vcb
         view.invalidate
       end
 
+      def promote_hovered_to_sample(view)
+        instance = @hovered
+        dir = sample_axis_direction(instance, @lock_axis)
+        return unless dir
+        clear_reference
+        @ref_entity   = instance
+        @ref_kind     = instance.is_a?(Sketchup::Group) ? :group : :component
+        @ref_dir      = dir
+        @ref_centroid = instance.transformation.origin
+        @model.selection.clear
+        @model.selection.add(instance)
+        update_vcb
+        view.invalidate
+      end
+
+      def refresh_sample_direction
+        return unless sample_ref? && @ref_entity && @ref_entity.valid?
+        dir = sample_axis_direction(@ref_entity, @lock_axis)
+        @ref_dir      = dir if dir
+        @ref_centroid = @ref_entity.transformation.origin
+      end
+
+      def sample_axis_direction(instance, lock_axis)
+        t = instance.transformation
+        v = case lock_axis
+            when :z then t.zaxis
+            when :x then t.xaxis
+            when :y then t.yaxis
+            end
+        vl = v.length
+        return nil if vl < 1e-12
+        Geom::Vector3d.new(v.x / vl, v.y / vl, v.z / vl)
+      end
+
       def clear_hover
+        @hovered      = nil
         @hover_entity = nil
         clear_hover_geom
+        sync_hover_preview_selection
+      end
+
+      # In :reference mode with no sample set yet, mirror @hovered into the
+      # model selection so SketchUp draws its native bbox for the preview.
+      # No-op in any other state.
+      def sync_hover_preview_selection
+        return unless @mode == :reference && @ref_entity.nil?
+        desired = (@hovered && @hovered.valid?) ? [@hovered] : []
+        sel = @model.selection
+        current = sel.to_a
+        return if current == desired
+        sel.clear unless sel.empty?
+        sel.add(desired) unless desired.empty?
       end
 
       def clear_hover_geom
@@ -4395,6 +4793,30 @@ module ASM_Extensions
         @hover_dir      = nil
         @hover_fill_pts = nil
         @hover_centroid = nil
+      end
+
+      def clear_reference
+        @ref_entity   = nil
+        @ref_kind     = nil
+        @ref_loops    = nil
+        @ref_segment  = nil
+        @ref_fill_pts = nil
+        @ref_dir      = nil
+        @ref_centroid = nil
+        @model.selection.clear unless @model.selection.empty?
+      end
+
+      def promote_hover_to_reference
+        @ref_entity   = @hover_entity
+        @ref_kind     = @hover_kind
+        @ref_loops    = @hover_loops
+        @ref_segment  = @hover_segment
+        @ref_fill_pts = @hover_fill_pts
+        @ref_dir      = @hover_dir
+        @ref_centroid = @hover_centroid
+        # Drop the previous component/group sample highlight (if any): an edge
+        # or face ref supersedes it.
+        @model.selection.clear unless @model.selection.empty?
       end
 
       def capture_hover_face(face, t_world)
@@ -4467,12 +4889,53 @@ module ASM_Extensions
         end
       end
 
+      # Same-direction check (sign-sensitive): the locked axis must match the
+      # target direction, not just be parallel — antiparallel should trigger a flip.
+      def axis_already_aligned?(instance, dir_world, lock_axis)
+        current = case lock_axis
+                  when :z then instance.transformation.zaxis
+                  when :x then instance.transformation.xaxis
+                  when :y then instance.transformation.yaxis
+                  end
+        return false unless current && dir_world
+        cl = current.length
+        dl = dir_world.length
+        return false if cl < 1e-9 || dl < 1e-9
+        cos = current.dot(dir_world) / (cl * dl)
+        cos >= 1.0 - 1e-9
+      end
+
       def apply_lock(instance, dir_world, lock_axis)
+        # Component/group sample: copy all three axes from the sample, even if
+        # the locked axis already coincides.
+        if sample_ref? && @ref_entity && @ref_entity.valid?
+          return if fully_aligned_with_sample?(instance, @ref_entity)
+          @model.start_operation("Orienter Express: Align to Sample", true)
+          begin
+            OrienterExpress.send(:align_to_sample, instance, @ref_entity)
+            @model.commit_operation
+            clear_hover
+            view = @model.active_view
+            pick_at(@last_x, @last_y, view, force_recapture: true) if @last_x && @last_y
+            view.invalidate
+          rescue => e
+            @model.abort_operation
+            UI.messagebox("Error: #{e.message}")
+          end
+          return
+        end
+
+        return if axis_already_aligned?(instance, dir_world, lock_axis)
         z_pre = instance.transformation.zaxis
         x_pre = instance.transformation.xaxis
+        # :entity → full-component min-BB (slower but picks the rotation that
+        # actually minimises the component's in-plane bbox).
+        # :reference → axis-preserving fast-path (no vertex scan).
+        use_min_bb = @mode == :entity
         @model.start_operation("Orienter Express: Direction-Lock Alignment", true)
         begin
-          OrienterExpress.send(:align_to_direction_lock, instance, dir_world, lock_axis, z_pre, x_pre)
+          OrienterExpress.send(:align_to_direction_lock, instance, dir_world, lock_axis,
+                               z_pre, x_pre, min_bb: use_min_bb)
           @model.commit_operation
           clear_hover
           view = @model.active_view
@@ -4486,17 +4949,47 @@ module ASM_Extensions
         end
       end
 
+      # All three axes parallel (up to sign) to the sample's — skip op entirely.
+      def fully_aligned_with_sample?(instance, sample)
+        ti = instance.transformation
+        ts = sample.transformation
+        pairs = [[ti.xaxis, ts.xaxis], [ti.yaxis, ts.yaxis], [ti.zaxis, ts.zaxis]]
+        pairs.all? do |a, b|
+          al = a.length; bl = b.length
+          next false if al < 1e-9 || bl < 1e-9
+          (a.dot(b) / (al * bl)).abs >= 1.0 - 1e-9
+        end
+      end
+
       def update_vcb
-        mode_label = (@mode == :axis ? Lang.commands.oealigner.mode_axis : Lang.commands.oealigner.mode_auto).to_s.upcase
-        if @mode == :axis
-          axis_label = case @lock_axis
-                       when :z then Lang.commands.oealigner.axis_z
-                       when :x then Lang.commands.oealigner.axis_x
-                       when :y then Lang.commands.oealigner.axis_y
-                       end
-          desc = Lang.commands.oealigner.desc_axis.to_s
-          hint = format(Lang.commands.oealigner.vcb_hint_axis.to_s,
+        mode_key = case @mode
+                   when :entity    then :mode_entity
+                   when :reference then :mode_reference
+                   else                 :mode_auto
+                   end
+        mode_label = Lang.commands.oealigner.send(mode_key).to_s.upcase
+
+        axis_label = case @lock_axis
+                     when :z then Lang.commands.oealigner.axis_z
+                     when :x then Lang.commands.oealigner.axis_x
+                     when :y then Lang.commands.oealigner.axis_y
+                     end
+
+        case @mode
+        when :entity
+          desc = Lang.commands.oealigner.desc_entity.to_s
+          hint = format(Lang.commands.oealigner.vcb_hint_entity.to_s,
                         mode: mode_label.to_s, axis: axis_label.to_s)
+        when :reference
+          if @ref_entity
+            desc = Lang.commands.oealigner.desc_reference_target.to_s
+            hint = format(Lang.commands.oealigner.vcb_hint_reference_target.to_s,
+                          mode: mode_label.to_s, axis: axis_label.to_s)
+          else
+            desc = Lang.commands.oealigner.desc_reference_ref.to_s
+            hint = format(Lang.commands.oealigner.vcb_hint_reference_ref.to_s,
+                          mode: mode_label.to_s, axis: axis_label.to_s)
+          end
         else
           desc = Lang.commands.oealigner.desc_auto.to_s
           hint = format(Lang.commands.oealigner.vcb_hint_auto.to_s, mode: mode_label.to_s)
@@ -4521,6 +5014,7 @@ module ASM_Extensions
     private_class_method :permute_axes_by_extent
     private_class_method :align_to_min_bb
     private_class_method :align_to_direction_lock
+    private_class_method :align_to_sample
     private_class_method :bake_scale
     private_class_method :orient_ground
     private_class_method :orient_ground_around
