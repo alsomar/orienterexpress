@@ -4306,10 +4306,10 @@ module ASM_Extensions
         end
 
         if @hover_kind == :face && @hover_centroid && @hover_dir
-          len_ref = (@hovered && @hovered.valid?) ? @hovered.bounds.diagonal.to_f : 10.0
-          len     = len_ref * 0.12
-          p1      = @hover_centroid.offset((eye - @hover_centroid).normalize, 0.1)
-          p2      = p1.offset(@hover_dir, len)
+          p1     = @hover_centroid.offset((eye - @hover_centroid).normalize, 0.1)
+          len_px = [view.vpheight * 0.1, 50].max
+          len    = view.pixels_to_model(len_px, p1)
+          p2     = p1.offset(@hover_dir, len)
           view.line_width    = 4
           view.drawing_color = color
           view.draw(GL_LINES, [p1, p2])
