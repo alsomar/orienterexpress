@@ -830,6 +830,103 @@ module ASM_Extensions
         tool.send(:rebuild_h_dir_map)  # NoMethodError before the fix; Minitest fails on exception
       end
 
+      # =========================================================================
+      # OEResetTool — reset rotation + pivot preservation
+      # =========================================================================
+
+      def reset_with(inst, insertion_point)
+        tool = OEResetTool.allocate
+        tool.instance_variable_set(:@model,           @model)
+        tool.instance_variable_set(:@insertion_point, insertion_point)
+        tool.send(:apply_to, [inst])
+      end
+
+      # After reset, local axes must align with world axes.
+      def test_oereset_aligns_axes_to_world
+        rot  = Geom::Transformation.rotation(ORIGIN, Geom::Vector3d.new(1, 1, 1), Math::PI / 5)
+        inst = make_instance(rot)
+        reset_with(inst, :origin)
+        t = inst.transformation
+        assert_same_direction Z_AXIS, t.zaxis, 'Z should align with world Z after reset'
+        assert_same_direction X_AXIS, t.xaxis, 'X should align with world X after reset'
+      end
+
+      # :origin pivot — the instance origin must stay put.
+      def test_oereset_origin_pivot_preserves_origin
+        rot      = Geom::Transformation.rotation(Geom::Point3d.new(50, 50, 50),
+                                                 Geom::Vector3d.new(1, 1, 0), Math::PI / 4)
+        inst     = make_instance(rot)
+        o_before = inst.transformation.origin.clone
+        reset_with(inst, :origin)
+        o = inst.transformation.origin
+        assert_in_delta o_before.x, o.x, TOL
+        assert_in_delta o_before.y, o.y, TOL
+        assert_in_delta o_before.z, o.z, TOL
+      end
+
+      # :center pivot — the world-space BB centre must stay put.
+      def test_oereset_center_pivot_preserves_center
+        rot      = Geom::Transformation.rotation(Geom::Point3d.new(100, 100, 100),
+                                                 Geom::Vector3d.new(0, 1, 1), Math::PI / 3)
+        inst     = make_instance(rot)
+        c_before = (inst.transformation * inst.definition.bounds.center)
+        reset_with(inst, :center)
+        c_after  = (inst.transformation * inst.definition.bounds.center)
+        assert_in_delta c_before.x, c_after.x, TOL
+        assert_in_delta c_before.y, c_after.y, TOL
+        assert_in_delta c_before.z, c_after.z, TOL
+      end
+
+      # :base pivot — the base point (center.x, center.y, min.z in definition coords)
+      # must stay put after reset.
+      def test_oereset_base_pivot_preserves_base
+        rot        = Geom::Transformation.rotation(Geom::Point3d.new(200, 200, 200),
+                                                   Y_AXIS, Math::PI / 4)
+        inst       = make_instance(rot)
+        db         = inst.definition.bounds
+        base_point = Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+        b_before   = inst.transformation * base_point
+        reset_with(inst, :base)
+        b_after    = inst.transformation * base_point
+        assert_in_delta b_before.x, b_after.x, TOL
+        assert_in_delta b_before.y, b_after.y, TOL
+        assert_in_delta b_before.z, b_after.z, TOL
+      end
+
+      # Sample-component regression: a 500³ mm box whose definition bounds are
+      # offset from the origin, instanced with a non-trivial rotation. Before the
+      # fix this combination produced a visible misalignment after reset.
+      def test_oereset_sample_component_aligns_axes_and_preserves_base
+        t_arr = [ 0.9106836025229595, -0.33333333333333176,  0.24401693585629336, 0.0,
+                  0.24401693585628986,  0.9106836025229592,  0.33333333333333540, 0.0,
+                 -0.33333333333333430, -0.24401693585629491,  0.9106836025229582, 0.0,
+                  0.0,                  0.0,                  0.0,                 1.0 ]
+
+        defn = @model.definitions.add('TC_oereset_sample')
+        pts  = [[ 24.mm, 247.mm, -139.mm],
+                [524.mm, 247.mm, -139.mm],
+                [524.mm, 747.mm, -139.mm],
+                [ 24.mm, 747.mm, -139.mm]]
+        defn.entities.add_face(pts).pushpull(500.mm)
+        inst = @entities.add_instance(defn, Geom::Transformation.new(t_arr))
+        @to_erase << inst
+
+        db         = inst.definition.bounds
+        base_point = Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
+        b_before   = inst.transformation * base_point
+
+        reset_with(inst, :base)
+
+        t = inst.transformation
+        assert_same_direction Z_AXIS, t.zaxis, 'Z should align with world Z after reset'
+        assert_same_direction X_AXIS, t.xaxis, 'X should align with world X after reset'
+
+        b_after = t * base_point
+        assert_in_delta b_before.x, b_after.x, TOL, 'Base pivot X must stay put'
+        assert_in_delta b_before.y, b_after.y, TOL, 'Base pivot Y must stay put'
+        assert_in_delta b_before.z, b_after.z, TOL, 'Base pivot Z must stay put'
+      end
+
     end
   end
 end

@@ -1600,10 +1600,10 @@ module ASM_Extensions
 
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
-        mode_label = Lang.t(:html, :settings, mode_key)
+        mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
-        ip_label   = Lang.t(:html, :settings, ip_key)
+        ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oevertex.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEVertexTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
@@ -1871,10 +1871,10 @@ module ASM_Extensions
 
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
-        mode_label = Lang.t(:html, :settings, mode_key)
+        mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
-        ip_label   = Lang.t(:html, :settings, ip_key)
+        ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oecenter.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OECenterTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OECenterTool.last_offset_str, 2)
@@ -2138,10 +2138,10 @@ module ASM_Extensions
 
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
-        mode_label = Lang.t(:html, :settings, mode_key)
+        mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
         ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
-        ip_label   = Lang.t(:html, :settings, ip_key)
+        ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oezscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEZScaleTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
@@ -2388,9 +2388,9 @@ module ASM_Extensions
 
       def render_vcb
         mode_key   = @rotation_mode == :flow ? :rotation_flow : :rotation_ground
-        mode_label = Lang.t(:html, :settings, mode_key)
+        mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
-        ip_label   = Lang.t(:html, :settings, ip_key)
+        ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oeuscale.vcb_hint.to_s, mode: mode_label, roll: roll_label)
         Sketchup.set_status_text("", 1)
         Sketchup.set_status_text("", 2)
@@ -2572,10 +2572,10 @@ module ASM_Extensions
 
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
-        mode_label = Lang.t(:html, :settings, mode_key)
+        mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
-        ip_label   = Lang.t(:html, :settings, ip_key)
+        ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oeflow.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEFlowTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
@@ -2907,9 +2907,9 @@ module ASM_Extensions
           Lang.commands.oesurface.axis_parallel,
           Lang.commands.oesurface.axis_perp,
           Lang.commands.oesurface.axis_ground
-        ][@axis_idx]
+        ][@axis_idx].to_s.upcase
         ip_key   = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
-        ip_label = Lang.t(:html, :settings, ip_key)
+        ip_label = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oesurface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label, offset: OESurfaceTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oesurface.offset_prompt.to_s, 1)
         Sketchup.set_status_text(OESurfaceTool.last_offset_str, 2)
@@ -3187,8 +3187,10 @@ module ASM_Extensions
 
       def update_vcb
         ip_key = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
-        ip = Lang.t(:html, :settings, ip_key)
-        Sketchup.set_status_text("#{Lang.commands.oereset.vcb_hint}  |  #{ip}", 0)
+        ip     = Lang.t(:html, :settings, ip_key).to_s.upcase
+        desc   = Lang.commands.oereset.no_geometry_hint
+        hint   = format(Lang.commands.oereset.vcb_hint.to_s, ip: ip.to_s)
+        Sketchup.set_status_text("#{desc}  |  #{hint}", 0)
       end
 
       def apply_to(targets)
@@ -4185,6 +4187,8 @@ module ASM_Extensions
         @hover_dir      = nil   # Vector3d (locked-axis direction, world)
         @hover_fill_pts = nil   # Flat Array<Point3d>, 3 per triangle (face mesh triangulation)
         @hover_centroid = nil   # Point3d (face centroid or edge midpoint, world)
+        @last_x         = nil
+        @last_y         = nil
       end
 
       def activate
@@ -4210,6 +4214,12 @@ module ASM_Extensions
       end
 
       def onMouseMove(_flags, x, y, view)
+        @last_x = x
+        @last_y = y
+        pick_at(x, y, view)
+      end
+
+      def pick_at(x, y, view, force_recapture: false)
         ph = view.pick_helper
         ph.do_pick(x, y)
 
@@ -4235,7 +4245,7 @@ module ASM_Extensions
             break
           end
 
-          changed = (leaf != @hover_entity) || (outer != @hovered)
+          changed = force_recapture || (leaf != @hover_entity) || (outer != @hovered)
           if changed
             @hover_entity = leaf
             @hovered      = outer
@@ -4340,8 +4350,6 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, _flags, view)
         case key
-        when 27 # Escape
-          @model.select_tool(nil)
         when 18 # Alt — toggle mode (axis ↔ auto)
           toggle_mode(view)
           @alt_handled = true
@@ -4371,7 +4379,6 @@ module ASM_Extensions
         idx = AXIS_CYCLE.index(@lock_axis) || 0
         @lock_axis = AXIS_CYCLE[(idx + 1) % AXIS_CYCLE.size]
         @@last_lock_axis = @lock_axis
-        clear_hover
         update_vcb
         view.invalidate
       end
@@ -4425,10 +4432,15 @@ module ASM_Extensions
         dl = Math.sqrt(dx*dx + dy*dy + dz*dz)
         return if dl < 1e-12
 
+        # Canonicalize direction: the dominant absolute component is always positive.
+        ax, ay, az = dx.abs, dy.abs, dz.abs
+        dominant   = (ax >= ay && ax >= az) ? dx : (ay >= az ? dy : dz)
+        sign       = dominant < 0 ? -1.0 : 1.0
+
         @hover_kind     = :edge
         @hover_segment  = [a, b]
         @hover_centroid = Geom::Point3d.new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
-        @hover_dir      = Geom::Vector3d.new(dx / dl, dy / dl, dz / dl)
+        @hover_dir      = Geom::Vector3d.new(sign * dx / dl, sign * dy / dl, sign * dz / dl)
       end
 
       def apply_auto(instances)
@@ -4461,9 +4473,13 @@ module ASM_Extensions
         @model.start_operation("Orienter Express: Direction-Lock Alignment", true)
         begin
           OrienterExpress.send(:align_to_direction_lock, instance, dir_world, lock_axis, z_pre, x_pre)
-          clear_hover
           @model.commit_operation
-          @model.active_view.invalidate
+          clear_hover
+          view = @model.active_view
+          if @last_x && @last_y
+            pick_at(@last_x, @last_y, view, force_recapture: true)
+          end
+          view.invalidate
         rescue => e
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")
@@ -4471,7 +4487,7 @@ module ASM_Extensions
       end
 
       def update_vcb
-        mode_label = @mode == :axis ? Lang.commands.oealigner.mode_axis : Lang.commands.oealigner.mode_auto
+        mode_label = (@mode == :axis ? Lang.commands.oealigner.mode_axis : Lang.commands.oealigner.mode_auto).to_s.upcase
         if @mode == :axis
           axis_label = case @lock_axis
                        when :z then Lang.commands.oealigner.axis_z
