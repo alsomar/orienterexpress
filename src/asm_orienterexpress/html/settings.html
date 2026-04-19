@@ -161,46 +161,58 @@
                   aria-labelledby="accordionTab4" data-parent="#accordionSettings">
                   <div class="card-body card-custom">
 
-                    <!-- Roll Step -->
-                    <div class="mb-2">
-                      <label for="rollStep" class="form-label mb-1">{{ t('html.settings.roll_step') }}</label>
-                      <div class="input-group input-group-sm">
-                        <input type="number" class="form-control" id="rollStep"
-                          v-model.number="rollStep" min="1" max="180" step="1"
-                          @change="rollStep = Math.max(1, Math.min(180, rollStep || 15))">
-                        <div class="input-group-append">
-                          <span class="input-group-text">&deg;</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <!-- Offset Step -->
-                    <div class="mb-2">
-                      <label for="offsetStep" class="form-label mb-1">{{ t('html.settings.offset_step') }}</label>
-                      <input type="text" class="form-control form-control-sm" id="offsetStep"
-                        v-model="offsetStep"
-                        @blur="if (!offsetStep || !offsetStep.trim()) offsetStep = '1cm'">
-                    </div>
-
-                    <!-- Default Roll -->
-                    <div class="mb-2">
-                      <label for="defaultRoll" class="form-label mb-1">{{ t('html.settings.default_roll') }}</label>
-                      <div class="input-group input-group-sm">
-                        <input type="number" class="form-control" id="defaultRoll"
-                          v-model.number="defaultRoll" min="0" max="359" step="1"
-                          @change="defaultRoll = Math.max(0, Math.min(359, defaultRoll || 0))">
-                        <div class="input-group-append">
-                          <span class="input-group-text">&deg;</span>
-                        </div>
-                      </div>
+                    <!-- Remember Offset -->
+                    <div class="custom-control custom-switch mb-2">
+                      <input type="checkbox" class="custom-control-input" v-model="rememberOffset" id="rememberOffset">
+                      <label class="custom-control-label" for="rememberOffset" v-html="t('html.settings.remember_offset')"></label>
                     </div>
 
                     <!-- Default Offset -->
-                    <div>
-                      <label for="defaultOffset" class="form-label mb-1">{{ t('html.settings.default_offset') }}</label>
-                      <input type="text" class="form-control form-control-sm" id="defaultOffset"
-                        v-model="defaultOffset"
-                        @blur="if (!defaultOffset || !defaultOffset.trim()) defaultOffset = '0cm'">
+                    <div class="d-flex align-items-center mb-2" :class="{ 'asav-disabled': rememberOffset }">
+                      <label for="defaultOffset" class="mb-0 flex-grow-1" v-html="t('html.settings.default_offset') + ' (' + unitName + ')'"></label>
+                      <input type="text" inputmode="decimal" id="defaultOffset"
+                        class="form-control form-control-sm w-auto"
+                        style="width: 76px !important; text-align: center; font-size: 0.8rem;"
+                        :value="defaultOffset"
+                        :disabled="rememberOffset"
+                        @blur="normalizeOffset('defaultOffset', $event)">
+                    </div>
+
+                    <!-- Offset Step -->
+                    <div class="d-flex align-items-center mb-2">
+                      <label for="offsetStep" class="mb-0 flex-grow-1" v-html="t('html.settings.offset_step') + ' (' + unitName + ')'"></label>
+                      <input type="text" inputmode="decimal" id="offsetStep"
+                        class="form-control form-control-sm w-auto"
+                        style="width: 76px !important; text-align: center; font-size: 0.8rem;"
+                        :value="offsetStep"
+                        @blur="normalizeOffset('offsetStep', $event)">
+                    </div>
+
+                    <!-- Remember Roll -->
+                    <div class="custom-control custom-switch mt-3 mb-2">
+                      <input type="checkbox" class="custom-control-input" v-model="rememberRoll" id="rememberRoll">
+                      <label class="custom-control-label" for="rememberRoll" v-html="t('html.settings.remember_roll')"></label>
+                    </div>
+
+                    <!-- Default Roll -->
+                    <div class="d-flex align-items-center mb-2" :class="{ 'asav-disabled': rememberRoll }">
+                      <label for="defaultRoll" class="mb-0 flex-grow-1" v-html="t('html.settings.default_roll') + ' (deg)'"></label>
+                      <input type="number" id="defaultRoll"
+                        class="form-control form-control-sm w-auto"
+                        style="width: 76px !important; text-align: center; font-size: 0.8rem;"
+                        v-model.number="defaultRoll" min="0" max="359" step="1"
+                        :disabled="rememberRoll"
+                        @change="defaultRoll = Math.max(0, Math.min(359, defaultRoll || 0))">
+                    </div>
+
+                    <!-- Roll Step -->
+                    <div class="d-flex align-items-center">
+                      <label for="rollStep" class="mb-0 flex-grow-1" v-html="t('html.settings.roll_step') + ' (deg)'"></label>
+                      <input type="number" id="rollStep"
+                        class="form-control form-control-sm w-auto"
+                        style="width: 76px !important; text-align: center; font-size: 0.8rem;"
+                        v-model.number="rollStep" min="1" max="180" step="1"
+                        @change="rollStep = Math.max(1, Math.min(180, rollStep || 15))">
                     </div>
 
                   </div>
@@ -393,10 +405,14 @@
           },
 
           // Steps
-          rollStep:      15,
-          offsetStep:    '1cm',
-          defaultRoll:   0,
-          defaultOffset: '0cm',
+          rollStep:       15,
+          offsetStep:     1,
+          defaultRoll:    0,
+          defaultOffset:  0,
+          rememberOffset: true,
+          rememberRoll:   true,
+          unitName:       'cm',
+          unitStep:       0.01,
 
           // Surface Placement
           smoothGroups: true,
@@ -464,6 +480,8 @@
             offset_step:            this.offsetStep,
             default_roll:           this.defaultRoll,
             default_offset:         this.defaultOffset,
+            remember_offset:        this.rememberOffset,
+            remember_roll:          this.rememberRoll,
             smooth_groups:          this.smoothGroups,
             dark_mode:              this.darkMode
           };
@@ -487,9 +505,11 @@
           this.rotationMode                 = 'ground';
           this.settingsPivotCustom = { oevertex: 'center', oecenter: 'center', oeaxisscale: 'center', oeuscale: 'center', oeflow: 'center', oesurface: 'base' };
           this.rollStep                     = 15;
-          this.offsetStep                   = '1cm';
+          this.offsetStep                   = 1;
           this.defaultRoll                  = 0;
-          this.defaultOffset                = '0cm';
+          this.defaultOffset                = 0;
+          this.rememberOffset               = true;
+          this.rememberRoll                 = true;
           this.smoothGroups                 = true;
           this.darkMode                     = false;
           this.showReset                    = false;
@@ -499,6 +519,13 @@
         },
         setCustomPoint(tool, mode) {
           this.settingsPivotCustom = Object.assign({}, this.settingsPivotCustom, { [tool]: mode });
+        },
+        normalizeOffset(key, e) {
+          const raw = String(e.target.value).replace(',', '.').trim();
+          let num = parseFloat(raw);
+          if (!isFinite(num) || num < 0) num = 0;
+          this[key] = num;
+          e.target.value = num;
         },
         openUrl(url) {
           window.open(url);

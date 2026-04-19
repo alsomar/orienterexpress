@@ -588,15 +588,38 @@ module ASM_Extensions
 
     # Persists the raw inches value so offsets survive unit changes.
     def self.format_and_persist_offset(value, config_key)
-      OrienterExpress.user_settings(config_key => value.to_s)
+      OrienterExpress.user_settings(config_key => value.to_s) if CONFIG[:remember_offset]
       Sketchup.format_length(value)
     end
 
     def self.load_offset_str(config_key)
-      raw = CONFIG[config_key]
-      return Sketchup.format_length(0) unless raw
-      return Sketchup.format_length(raw.to_f) if raw =~ /\A-?[\d.]+\z/
-      raw
+      raw = CONFIG[config_key] if config_key
+      raw = CONFIG[:default_offset] if raw.nil? || raw.to_s.empty?
+      return Sketchup.format_length(0) if raw.nil? || raw.to_s.empty?
+      return Sketchup.format_length(raw.to_f) if raw.to_s =~ /\A-?[\d.]+\z/
+      raw.to_s
+    end
+
+    def self.default_offset_str
+      load_offset_str(nil)
+    end
+
+    # In-memory store for the last roll per tool (degrees).
+    def self.last_roll_store
+      @last_roll_store ||= {}
+    end
+
+    def self.load_last_roll_deg(tool_key)
+      cached = last_roll_store[tool_key]
+      return cached if cached
+      stored = CONFIG["#{tool_key}_roll".to_sym]
+      return stored.to_f unless stored.nil?
+      CONFIG[:default_roll].to_f
+    end
+
+    def self.set_last_roll(tool_key, deg)
+      last_roll_store[tool_key] = deg
+      OrienterExpress.user_settings("#{tool_key}_roll".to_sym => deg) if CONFIG[:remember_roll]
     end
 
     def self.resolved_pivot(tool_key)
@@ -790,7 +813,14 @@ module ASM_Extensions
         @drag_mode     = nil
         @arrow_key_dir = nil
         @roll_key_dir  = nil
-        @roll_angle    = CONFIG[:default_roll].to_f.degrees
+        tool_key       = self.class.config_prefix
+        self.class.last_offset_str = if CONFIG[:remember_offset]
+                                       OrienterExpress.send(:load_offset_str, "#{tool_key}_offset".to_sym)
+                                     else
+                                       OrienterExpress.send(:default_offset_str)
+                                     end
+        roll_deg       = CONFIG[:remember_roll] ? OrienterExpress.send(:load_last_roll_deg, tool_key) : CONFIG[:default_roll].to_f
+        @roll_angle    = roll_deg.to_f.degrees
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         OEPlacementTool.active_instance = self
@@ -879,6 +909,7 @@ module ASM_Extensions
         if stripped =~ /\A-?\d+([.,]\d+)?\s*(deg|\u00B0)\z/i
           deg = stripped.gsub(',', '.').to_f
           @roll_angle = deg * Math::PI / 180.0
+          OrienterExpress.send(:set_last_roll, self.class.config_prefix, (@roll_angle * 180.0 / Math::PI) % 360.0)
           apply(self.class.last_offset_str)
           update_vcb
         else
@@ -1081,6 +1112,7 @@ module ASM_Extensions
         step = [CONFIG[:roll_step].to_f, 1.0].max
         @roll_angle = (@roll_angle + direction * step.degrees) % 360.degrees
         @roll_angle = 0.0 if @roll_angle < 1e-9
+        OrienterExpress.send(:set_last_roll, self.class.config_prefix, (@roll_angle * 180.0 / Math::PI) % 360.0)
         apply(self.class.last_offset_str)
         update_vcb
       end
@@ -1304,6 +1336,10 @@ module ASM_Extensions
           path     = File.join(PATH_CURSORS, "#{filename}.#{ext}")
           UI.create_cursor(path, 5, 5)
         end
+      end
+
+      def self.config_prefix
+        :oevertex
       end
 
       def self.last_offset_str
@@ -1571,6 +1607,10 @@ module ASM_Extensions
         end
       end
 
+      def self.config_prefix
+        :oecenter
+      end
+
       def self.last_offset_str
         @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oecenter_offset)
       end
@@ -1829,6 +1869,10 @@ module ASM_Extensions
           path = File.join(PATH_CURSORS, "#{filename}.#{ext}")
           UI.create_cursor(path, 5, 5)
         end
+      end
+
+      def self.config_prefix
+        :oeaxisscale
       end
 
       def self.last_offset_str
@@ -2120,6 +2164,10 @@ module ASM_Extensions
         end
       end
 
+      def self.config_prefix
+        :oeuscale
+      end
+
       def self.last_offset_str
         @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeuscale_offset)
       end
@@ -2390,6 +2438,10 @@ module ASM_Extensions
 
     class OEFlowTool < OEPlacementTool
 
+      def self.config_prefix
+        :oeflow
+      end
+
       def self.last_offset_str
         @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeflow_offset)
       end
@@ -2624,6 +2676,10 @@ module ASM_Extensions
     end
 
     class OESurfaceTool < OEPlacementTool
+
+      def self.config_prefix
+        :oesurface
+      end
 
       def self.last_offset_str
         @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oesurface_offset)

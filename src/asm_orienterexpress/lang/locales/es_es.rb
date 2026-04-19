@@ -125,11 +125,13 @@ module ASM_Extensions
               pivot_base_short:   "base",
               pivot_center_short: "centro",
               pivot_origin_short: "origen",
-              steps:          "Magnitudes",
-              roll_step:      "Incremento de giro",
-              offset_step:    "Incremento de desfase",
-              default_roll:   "Giro por defecto",
-              default_offset: "Desfase por defecto",
+              steps:            "Magnitudes",
+              roll_step:        "Incremento de <strong>GIRO</strong>",
+              offset_step:      "Incremento de <strong>DESFASE</strong>",
+              default_roll:     "<strong>GIRO</strong> por defecto",
+              default_offset:   "<strong>DESFASE</strong> por defecto",
+              remember_offset:  "Recordar <strong>DESFASE</strong>",
+              remember_roll:    "Recordar <strong>GIRO</strong>",
               smooth_groups:  "Tratar superficies suavizadas como una única cara"
             },
             about: {

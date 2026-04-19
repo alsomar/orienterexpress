@@ -13,6 +13,9 @@ input, textarea, select {
   cursor: text;
 }
 
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
 select {
   cursor: pointer;
 }
@@ -214,6 +217,17 @@ input:disabled {
   color: #aaa;
 }
 
+.asav-disabled {
+  opacity: 0.8;
+}
+
+.asav-disabled .form-control:disabled {
+  background-color: #eee;
+  color: #aaa;
+  border-color: #ced4da;
+  cursor: not-allowed;
+}
+
 .modus-footer {
   padding-right: 1.25rem;
 }
@@ -344,6 +358,20 @@ body.dark-mode input:disabled {
 
 body.dark-mode .custom-control-input:disabled ~ .custom-control-label {
   color: #7a7aaa;
+}
+
+body.dark-mode .asav-disabled {
+  opacity: 1;
+}
+
+body.dark-mode .asav-disabled label {
+  color: #7a7aaa !important;
+}
+
+body.dark-mode .asav-disabled .form-control:disabled {
+  background-color: #1c2440;
+  color: #7a7aaa;
+  border-color: #2a2a4a;
 }
 
 body.dark-mode h1, body.dark-mode .h1,

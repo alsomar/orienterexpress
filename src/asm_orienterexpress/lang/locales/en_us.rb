@@ -125,11 +125,13 @@ module ASM_Extensions
               pivot_base_short:   "base",
               pivot_center_short: "center",
               pivot_origin_short: "origin",
-              steps:          "Magnitudes",
-              roll_step:      "Roll increment",
-              offset_step:    "Offset increment",
-              default_roll:   "Default roll",
-              default_offset: "Default offset",
+              steps:            "Magnitudes",
+              roll_step:        "<strong>ROLL</strong> increment",
+              offset_step:      "<strong>OFFSET</strong> increment",
+              default_roll:     "Default <strong>ROLL</strong>",
+              default_offset:   "Default <strong>OFFSET</strong>",
+              remember_offset:  "Remember <strong>OFFSET</strong>",
+              remember_roll:    "Remember <strong>ROLL</strong>",
               smooth_groups:  "Treat smooth surfaces as a single face"
             },
             about: {

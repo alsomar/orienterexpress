@@ -6,8 +6,8 @@ module ASM_Extensions
 
     DEFAULT_CONFIG = {
       # General Options
-      language: "auto",
-      context_menu: false,
+      language:       "auto",
+      context_menu:   false,
 
       # Entity Options
       rotation_mode:  "ground",
@@ -23,20 +23,30 @@ module ASM_Extensions
 
       # Step sizes and defaults
       roll_step:      5,
-      offset_step:    "1cm",
       default_roll:   0,
+      offset_step:    "1cm",
       default_offset: "0cm",
+
+      # Remember last used values per tool
+      remember_offset: true,
+      remember_roll:   true,
 
       # Inner Options
       dark_mode:          false,
       debug_mode:         false,
       smooth_groups:      true,
-      oevertex_offset:    "0cm",
-      oecenter_offset:    "0cm",
-      oeaxisscale_offset: "0cm",
-      oeuscale_offset:    "0cm",
-      oesurface_offset:   "0cm",
-      oeflow_offset:      "0cm"
+      oevertex_offset:    nil,
+      oecenter_offset:    nil,
+      oeaxisscale_offset: nil,
+      oeuscale_offset:    nil,
+      oesurface_offset:   nil,
+      oeflow_offset:      nil,
+      oevertex_roll:      nil,
+      oecenter_roll:      nil,
+      oeaxisscale_roll:   nil,
+      oeuscale_roll:      nil,
+      oesurface_roll:     nil,
+      oeflow_roll:        nil
     }.freeze
 
     def self.ensure_config

@@ -1,9 +1,13 @@
 // Ruby → JS (settings)
-function settingsJSON(config) {
+function settingsJSON(payload) {
   try {
-    if (typeof config === "string") {
-      config = JSON.parse(config);
+    if (typeof payload === "string") {
+      payload = JSON.parse(payload);
     }
+
+    // Back-compat: Ruby now sends { config, unit }; accept bare config too.
+    var config = payload && payload.config ? payload.config : payload;
+    var unit   = (payload && payload.unit)  || { name: 'cm', step: 0.01 };
 
     if (window.app) {
       window._settingsLoading = true;
@@ -17,11 +21,15 @@ function settingsJSON(config) {
         oeflow:    'center',
         oesurface: 'base'
       };
-      window.app.rollStep      = config.roll_step    != null ? config.roll_step    : 15;
-      window.app.offsetStep    = config.offset_step  || '1cm';
-      window.app.defaultRoll   = config.default_roll != null ? config.default_roll : 0;
-      window.app.defaultOffset = config.default_offset || '0cm';
-      window.app.smoothGroups  = config.smooth_groups ?? true;
+      window.app.unitName      = unit.name;
+      window.app.unitStep      = unit.step;
+      window.app.rollStep       = config.roll_step     != null ? config.roll_step     : 15;
+      window.app.offsetStep     = config.offset_step   != null ? config.offset_step   : 1;
+      window.app.defaultRoll    = config.default_roll  != null ? config.default_roll  : 0;
+      window.app.defaultOffset  = config.default_offset != null ? config.default_offset : 0;
+      window.app.rememberOffset = config.remember_offset != null ? config.remember_offset : true;
+      window.app.rememberRoll   = config.remember_roll   != null ? config.remember_roll   : true;
+      window.app.smoothGroups   = config.smooth_groups ?? true;
       window.app.darkMode      = config.dark_mode  || false;
       window.app.debugMode     = config.debug_mode || false;
 
