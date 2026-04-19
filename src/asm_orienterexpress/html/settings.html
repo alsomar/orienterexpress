@@ -378,18 +378,18 @@
           rotationMode:  'ground',
           rotationModes: ['ground', 'flow', 'normal'],
           settingsInsertionPointCustom: {
-            oevertex:  'center',
-            oecenter:  'center',
-            oezscale:  'center',
-            oeuscale:  'center',
-            oeflow:    'center',
-            oesurface: 'base'
+            oevertex:    'center',
+            oecenter:    'center',
+            oeaxisscale: 'center',
+            oeuscale:    'center',
+            oeflow:      'center',
+            oesurface:   'base'
           },
-          customTools:    ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oezscale', 'oeuscale'],
+          customTools:    ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oeaxisscale', 'oeuscale'],
           insertionModes: ['base', 'center', 'origin'],
           toolModesMap: {
-            oezscale: ['base', 'center'],
-            oeuscale: ['base', 'center']
+            oeaxisscale: ['base', 'center'],
+            oeuscale:    ['base', 'center']
           },
 
           // Steps
@@ -485,7 +485,7 @@
           this.settingsLanguage             = 'auto';
           this.settingsContextMenu          = false;
           this.rotationMode                 = 'ground';
-          this.settingsInsertionPointCustom = { oevertex: 'center', oecenter: 'center', oezscale: 'center', oeuscale: 'center', oeflow: 'center', oesurface: 'base' };
+          this.settingsInsertionPointCustom = { oevertex: 'center', oecenter: 'center', oeaxisscale: 'center', oeuscale: 'center', oeflow: 'center', oesurface: 'base' };
           this.rollStep                     = 15;
           this.offsetStep                   = '1cm';
           this.defaultRoll                  = 0;

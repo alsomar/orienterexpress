@@ -1819,20 +1819,20 @@ module ASM_Extensions
     end
 
 
-    class OEZScaleTool < OEPlacementTool
+    class OEAxisScaleTool < OEPlacementTool
 
       def self.cursor_id(variant = :default)
         @@cursor_ids ||= {}
         @@cursor_ids[variant] ||= begin
           ext  = Sketchup.platform == :platform_win ? 'svg' : 'pdf'
-          filename = variant == :default ? "oe_zscale_32" : "oe_zscale_#{variant}_32"
+          filename = variant == :default ? "oe_axisscale_32" : "oe_axisscale_#{variant}_32"
           path = File.join(PATH_CURSORS, "#{filename}.#{ext}")
           UI.create_cursor(path, 5, 5)
         end
       end
 
       def self.last_offset_str
-        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oezscale_offset)
+        @@last_offset_str ||= OrienterExpress.send(:load_offset_str, :oeaxisscale_offset)
       end
 
       def self.last_offset_str=(val)
@@ -1844,7 +1844,7 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        ip = OrienterExpress.send(:resolved_insertion_point, :oezscale).to_sym
+        ip = OrienterExpress.send(:resolved_insertion_point, :oeaxisscale).to_sym
         @insertion_point = [:center, :base].include?(ip) ? ip : :center
       end
 
@@ -1893,10 +1893,10 @@ module ASM_Extensions
       def on_selection_changed(new_set, old_set)
         if @rotation_mode == :flow
           rebuild_flow_map
-          apply(OEZScaleTool.last_offset_str)
+          apply(OEAxisScaleTool.last_offset_str)
         else
           rebuild_h_dir_map if @rotation_mode != :flow
-          offset = OrienterExpress.send(:parse_length_safe, OEZScaleTool.last_offset_str)
+          offset = OrienterExpress.send(:parse_length_safe, OEAxisScaleTool.last_offset_str)
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
         end
       end
@@ -1930,16 +1930,16 @@ module ASM_Extensions
         @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OEZScaleTool.last_offset_str)
+        apply(OEAxisScaleTool.last_offset_str)
       end
 
       def handle_ins_key
         @insertion_point = @insertion_point == :center ? :base : :center
         custom = CONFIG[:insertion_point_custom].dup
-        custom[:oezscale] = @insertion_point.to_s
+        custom[:oeaxisscale] = @insertion_point.to_s
         OrienterExpress.user_settings(insertion_point_custom: custom)
         update_vcb
-        apply(OEZScaleTool.last_offset_str)
+        apply(OEAxisScaleTool.last_offset_str)
       end
 
       def handle_mode_key
@@ -1947,13 +1947,13 @@ module ASM_Extensions
         rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
-        apply(OEZScaleTool.last_offset_str)
+        apply(OEAxisScaleTool.last_offset_str)
       end
 
-      def debug_tool_name;        "oezscale"; end
+      def debug_tool_name;        "oeaxisscale"; end
       def valid_insertion_points; %i[center base]; end
-      def no_sample_hint;   Lang.commands.oezscale.no_sample_hint.to_s;   end
-      def no_geometry_hint; Lang.commands.oezscale.no_geometry_hint.to_s; end
+      def no_sample_hint;   Lang.commands.oeaxisscale.no_sample_hint.to_s;   end
+      def no_geometry_hint; Lang.commands.oeaxisscale.no_geometry_hint.to_s; end
 
       def render_vcb
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
@@ -1961,9 +1961,9 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oezscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEZScaleTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oezscale.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEZScaleTool.last_offset_str, 2)
+        hint = format(Lang.commands.oeaxisscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEAxisScaleTool.last_offset_str)
+        Sketchup.set_status_text(Lang.commands.oeaxisscale.offset_prompt.to_s, 1)
+        Sketchup.set_status_text(OEAxisScaleTool.last_offset_str, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
@@ -1988,8 +1988,8 @@ module ASM_Extensions
           @first_apply   = false
           @applied       = true
           @skipped_edges = skipped
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oezscale_offset)
-          OEZScaleTool.last_offset_str = formatted
+          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeaxisscale_offset)
+          OEAxisScaleTool.last_offset_str = formatted
           Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
@@ -2084,7 +2084,7 @@ module ASM_Extensions
       end
     end
 
-    def self.oezscale
+    def self.oeaxisscale
       model   = Sketchup.active_model
       edges   = (edges(model.selection) + faces(model.selection).flat_map(&:edges)).uniq
       targets = instances(model.selection)
@@ -2105,7 +2105,7 @@ module ASM_Extensions
 
       entity = targets.first
       model.select_tool(
-        OEZScaleTool.new(edges, entity, flow_map, rotation_mode)
+        OEAxisScaleTool.new(edges, entity, flow_map, rotation_mode)
       )
     end
 

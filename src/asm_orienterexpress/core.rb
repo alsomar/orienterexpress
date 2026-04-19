@@ -39,13 +39,13 @@ module ASM_Extensions
       cmd_oecenter = cmd
       @commands[:oecenter] = cmd
 
-      cmd = UI::Command.new(Lang.commands.oezscale.label.to_s) { self.oezscale_tool }
-      cmd.small_icon = self.icon("oezscale_24")
-      cmd.large_icon = self.icon("oezscale_32")
-      cmd.status_bar_text = Lang.commands.oezscale.status
-      cmd.tooltip = Lang.commands.oezscale.tooltip
-      cmd_oezscale = cmd
-      @commands[:oezscale] = cmd
+      cmd = UI::Command.new(Lang.commands.oeaxisscale.label.to_s) { self.oeaxisscale_tool }
+      cmd.small_icon = self.icon("oeaxisscale_24")
+      cmd.large_icon = self.icon("oeaxisscale_32")
+      cmd.status_bar_text = Lang.commands.oeaxisscale.status
+      cmd.tooltip = Lang.commands.oeaxisscale.tooltip
+      cmd_oeaxisscale = cmd
+      @commands[:oeaxisscale] = cmd
 
       cmd = UI::Command.new(Lang.commands.oeuscale.label.to_s) { self.oeuscale_tool }
       cmd.small_icon = self.icon("oeuscale_24")
@@ -102,7 +102,7 @@ module ASM_Extensions
       menu.add_item(cmd_oeflow)
       menu.add_item(cmd_oesurface)
       menu.add_separator
-      menu.add_item(cmd_oezscale)
+      menu.add_item(cmd_oeaxisscale)
       menu.add_item(cmd_oeuscale)
       menu.add_separator
       menu.add_item(cmd_oealigner)
@@ -119,7 +119,7 @@ module ASM_Extensions
         menu.add_item(cmd_oeflow)
         menu.add_item(cmd_oesurface)
         menu.add_separator
-        menu.add_item(cmd_oezscale)
+        menu.add_item(cmd_oeaxisscale)
         menu.add_item(cmd_oeuscale)
         menu.add_separator
         menu.add_item(cmd_oealigner)
@@ -135,7 +135,7 @@ module ASM_Extensions
       toolbar.add_item(cmd_oeflow)
       toolbar.add_item(cmd_oesurface)
       toolbar.add_separator
-      toolbar.add_item(cmd_oezscale)
+      toolbar.add_item(cmd_oeaxisscale)
       toolbar.add_item(cmd_oeuscale)
       toolbar.add_separator
       toolbar.add_item(cmd_oealigner)
@@ -159,8 +159,8 @@ module ASM_Extensions
         ASM_Extensions::OrienterExpress.oecenter
       end
 
-      def self.oezscale_tool
-        ASM_Extensions::OrienterExpress.oezscale
+      def self.oeaxisscale_tool
+        ASM_Extensions::OrienterExpress.oeaxisscale
       end
 
       def self.oeuscale_tool

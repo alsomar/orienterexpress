@@ -24,9 +24,9 @@ module ASM_Extensions
               no_geometry_hint: "Click on an edge or face",
               vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
             },
-            oezscale: {
-              label:            "Z-axis Scaling",
-              tooltip:          "Z-axis Scaling",
+            oeaxisscale: {
+              label:            "Axis Scaling",
+              tooltip:          "Axis Scaling",
               status:           "Scale and place copies along edges with an offset from each vertex.",
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",

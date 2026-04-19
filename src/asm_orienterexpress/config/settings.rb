@@ -10,15 +10,15 @@ module ASM_Extensions
       context_menu: false,
 
       # Entity Options
-      rotation_mode: "ground",
+      rotation_mode:  "ground",
       insertion_point_custom: {
-        oevertex:   "center",
-        oecenter:   "center",
-        oezscale:   "center",
-        oeuscale:   "center",
-        oeflow:     "center",
-        oesurface:  "base",
-        oereset:    "base"
+        oevertex:     "center",
+        oecenter:     "center",
+        oeaxisscale:  "center",
+        oeuscale:     "center",
+        oeflow:       "center",
+        oesurface:    "base",
+        oereset:      "center"
       },
 
       # Step sizes and defaults
@@ -31,12 +31,12 @@ module ASM_Extensions
       dark_mode: false,
       debug_mode: false,
       smooth_groups: true,
-      oevertex_offset: "0cm",
-      oecenter_offset: "0cm",
-      oezscale_offset:   "0cm",
-      oeuscale_offset:   "0cm",
-      oesurface_offset: "0cm",
-      oeflow_offset:   "0cm"
+      oevertex_offset:    "0cm",
+      oecenter_offset:    "0cm",
+      oeaxisscale_offset: "0cm",
+      oeuscale_offset:    "0cm",
+      oesurface_offset:   "0cm",
+      oeflow_offset:      "0cm"
     }.freeze
 
     def self.ensure_config
@@ -66,7 +66,11 @@ module ASM_Extensions
       ensure_config
 
       begin
-        File.write(CONFIG_FILE, JSON.pretty_generate(config_hash))
+        # Drop keys no longer in DEFAULT_CONFIG so stale entries from older
+        # versions (renamed or removed tools) get pruned on the next save
+        # instead of lingering in the JSON forever.
+        pruned = config_hash.select { |k, _| DEFAULT_CONFIG.key?(k) }
+        File.write(CONFIG_FILE, JSON.pretty_generate(pruned))
       rescue => e
         Debug.log(self, method_id, "Failed to save config: #{e.message}")
       end

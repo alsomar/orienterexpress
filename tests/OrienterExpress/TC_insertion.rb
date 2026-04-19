@@ -686,10 +686,10 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # OEZScaleTool base placement — center + cross-section OBB shift
+      # OEAxisScaleTool base placement — center + cross-section OBB shift
       # =========================================================================
 
-      # Simulate the OEZScaleTool base placement:
+      # Simulate the OEAxisScaleTool base placement:
       #   1. Center the instance at target.
       #   2. Project face_normal ⊥ to scale_axis_vec to get up_perp.
       #   3. Shift via move_base_to_surface in that direction.

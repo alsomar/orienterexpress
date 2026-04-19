@@ -24,9 +24,9 @@ module ASM_Extensions
               no_geometry_hint: "Haz clic sobre una arista/cara",
               vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = modo (%<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
             },
-            oezscale: {
-              label:            "Escalado en Z",
-              tooltip:          "Escalado en Z",
+            oeaxisscale: {
+              label:            "Escalado por eje",
+              tooltip:          "Escalado por eje",
               status:           "Escala y coloca copias a lo largo de las aristas con un desfase en cada vértice.",
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
