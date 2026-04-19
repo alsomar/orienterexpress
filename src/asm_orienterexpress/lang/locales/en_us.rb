@@ -141,17 +141,28 @@ module ASM_Extensions
               offset_x:           "Offset X",
               offset_y:           "Offset Y",
               offset_z:           "Offset Z",
+              offset_alignment:   "Offset axis",
+              offset_normal:      "Offset normal",
               steps:            "Magnitudes",
               roll_step:        "<strong>Roll</strong> increment",
               offset_step:      "<strong>Offset</strong> increment",
               default_roll:     "Default <strong>roll</strong>",
-              default_offset:   "Default <strong>offset</strong>",
+              default_offset_x: "Default <strong>offset X</strong>",
+              default_offset_y: "Default <strong>offset Y</strong>",
+              default_offset_z: "Default <strong>offset Z</strong>",
               remember_offset:  "Remember <strong>offset</strong>",
               remember_roll:    "Remember <strong>roll</strong>",
               smooth_groups:  "Treat smooth surfaces as a single face"
             },
             tool_panel: {
-              title:   "Tools"
+              title:    "Tools",
+              empty:    "empty",
+              sample:   "Sample",
+              geometry: "Geometry",
+              edges:    "%<n>s edges",
+              faces:    "%<n>s faces",
+              vertices: "%<n>s vertices",
+              copies:   "%<n>s copies"
             },
             about: {
               title:       "Info",

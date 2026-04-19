@@ -38,14 +38,14 @@ module ASM_Extensions
         html_file = File.join(PATH_HTML, 'tool_panel.html')
 
         Lang.configure(CONFIG[:language] || "auto") if Lang.dictionary.empty?
-        html_title = "#{EXT_NAME} #{INFO_VERSION} · #{Lang.t(:html, :tool_panel, :title).to_s.upcase}"
+        html_title = "#{EXT_NAME} #{INFO_VERSION} · #{Lang.t(:html, :tool_panel, :title)}"
 
         options = {
           dialog_title:     html_title,
           preferences_key:  "asm_extensions.htmldialog.orienterexpress_tool_panel",
           style:            UI::HtmlDialog::STYLE_DIALOG,
           resizable:        false,
-          width:            480,
+          width:            490,
           height:           620,
           use_content_size: true
         }

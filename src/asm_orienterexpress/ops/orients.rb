@@ -877,7 +877,7 @@ module ASM_Extensions
         rebuild_h_dir_map if @rotation_mode != :flow
         Dialogs.open_tool_panel if defined?(Dialogs) && Dialogs.respond_to?(:open_tool_panel)
         update_vcb
-        UI.start_timer(0, false) { apply; sync_selection } if @entity_def
+        UI.start_timer(0, false) { apply; sync_selection; notify_panel } if @entity_def
       end
 
       def deactivate(view)
@@ -1176,11 +1176,20 @@ module ASM_Extensions
           edge  = context.is_a?(Sketchup::Edge) ? context : @placement_map[entity_copy]
           frame = edge_outward_frame(edge) if edge.is_a?(Sketchup::Edge)
           if frame
-            fx, fy, fz = frame
+            side, outward, fwd = frame
+            # Map offset_{x,y,z} so "alignment" = scale_axis runs along fwd,
+            # "normal" = (Y for Z; Z for X,Y) runs along outward, hidden axis
+            # keeps side. Matches the local 2-axis UI (alignment + normal).
+            ax, ay, az =
+              case @scale_axis
+              when :x then [fwd,     side,    outward]
+              when :y then [side,    fwd,     outward]
+              else         [side,    outward, fwd    ]
+              end
             return Geom::Vector3d.new(
-              fx.x * dx + fy.x * dy + fz.x * dz,
-              fx.y * dx + fy.y * dy + fz.y * dz,
-              fx.z * dx + fy.z * dy + fz.z * dz
+              ax.x * dx + ay.x * dy + az.x * dz,
+              ax.y * dx + ay.y * dy + az.y * dz,
+              ax.z * dx + ay.z * dy + az.z * dz
             )
           end
           t = entity_copy.transformation
@@ -1338,12 +1347,16 @@ module ASM_Extensions
         old_set      = @geometry.to_set
         new_set      = new_geometry.to_set
         @geometry    = new_geometry
-        return unless @entity_def
+        unless @entity_def
+          notify_panel
+          return
+        end
         @syncing = true
         on_selection_changed(new_set, old_set)
         sync_selection
       ensure
         @syncing = false
+        notify_panel
       end
 
       def collect_geometry_from_selection(selection)
@@ -1452,9 +1465,25 @@ module ASM_Extensions
             ]
           }
           unit_name = Dialogs.unit_info[:name]
-          axes = %w[x y z]
+          local_frame = @offset_frame == :local && instance_variable_defined?(:@scale_axis)
+          axes =
+            if local_frame
+              case @scale_axis
+              when :x then %w[x z]
+              when :y then %w[y z]
+              else         %w[z y]
+              end
+            else
+              %w[x y z]
+            end
           axes.each_with_index do |axis, i|
-            base = Lang.t(:html, :settings, "offset_#{axis}".to_sym).to_s
+            label_key =
+              if local_frame
+                i.zero? ? :offset_alignment : :offset_normal
+              else
+                "offset_#{axis}".to_sym
+              end
+            base = Lang.t(:html, :settings, label_key).to_s
             schema << {
               'key' => "offset_#{axis}", 'type' => 'length',
               'scrollable' => true, 'resettable' => true,
@@ -1490,15 +1519,40 @@ module ASM_Extensions
         values['scale_axis'] = (@scale_axis || :z).to_s if instance_variable_defined?(:@scale_axis)
 
         {
-          'tool'   => key.to_s,
-          'title'  => title_leaf.to_s,
-          'schema' => panel_schema,
-          'values' => values
+          'tool'     => key.to_s,
+          'title'    => title_leaf.to_s,
+          'sample'   => panel_sample_name,
+          'geometry' => panel_geometry_info,
+          'placed'   => panel_placed_count,
+          'schema'   => panel_schema,
+          'values'   => values
         }
       rescue => e
         Debug.log(self.class, :panel_state, "#{e.class}: #{e.message}")
         Debug.log(self.class, :panel_state, e.backtrace.first(5).join(" | ")) if e.backtrace
         { 'tool' => nil }
+      end
+
+      def panel_sample_name
+        return '' unless @entity_def && @entity_def.valid?
+        name = @entity_def.name.to_s
+        name.empty? ? '' : name
+      end
+
+      def panel_geometry_info
+        items = (@geometry || []).select(&:valid?)
+        return { 'kind' => nil, 'count' => 0 } if items.empty?
+        kind = case items.first
+               when Sketchup::Edge   then 'edge'
+               when Sketchup::Face   then 'face'
+               when Sketchup::Vertex then 'vertex'
+               end
+        { 'kind' => kind, 'count' => items.length }
+      end
+
+      def panel_placed_count
+        return 0 unless defined?(@previous_entities) && @previous_entities
+        @previous_entities.count { |e| e && e.valid? }
       end
 
       def apply_panel_change(key, value)

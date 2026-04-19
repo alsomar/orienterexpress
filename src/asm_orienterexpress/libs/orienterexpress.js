@@ -8,13 +8,19 @@ function toolPanelUpdate(payload) {
     if (!payload || !payload.tool) {
       window.app.toolKey = null;
       window.app.toolTitle = "";
+      window.app.toolSample = "";
+      window.app.toolGeometry = { kind: null, count: 0 };
+      window.app.toolPlaced = 0;
       window.app.schema = [];
       window.app.values = {};
     } else {
-      window.app.toolKey   = payload.tool;
-      window.app.toolTitle = payload.title || "";
-      window.app.schema    = Array.isArray(payload.schema) ? payload.schema : [];
-      window.app.values    = payload.values || {};
+      window.app.toolKey      = payload.tool;
+      window.app.toolTitle    = payload.title || "";
+      window.app.toolSample   = payload.sample || "";
+      window.app.toolGeometry = payload.geometry || { kind: null, count: 0 };
+      window.app.toolPlaced   = payload.placed || 0;
+      window.app.schema       = Array.isArray(payload.schema) ? payload.schema : [];
+      window.app.values       = payload.values || {};
     }
 
     window.app.$nextTick(() => {
@@ -78,7 +84,9 @@ function settingsJSON(payload) {
       window.app.rollStep       = config.roll_step     != null ? config.roll_step     : 15;
       window.app.offsetStep     = config.offset_step   != null ? config.offset_step   : 1;
       window.app.defaultRoll    = config.default_roll  != null ? config.default_roll  : 0;
-      window.app.defaultOffset  = config.default_offset != null ? config.default_offset : 0;
+      window.app.defaultOffsetX = config.default_offset_x != null ? config.default_offset_x : 0;
+      window.app.defaultOffsetY = config.default_offset_y != null ? config.default_offset_y : 0;
+      window.app.defaultOffsetZ = config.default_offset_z != null ? config.default_offset_z : 0;
       window.app.rememberOffset = config.remember_offset != null ? config.remember_offset : true;
       window.app.rememberRoll   = config.remember_roll   != null ? config.remember_roll   : true;
       window.app.smoothGroups   = config.smooth_groups != null ? config.smooth_groups : true;

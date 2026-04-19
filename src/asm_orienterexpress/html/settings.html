@@ -167,15 +167,39 @@
                       <label class="custom-control-label" for="rememberOffset" v-html="t('html.settings.remember_offset')"></label>
                     </div>
 
-                    <!-- Default Offset -->
+                    <!-- Default Offset X -->
                     <div class="d-flex align-items-center mb-2" :class="{ 'asav-disabled': rememberOffset }">
-                      <label for="defaultOffset" class="mb-0 flex-grow-1" v-html="t('html.settings.default_offset') + ' (' + unitName + ')'"></label>
-                      <input type="text" inputmode="decimal" id="defaultOffset"
+                      <label for="defaultOffsetX" class="mb-0 flex-grow-1" v-html="t('html.settings.default_offset_x') + ' (' + unitName + ')'"></label>
+                      <input type="text" inputmode="decimal" id="defaultOffsetX"
                         class="form-control form-control-sm w-auto"
                         style="width: 76px !important; text-align: center; font-size: 0.8rem;"
-                        :value="defaultOffset"
+                        :value="defaultOffsetX"
                         :disabled="rememberOffset"
-                        @blur="normalizeOffset('defaultOffset', $event)"
+                        @blur="normalizeOffset('defaultOffsetX', $event)"
+                        @keydown.enter.prevent="$event.target.blur()">
+                    </div>
+
+                    <!-- Default Offset Y -->
+                    <div class="d-flex align-items-center mb-2" :class="{ 'asav-disabled': rememberOffset }">
+                      <label for="defaultOffsetY" class="mb-0 flex-grow-1" v-html="t('html.settings.default_offset_y') + ' (' + unitName + ')'"></label>
+                      <input type="text" inputmode="decimal" id="defaultOffsetY"
+                        class="form-control form-control-sm w-auto"
+                        style="width: 76px !important; text-align: center; font-size: 0.8rem;"
+                        :value="defaultOffsetY"
+                        :disabled="rememberOffset"
+                        @blur="normalizeOffset('defaultOffsetY', $event)"
+                        @keydown.enter.prevent="$event.target.blur()">
+                    </div>
+
+                    <!-- Default Offset Z -->
+                    <div class="d-flex align-items-center mb-2" :class="{ 'asav-disabled': rememberOffset }">
+                      <label for="defaultOffsetZ" class="mb-0 flex-grow-1" v-html="t('html.settings.default_offset_z') + ' (' + unitName + ')'"></label>
+                      <input type="text" inputmode="decimal" id="defaultOffsetZ"
+                        class="form-control form-control-sm w-auto"
+                        style="width: 76px !important; text-align: center; font-size: 0.8rem;"
+                        :value="defaultOffsetZ"
+                        :disabled="rememberOffset"
+                        @blur="normalizeOffset('defaultOffsetZ', $event)"
                         @keydown.enter.prevent="$event.target.blur()">
                     </div>
 
@@ -407,11 +431,13 @@
           },
 
           // Steps
-          rollStep:       15,
-          offsetStep:     1,
-          defaultRoll:    0,
-          defaultOffset:  0,
-          rememberOffset: true,
+          rollStep:        15,
+          offsetStep:      1,
+          defaultRoll:     0,
+          defaultOffsetX:  0,
+          defaultOffsetY:  0,
+          defaultOffsetZ:  0,
+          rememberOffset:  true,
           rememberRoll:   true,
           unitName:       'cm',
           unitStep:       0.01,
@@ -481,7 +507,9 @@
             roll_step:              this.rollStep,
             offset_step:            this.offsetStep,
             default_roll:           this.defaultRoll,
-            default_offset:         this.defaultOffset,
+            default_offset_x:       this.defaultOffsetX,
+            default_offset_y:       this.defaultOffsetY,
+            default_offset_z:       this.defaultOffsetZ,
             remember_offset:        this.rememberOffset,
             remember_roll:          this.rememberRoll,
             smooth_groups:          this.smoothGroups,
@@ -509,7 +537,9 @@
           this.rollStep                     = 15;
           this.offsetStep                   = 1;
           this.defaultRoll                  = 0;
-          this.defaultOffset                = 0;
+          this.defaultOffsetX               = 0;
+          this.defaultOffsetY               = 0;
+          this.defaultOffsetZ               = 0;
           this.rememberOffset               = true;
           this.rememberRoll                 = true;
           this.smoothGroups                 = true;

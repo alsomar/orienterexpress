@@ -69,7 +69,7 @@ module ASM_Extensions
           # Offset fields come in as numeric (display unit). Reformat to the
           # suffixed string form the rest of the code expects (e.g. "1.5cm").
           unit = unit_info
-          [:offset_step, :default_offset].each do |key|
+          [:offset_step, :default_offset_x, :default_offset_y, :default_offset_z].each do |key|
             next unless settings.key?(key) && settings[key].is_a?(Numeric)
             settings[key] = "#{settings[key]}#{unit[:name]}"
           end
@@ -90,8 +90,10 @@ module ASM_Extensions
         unit   = unit_info
 
         config = config.dup
-        config[:offset_step]    = length_to_display(config[:offset_step],    unit)
-        config[:default_offset] = length_to_display(config[:default_offset], unit)
+        config[:offset_step]      = length_to_display(config[:offset_step],      unit)
+        config[:default_offset_x] = length_to_display(config[:default_offset_x], unit)
+        config[:default_offset_y] = length_to_display(config[:default_offset_y], unit)
+        config[:default_offset_z] = length_to_display(config[:default_offset_z], unit)
 
         settings_payload = { config: config, unit: unit }
         i18n_payload     = { locale: Lang.locale.to_s, data: Lang.dump }.to_json

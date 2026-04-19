@@ -1,4 +1,4 @@
-.oe-panel { padding: 10px 12px; font-size: 0.85rem; }
+.oe-panel { padding: 0 12px; font-size: 0.85rem; }
 .oe-panel h6 { margin-bottom: 10px; font-weight: 600; }
 .oe-field { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .oe-field-switch { display: block; }
@@ -28,8 +28,24 @@
 }
 body.dark-mode .oe-field-in-group { background-color: #1a1a2e; }
 .oe-empty { color: #666; padding: 20px; text-align: center; font-style: italic; }
+.oe-info { color: #777; font-size: 0.85rem; }
+.oe-info-row { display: flex; align-items: baseline; gap: 8px; margin-bottom: 2px; }
+.oe-info-label { flex: 1 1 auto; font-weight: 600; }
+.oe-info-value { flex: 0 0 auto; width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.oe-info-value.oe-info-empty { font-style: italic; color: #999; }
+body.dark-mode .oe-info { color: #9a9aa8; }
+body.dark-mode .oe-info-value.oe-info-empty { color: #666; }
 .oe-panel input.form-control-sm,
 .oe-panel select.form-control-sm { font-size: 0.8rem; }
+.oe-panel .btn { text-transform: lowercase; }
+.oe-panel .btn-group .btn {
+  text-align: center;
+  padding-left: 4px;
+  padding-right: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .oe-field input.form-control-sm { text-align: center; }
 .oe-scroll-row { display: flex; align-items: stretch; gap: 4px; }
 .oe-scroll-row .form-control-sm { flex: 1 1 auto; min-width: 0; }

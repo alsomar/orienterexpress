@@ -43,14 +43,6 @@
 
         <!-- Content -->
         <div class="modus-content-rows asav-content">
-
-          <!-- Title -->
-          <div class="modus-content-row pb-2">
-            <span class="h2 font-weight-bold">{{ t('html.info.name') }}</span>
-            <span class="h2 font-weight-normal">&#32;&middot;&#32;</span>
-            <span class="h2 font-weight-normal">{{ t('html.tool_panel.title') }}</span>
-          </div>
-
           <div class="modus-content-row oe-panel">
 
             <div v-if="!toolKey" class="oe-empty">
@@ -58,7 +50,20 @@
             </div>
 
             <div v-else>
-              <h6>{{ toolTitle }}</h6>
+              <div class="pb-2 mb-2">
+                <span class="h2 font-weight-normal">{{ toolTitle }}</span>
+              </div>
+
+              <div class="oe-info mb-3">
+                <div class="oe-info-row">
+                  <span class="oe-info-label">{{ t('html.tool_panel.sample') }}</span>
+                  <span class="oe-info-value" :class="{ 'oe-info-empty': !toolSample }">{{ sampleLabel }}</span>
+                </div>
+                <div class="oe-info-row">
+                  <span class="oe-info-label">{{ t('html.tool_panel.geometry') }}</span>
+                  <span class="oe-info-value" :class="{ 'oe-info-empty': !geometryLabelRaw }">{{ geometryLabel }}</span>
+                </div>
+              </div>
 
               <div v-for="field in schema" :key="field.key" class="oe-field"
                    :class="{
@@ -157,13 +162,38 @@
         i18nLocale: (window.APP_I18N && window.APP_I18N.locale) ? window.APP_I18N.locale : 'en-US',
         i18nData:   (window.APP_I18N && window.APP_I18N.data)   ? window.APP_I18N.data   : {},
         i18nReady:  false,
-        tools:      ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oeaxisscale', 'oeuscale'],
-        toolKey:    null,
-        toolTitle:  "",
-        schema:     [],
-        values:     {},
-        darkMode:   false,
-        debugMode:  false
+        tools:       ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oeaxisscale', 'oeuscale'],
+        toolKey:     null,
+        toolTitle:   "",
+        toolSample:  "",
+        toolGeometry: { kind: null, count: 0 },
+        toolPlaced:   0,
+        schema:      [],
+        values:      {},
+        darkMode:    false,
+        debugMode:   false
+      },
+      computed: {
+        sampleLabel: function() {
+          return this.toolSample && this.toolSample.length > 0
+            ? this.toolSample
+            : this.t('html.tool_panel.empty');
+        },
+        geometryLabelRaw: function() {
+          var g = this.toolGeometry;
+          if (!g || !g.kind || !g.count) return "";
+          var tpl = this.t('html.tool_panel.' + g.kind + 's');
+          var base = (!tpl || tpl.indexOf('\u26A0') === 0) ? (g.count + "") : tpl.replace('%<n>s', g.count);
+          if (this.toolPlaced > 0) {
+            var copTpl = this.t('html.tool_panel.copies');
+            var copies = (!copTpl || copTpl.indexOf('\u26A0') === 0) ? (this.toolPlaced + "") : copTpl.replace('%<n>s', this.toolPlaced);
+            return base + " - " + copies;
+          }
+          return base;
+        },
+        geometryLabel: function() {
+          return this.geometryLabelRaw || this.t('html.tool_panel.empty');
+        }
       },
       mounted: function() {
         document.documentElement.lang = this.i18nLocale;
