@@ -22,31 +22,47 @@ module ASM_Extensions
       },
 
       # Step sizes and defaults
-      roll_step:      5,
-      default_roll:   0,
-      offset_step:    "1cm",
-      default_offset: "0cm",
+      roll_step:        5,
+      default_roll:     0,
+      offset_step:      "1cm",
+      default_offset_x: "0cm",
+      default_offset_y: "0cm",
+      default_offset_z: "0cm",
+      offset_frame:     "world",
+      offset_enabled:   true,
 
       # Remember last used values per tool
       remember_offset: true,
       remember_roll:   true,
 
       # Inner Options
-      dark_mode:          false,
-      debug_mode:         false,
-      smooth_groups:      true,
-      oevertex_offset:    nil,
-      oecenter_offset:    nil,
-      oeaxisscale_offset: nil,
-      oeuscale_offset:    nil,
-      oesurface_offset:   nil,
-      oeflow_offset:      nil,
-      oevertex_roll:      nil,
-      oecenter_roll:      nil,
-      oeaxisscale_roll:   nil,
-      oeuscale_roll:      nil,
-      oesurface_roll:     nil,
-      oeflow_roll:        nil
+      dark_mode:            false,
+      debug_mode:           false,
+      smooth_groups:        true,
+      oevertex_offset_x:    nil,
+      oevertex_offset_y:    nil,
+      oevertex_offset_z:    nil,
+      oecenter_offset_x:    nil,
+      oecenter_offset_y:    nil,
+      oecenter_offset_z:    nil,
+      oeaxisscale_offset_x: nil,
+      oeaxisscale_offset_y: nil,
+      oeaxisscale_offset_z: nil,
+      oeuscale_offset_x:    nil,
+      oeuscale_offset_y:    nil,
+      oeuscale_offset_z:    nil,
+      oesurface_offset_x:   nil,
+      oesurface_offset_y:   nil,
+      oesurface_offset_z:   nil,
+      oeflow_offset_x:      nil,
+      oeflow_offset_y:      nil,
+      oeflow_offset_z:      nil,
+      oevertex_roll:        nil,
+      oecenter_roll:        nil,
+      oeaxisscale_roll:     nil,
+      oeuscale_roll:        nil,
+      oesurface_roll:       nil,
+      oeflow_roll:          nil
     }.freeze
 
     def self.ensure_config
@@ -105,6 +121,8 @@ module ASM_Extensions
 
       CONFIG.merge!(changed)
 
+      Lang.configure(changed[:language]) if changed.key?(:language)
+
       # Special log for debug_mode, always visible
       if changed.key?(:debug_mode)
         state = changed[:debug_mode] ? "ON" : "OFF"
@@ -117,6 +135,7 @@ module ASM_Extensions
       end
 
       Dialogs.refresh_settings_dialog
+      Dialogs.refresh_tool_panel if Dialogs.respond_to?(:refresh_tool_panel)
       inst = OEPlacementTool.active_instance
       inst.on_config_changed(changed) if inst
     end

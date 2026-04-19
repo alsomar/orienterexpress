@@ -1,0 +1,68 @@
+.oe-panel { padding: 10px 12px; font-size: 0.85rem; }
+.oe-panel h6 { margin-bottom: 10px; font-weight: 600; }
+.oe-field { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.oe-field-switch { display: block; }
+.oe-field > label { margin-bottom: 0; flex: 1 1 auto; }
+.oe-field:not(.oe-field-switch) > div { flex: 0 0 auto; width: 220px; }
+
+.oe-field-in-group {
+  background-color: #fff;
+  border-left: 1px solid #0063a3;
+  border-right: 1px solid #0063a3;
+  padding: 4px 8px;
+  margin-bottom: 0;
+}
+.oe-field-group-first {
+  border-top: 1px solid #0063a3;
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+  padding-top: 12px;
+  margin-top: 4px;
+}
+.oe-field-group-last {
+  border-bottom: 1px solid #0063a3;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+body.dark-mode .oe-field-in-group { background-color: #1a1a2e; }
+.oe-empty { color: #666; padding: 20px; text-align: center; font-style: italic; }
+.oe-panel input.form-control-sm,
+.oe-panel select.form-control-sm { font-size: 0.8rem; }
+.oe-field input.form-control-sm { text-align: center; }
+.oe-scroll-row { display: flex; align-items: stretch; gap: 4px; }
+.oe-scroll-row .form-control-sm { flex: 1 1 auto; min-width: 0; }
+.oe-scroll-btn { padding: 0 8px; line-height: 1; display: inline-flex; align-items: center; justify-content: center; }
+.oe-scroll-btn .modus-icons { font-size: 16px; }
+.oe-scroll-btn:disabled {
+  background-color: transparent;
+  filter: grayscale(1);
+  opacity: 0.5;
+  cursor: not-allowed !important;
+}
+body.dark-mode .oe-scroll-btn:disabled { filter: none; color: #3a3a6a; }
+
+/* Tool panel sidebar: matches the default modus-sidebar (60px). Override modus
+   nav-link padding (0 10px 0 0) and .left-nav-icon padding (0 18px) so <img>
+   icons center horizontally. */
+.oe-tool-sidebar ul { padding: 0; margin: 0; list-style: none; }
+.modus-body .modus-sidebar.oe-tool-sidebar .nav-link { padding: 6px 0; justify-content: center; }
+.modus-body .modus-sidebar.oe-tool-sidebar .nav-link .left-nav-icon { padding: 0; height: auto; }
+.modus-body .modus-sidebar.oe-tool-sidebar .nav-link .left-nav-icon img.oe-tool-icon {
+  flex: 0 0 32px;
+  width: 32px; height: 32px;
+  min-width: 32px;
+  max-width: none;
+  opacity: 0.2;
+  filter: grayscale(1);
+  transition: opacity 0.15s ease, filter 0.15s ease;
+}
+.modus-body .modus-sidebar.oe-tool-sidebar .nav-link:hover .left-nav-icon img.oe-tool-icon {
+  opacity: 0.85;
+  filter: grayscale(0.5);
+}
+.modus-body .modus-sidebar.oe-tool-sidebar .nav-link .left-nav-icon.is-active img.oe-tool-icon {
+  opacity: 1;
+  filter: none;
+}

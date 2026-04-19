@@ -13,6 +13,14 @@ function updateDebugIcon(isDebug) {
   }
 }
 
+// Ruby → JS: sync dark-mode state (body class + Vue data + localStorage).
+function updateDarkMode(isDark) {
+  const on = !!isDark;
+  document.body.classList.toggle('dark-mode', on);
+  try { localStorage.setItem('asav_dark_mode', on); } catch (_) {}
+  if (window.app) window.app.darkMode = on;
+}
+
 // Debug State
 function updateDebugState(isDebug) {
   const nextState = !!isDebug;

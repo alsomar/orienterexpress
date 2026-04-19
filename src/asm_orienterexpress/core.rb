@@ -87,6 +87,13 @@ module ASM_Extensions
       cmd_oereset = cmd
       @commands[:oereset] = cmd
 
+      cmd = UI::Command.new(Lang.commands.tool_panel.label.to_s) { self.tool_panel_tool }
+      cmd.status_bar_text = Lang.commands.tool_panel.status
+      cmd.tooltip = Lang.commands.tool_panel.tooltip
+      cmd.set_validation_proc { ASM_Extensions::OrienterExpress::Dialogs.tool_panel_visible? ? MF_CHECKED : MF_UNCHECKED }
+      cmd_tool_panel = cmd
+      @commands[:tool_panel] = cmd
+
       cmd = UI::Command.new(Lang.commands.settings.label.to_s) { self.settings_tool }
       cmd.small_icon = self.icon("oesettings_24")
       cmd.large_icon = self.icon("oesettings_32")
@@ -108,6 +115,7 @@ module ASM_Extensions
       menu.add_item(cmd_oealigner)
       menu.add_item(cmd_oereset)
       menu.add_separator
+      menu.add_item(cmd_tool_panel)
       menu.add_item(cmd_settings)
 
       # Context menu
@@ -185,6 +193,10 @@ module ASM_Extensions
 
       def self.settings_tool
         ASM_Extensions::OrienterExpress::Dialogs.settings_dialog
+      end
+
+      def self.tool_panel_tool
+        ASM_Extensions::OrienterExpress::Dialogs.tool_panel_toggle
       end
 
       file_loaded(__FILE__)

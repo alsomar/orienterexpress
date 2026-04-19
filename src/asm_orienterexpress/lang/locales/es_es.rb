@@ -13,7 +13,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una arista/cara",
-              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = modo (%<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
+              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = modo (%<mode>s)  |  ← = eje de desfase (%<offset_axis>s)  |  ↑ = sistema (%<frame>s)"
             },
             oecenter: {
               label:            "Colocación centrada en arista",
@@ -22,7 +22,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una arista/cara",
-              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = modo (%<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
+              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = modo (%<mode>s)  |  ← = eje de desfase (%<offset_axis>s)  |  ↑ = sistema (%<frame>s)"
             },
             oeaxisscale: {
               label:            "Escalado por eje",
@@ -31,7 +31,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una arista/cara",
-              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de escala (%<axis>s)  |  ALT = modo (%<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
+              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de escala (%<axis>s)  |  ALT = modo (%<mode>s)  |  ← = eje de desfase (%<offset_axis>s)  |  ↑ = sistema (%<frame>s)"
             },
             oeuscale: {
               label:            "Escalado uniforme",
@@ -40,7 +40,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una arista/cara",
-              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de escala (%<axis>s)  |  ALT = modo (%<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
+              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de escala (%<axis>s)  |  ALT = modo (%<mode>s)  |  ← = eje de desfase (%<offset_axis>s)  |  ↑ = sistema (%<frame>s)"
             },
             oeflow: {
               label:            "Colocación según flujo de vértices",
@@ -49,7 +49,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una arista/cara",
-              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = modo (%<mode>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)"
+              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = modo (%<mode>s)  |  ← = eje de desfase (%<offset_axis>s)  |  ↑ = sistema (%<frame>s)"
             },
             oesurface: {
               label:            "Colocación en superficie",
@@ -58,7 +58,7 @@ module ASM_Extensions
               offset_prompt:    "Desfase",
               no_sample_hint:   "Haz clic sobre un componente",
               no_geometry_hint: "Haz clic sobre una cara",
-              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = alineación (%<orient>s)  |  ←/→ = ajustar desfase (%<offset>s)  |  ↑/↓ = ajustar giro (%<roll>s)",
+              vcb_hint:         "SHIFT = pivote (%<ip>s)  |  TAB = eje de orientación (%<axis>s)  |  ALT = alineación (%<orient>s)  |  ← = eje de desfase (%<offset_axis>s)  |  ↑ = sistema (%<frame>s)",
               axis_parallel:    "dominante",
               axis_ground:      "horizontal"
             },
@@ -87,6 +87,12 @@ module ASM_Extensions
               status:           "Resetea la rotación de las entidades seleccionadas a los ejes globales.",
               no_geometry_hint: "Haz clic sobre un componente",
               vcb_hint:         "TAB = pivote (%<ip>s)  |  ESC = cancelar y salir"
+            },
+            tool_panel: {
+              label:   "Panel de herramienta",
+              tooltip: "Panel de herramienta",
+              status:  "Muestra un panel flotante con los controles de la herramienta activa.",
+              empty:   "Ninguna herramienta activa."
             },
             settings: {
               label:   "Ajustes de #{EXT_NAME}",
@@ -125,14 +131,27 @@ module ASM_Extensions
               pivot_base_short:   "base",
               pivot_center_short: "centro",
               pivot_origin_short: "origen",
+              axis:               "Eje de orientación",
+              use_offset:         "Añadir <strong>desfase de posición</strong>",
+              on:                 "Sí",
+              off:                "No",
+              offset_frame:       "Sistema de ejes",
+              axes_world:         "Global",
+              axes_local:         "Local",
+              offset_x:           "Desfase X",
+              offset_y:           "Desfase Y",
+              offset_z:           "Desfase Z",
               steps:            "Magnitudes",
-              roll_step:        "Incremento de <strong>GIRO</strong>",
-              offset_step:      "Incremento de <strong>DESFASE</strong>",
-              default_roll:     "<strong>GIRO</strong> por defecto",
-              default_offset:   "<strong>DESFASE</strong> por defecto",
-              remember_offset:  "Recordar <strong>DESFASE</strong>",
-              remember_roll:    "Recordar <strong>GIRO</strong>",
+              roll_step:        "Incremento de <strong>giro</strong>",
+              offset_step:      "Incremento de <strong>desfase</strong>",
+              default_roll:     "<strong>Giro</strong> por defecto",
+              default_offset:   "<strong>Desfase</strong> por defecto",
+              remember_offset:  "Recordar <strong>desfase</strong>",
+              remember_roll:    "Recordar <strong>giro</strong>",
               smooth_groups:  "Tratar superficies suavizadas como una única cara"
+            },
+            tool_panel: {
+              title:   "Herramientas"
             },
             about: {
               title:       "Info",

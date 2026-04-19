@@ -175,7 +175,8 @@
                         style="width: 76px !important; text-align: center; font-size: 0.8rem;"
                         :value="defaultOffset"
                         :disabled="rememberOffset"
-                        @blur="normalizeOffset('defaultOffset', $event)">
+                        @blur="normalizeOffset('defaultOffset', $event)"
+                        @keydown.enter.prevent="$event.target.blur()">
                     </div>
 
                     <!-- Offset Step -->
@@ -185,7 +186,8 @@
                         class="form-control form-control-sm w-auto"
                         style="width: 76px !important; text-align: center; font-size: 0.8rem;"
                         :value="offsetStep"
-                        @blur="normalizeOffset('offsetStep', $event)">
+                        @blur="normalizeOffset('offsetStep', $event)"
+                        @keydown.enter.prevent="$event.target.blur()">
                     </div>
 
                     <!-- Remember Roll -->

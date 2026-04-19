@@ -75,12 +75,6 @@ module ASM_Extensions
           end
 
           ASM_Extensions::OrienterExpress.user_settings(settings)
-
-          if settings.key?(:language)
-            Lang.configure(settings[:language])
-            payload = { locale: Lang.locale.to_s, data: Lang.dump }.to_json
-            dialog.execute_script("i18nJSON(#{payload.inspect})")
-          end
         end
 
         dialog.center

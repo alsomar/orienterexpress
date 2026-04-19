@@ -308,13 +308,15 @@ module ASM_Extensions
     end
 
     # For vertical edges orient_x is a no-op (all horizontal directions are
-    # already ground-parallel); fall back to h_dir_map for a meaningful X.
+    # already ground-parallel); fall back to h_dir_map (vertex flow with BFS
+    # sign propagation) for a geometry-intrinsic X that rotates with the mesh.
     def self.orient_x_ground(entity, edge = nil, h_dir_map = nil)
       orient_x(entity)
       return unless edge
       z = entity.transformation.zaxis.normalize
       return unless (z.z.abs - 1.0).abs < 1e-3   # only for near-vertical edges
       ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
+      Debug.log(self, :orient_x_ground, "eid=#{edge_id(edge)} ref=#{ref ? ref.to_a.map{|c|'%+.2f'%c}.join(',') : 'nil'}")
       orient_x_to_horizontal(entity, ref) if ref
     end
 
@@ -447,6 +449,16 @@ module ASM_Extensions
                          :orient_z_to_horizontal, :orient_z_ground, :orient_y_ground,
                          :naked_edge_surface_normal, :vertical_surface_directions
 
+    # Stable, short ID for an edge, invariant under endpoint order.
+    # Used for cross-referencing between runtime Debug.log and in-SketchUp
+    # diagnostic scripts.
+    def self.edge_id(edge)
+      a = edge.start.position.to_a.map { |c| c.round(2) }
+      b = edge.end.position.to_a.map { |c| c.round(2) }
+      a, b = b, a if (b <=> a) < 0
+      "#{a.join(',')}-#{b.join(',')}".hash.abs.to_s(36)[0, 6]
+    end
+
     # Mirrors all_vertex_flow_directions but projects to XY, discarding entries
     # whose XY component is negligible (e.g. vertical normals from flat meshes).
     def self.horizontal_flow_directions(vertex_edges)
@@ -556,22 +568,39 @@ module ASM_Extensions
       end
     end
 
+    # Deterministic edge direction: picks the component with the largest
+    # absolute value and flips the vector so that component is positive.
+    # Ties are broken by axis priority X > Y > Z. Ensures all collinear or
+    # similarly-oriented edges resolve to the same forward direction, so
+    # orientation and local-frame offsets stay consistent across a selection.
+    def self.canonical_edge_dir(edge)
+      v = edge.end.position - edge.start.position
+      return v if v.length < 1e-12
+      # Dot against a weighted reference (X ≫ Y ≫ Z) instead of branching on
+      # dominant-component magnitude: the former branching was discontinuous
+      # at ax == ay and flipped sign under floating-point noise (edges in a
+      # 45°-rotated mesh landed in different branches, yielding opposite
+      # canonical directions for parallel edges).
+      score = v.x * 1.0 + v.y * 1e-3 + v.z * 1e-6
+      score >= 0 ? v : v.reverse
+    end
+
     def self.orient_z(instance, edge)
-      edge_vector = edge.end.position - edge.start.position
+      edge_vector = canonical_edge_dir(edge)
       return if edge_vector.length < 1e-6
       align_axis(instance, instance.transformation.origin,
                  instance.transformation.zaxis, edge_vector.normalize)
     end
 
     def self.orient_x_to_edge(instance, edge)
-      edge_vector = edge.end.position - edge.start.position
+      edge_vector = canonical_edge_dir(edge)
       return if edge_vector.length < 1e-6
       align_axis(instance, instance.transformation.origin,
                  instance.transformation.xaxis, edge_vector.normalize)
     end
 
     def self.orient_y_to_edge(instance, edge)
-      edge_vector = edge.end.position - edge.start.position
+      edge_vector = canonical_edge_dir(edge)
       return if edge_vector.length < 1e-6
       align_axis(instance, instance.transformation.origin,
                  instance.transformation.yaxis, edge_vector.normalize)
@@ -592,16 +621,31 @@ module ASM_Extensions
       Sketchup.format_length(value)
     end
 
-    def self.load_offset_str(config_key)
-      raw = CONFIG[config_key] if config_key
-      raw = CONFIG[:default_offset] if raw.nil? || raw.to_s.empty?
+    # Per-axis: reads CONFIG[:<tool_prefix>_offset_<axis>], falling back to the
+    # global default_offset_<axis>. axis is :x, :y or :z.
+    def self.load_offset_axis_str(tool_prefix, axis)
+      key = "#{tool_prefix}_offset_#{axis}".to_sym
+      raw = CONFIG[key]
+      raw = CONFIG["default_offset_#{axis}".to_sym] if raw.nil? || raw.to_s.empty?
       return Sketchup.format_length(0) if raw.nil? || raw.to_s.empty?
       return Sketchup.format_length(raw.to_f) if raw.to_s =~ /\A-?[\d.]+\z/
       raw.to_s
     end
 
+    # Legacy helper kept so tools that still read a single offset can boot.
+    # Defaults to the Z-axis value, which matches the pre-split semantics for
+    # most placement tools (offset along the main orientation axis).
+    def self.load_offset_str(config_key)
+      prefix =
+        case config_key.to_s
+        when /\A(.+)_offset\z/ then Regexp.last_match(1).to_sym
+        else :oevertex
+        end
+      load_offset_axis_str(prefix, :z)
+    end
+
     def self.default_offset_str
-      load_offset_str(nil)
+      load_offset_axis_str(:_default, :z)
     end
 
     # In-memory store for the last roll per tool (degrees).
@@ -771,7 +815,7 @@ module ASM_Extensions
         return if new_ip == @pivot
         @pivot = new_ip
         update_vcb
-        apply(self.class.last_offset_str)
+        apply
       end
 
       class SelectionWatcher < Sketchup::SelectionObserver
@@ -811,22 +855,29 @@ module ASM_Extensions
       def activate
         @lbutton_down  = false
         @drag_mode     = nil
-        @arrow_key_dir = nil
-        @roll_key_dir  = nil
         tool_key       = self.class.config_prefix
-        self.class.last_offset_str = if CONFIG[:remember_offset]
-                                       OrienterExpress.send(:load_offset_str, "#{tool_key}_offset".to_sym)
-                                     else
-                                       OrienterExpress.send(:default_offset_str)
-                                     end
+        if CONFIG[:remember_offset]
+          @offset_x = OrienterExpress.send(:load_offset_axis_str, tool_key, :x)
+          @offset_y = OrienterExpress.send(:load_offset_axis_str, tool_key, :y)
+          @offset_z = OrienterExpress.send(:load_offset_axis_str, tool_key, :z)
+        else
+          @offset_x = OrienterExpress.send(:load_offset_axis_str, :_default, :x)
+          @offset_y = OrienterExpress.send(:load_offset_axis_str, :_default, :y)
+          @offset_z = OrienterExpress.send(:load_offset_axis_str, :_default, :z)
+        end
+        @offset_axis    = :z
+        @offset_frame   = (CONFIG[:offset_frame] || 'world').to_s.to_sym
+        @offset_enabled = CONFIG[:offset_enabled] != false
+        self.class.last_offset_str = @offset_z
         roll_deg       = CONFIG[:remember_roll] ? OrienterExpress.send(:load_last_roll_deg, tool_key) : CONFIG[:default_roll].to_f
         @roll_angle    = roll_deg.to_f.degrees
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         OEPlacementTool.active_instance = self
         rebuild_h_dir_map if @rotation_mode != :flow
+        Dialogs.open_tool_panel if defined?(Dialogs) && Dialogs.respond_to?(:open_tool_panel)
         update_vcb
-        UI.start_timer(0, false) { apply(self.class.last_offset_str); sync_selection } if @entity_def
+        UI.start_timer(0, false) { apply; sync_selection } if @entity_def
       end
 
       def deactivate(view)
@@ -836,7 +887,9 @@ module ASM_Extensions
         @applied           = false
         @previous_entities = []
         @placement_map     = {}
+        apply_panel_scroll_stop if respond_to?(:apply_panel_scroll_stop)
         on_deactivate
+        Dialogs.push_tool_state(nil) if defined?(Dialogs) && Dialogs.respond_to?(:tool_panel_visible?) && Dialogs.tool_panel_visible?
         view.invalidate
       end
 
@@ -910,10 +963,12 @@ module ASM_Extensions
           deg = stripped.gsub(',', '.').to_f
           @roll_angle = deg * Math::PI / 180.0
           OrienterExpress.send(:set_last_roll, self.class.config_prefix, (@roll_angle * 180.0 / Math::PI) % 360.0)
-          apply(self.class.last_offset_str)
+          apply
           update_vcb
-        else
-          apply(stripped)
+        elsif @offset_enabled
+          store_offset_axis(@offset_axis || :z, stripped)
+          update_vcb
+          apply
         end
       end
 
@@ -943,28 +998,22 @@ module ASM_Extensions
             @applied = false
           end
           @model.select_tool(nil)
-        when 37, 39
-          dir = key == 39 ? +1 : -1
-          unless @arrow_key_dir == dir
-            scroll_offset(dir)
-            @arrow_key_dir  = dir
-            @key_repeat_gen = (@key_repeat_gen || 0) + 1
-            gen = @key_repeat_gen
-            UI.start_timer(0.7, false) { key_repeat(dir, gen) }
-          end
-        when 38, 40
-          dir = key == 38 ? +1 : -1
-          unless @roll_key_dir == dir
-            scroll_roll(dir)
-            @roll_key_dir      = dir
-            @roll_key_rep_gen  = (@roll_key_rep_gen || 0) + 1
-            gen = @roll_key_rep_gen
-            UI.start_timer(0.7, false) { key_repeat_roll(dir, gen) }
-          end
+        when 37
+          cycle_offset_axis(-1) if @offset_enabled
+        when 38
+          toggle_offset_frame if @offset_enabled
+        when 39
+          # reserved for Phase B: roll axis cycle
+        when 40
+          # reserved for Phase B: roll frame toggle
         when 36
           @roll_angle = CONFIG[:default_roll].to_f.degrees
+          @offset_x = OrienterExpress.send(:load_offset_axis_str, :_default, :x)
+          @offset_y = OrienterExpress.send(:load_offset_axis_str, :_default, :y)
+          @offset_z = OrienterExpress.send(:load_offset_axis_str, :_default, :z)
+          self.class.last_offset_str = @offset_z
           update_vcb
-          apply(CONFIG[:default_offset].to_s.empty? ? Sketchup.format_length(0) : CONFIG[:default_offset].to_s)
+          apply
         else
           handle_key(key)
         end
@@ -982,8 +1031,6 @@ module ASM_Extensions
           @mod_ctrl  = flags & COPY_MODIFIER_MASK      != 0
           @mod_shift = flags & CONSTRAIN_MODIFIER_MASK != 0
         end
-        @arrow_key_dir = nil if key == 37 || key == 39
-        @roll_key_dir  = nil if key == 38 || key == 40
         update_cursor
         view.invalidate
       end
@@ -1088,7 +1135,7 @@ module ASM_Extensions
         end
         return if @geometry.to_set == before
         on_geometry_changed
-        apply(self.class.last_offset_str)
+        apply
         sync_selection
       end
 
@@ -1096,34 +1143,192 @@ module ASM_Extensions
         rebuild_h_dir_map if @rotation_mode != :flow
       end
 
-      def key_repeat(dir, gen)
-        return unless @arrow_key_dir == dir && @key_repeat_gen == gen
-        scroll_offset(dir)
-        UI.start_timer(0.03, false) { key_repeat(dir, gen) }
-      end
-
-      def key_repeat_roll(dir, gen)
-        return unless @roll_key_dir == dir && @roll_key_rep_gen == gen
-        scroll_roll(dir)
-        UI.start_timer(0.03, false) { key_repeat_roll(dir, gen) }
-      end
-
       def scroll_roll(direction)
         step = [CONFIG[:roll_step].to_f, 1.0].max
         @roll_angle = (@roll_angle + direction * step.degrees) % 360.degrees
         @roll_angle = 0.0 if @roll_angle < 1e-9
         OrienterExpress.send(:set_last_roll, self.class.config_prefix, (@roll_angle * 180.0 / Math::PI) % 360.0)
-        apply(self.class.last_offset_str)
+        apply
         update_vcb
       end
 
-      def scroll_offset(direction)
-        current = OrienterExpress.send(:parse_length_safe, self.class.last_offset_str)
-        return unless current
-        step    = Sketchup.parse_length(CONFIG[:offset_step].to_s) rescue Sketchup.parse_length("1cm")
-        new_val = current + direction * step
-        apply(Sketchup.format_length(new_val))
+      def cycle_offset_axis(dir)
+        order = %i[x y z]
+        idx   = order.index(@offset_axis || :z) || 2
+        @offset_axis = order[(idx + dir.to_i) % 3]
         update_vcb
+      end
+
+      def toggle_offset_frame
+        @offset_frame = @offset_frame == :local ? :world : :local
+        OrienterExpress.user_settings(offset_frame: @offset_frame.to_s)
+        update_vcb
+        apply
+      end
+
+      def offset_vector(entity_copy, context = nil)
+        dx = OrienterExpress.send(:parse_length_safe, @offset_x.to_s).to_f
+        dy = OrienterExpress.send(:parse_length_safe, @offset_y.to_s).to_f
+        dz = OrienterExpress.send(:parse_length_safe, @offset_z.to_s).to_f
+        return Geom::Vector3d.new(0, 0, 0) if dx.abs < 1e-9 && dy.abs < 1e-9 && dz.abs < 1e-9
+        if @offset_frame == :local
+          frame = nil
+          edge  = context.is_a?(Sketchup::Edge) ? context : @placement_map[entity_copy]
+          frame = edge_outward_frame(edge) if edge.is_a?(Sketchup::Edge)
+          if frame
+            fx, fy, fz = frame
+            return Geom::Vector3d.new(
+              fx.x * dx + fy.x * dy + fz.x * dz,
+              fx.y * dx + fy.y * dy + fz.y * dz,
+              fx.z * dx + fy.z * dy + fz.z * dz
+            )
+          end
+          t = entity_copy.transformation
+          Geom::Vector3d.new(
+            t.xaxis.x * dx + t.yaxis.x * dy + t.zaxis.x * dz,
+            t.xaxis.y * dx + t.yaxis.y * dy + t.zaxis.y * dz,
+            t.xaxis.z * dx + t.yaxis.z * dy + t.zaxis.z * dz
+          )
+        else
+          Geom::Vector3d.new(dx, dy, dz)
+        end
+      end
+
+      def apply_offset_vector(entity_copy, context = nil)
+        return unless @offset_enabled
+        v = offset_vector(entity_copy, context)
+        return if v.length < 1e-9
+        entity_copy.transformation = Geom::Transformation.translation(v) * entity_copy.transformation
+      end
+
+      # Edge-outward frame: Z = canonical edge direction, Y = face normal
+      # projected perpendicular to Z (outward), X = Z × Y (tangent on face).
+      # Falls back to world Z (then world X) for naked edges with no reliable
+      # face normal, so offsets stay deterministic on wireframe-only selections.
+      def edge_outward_frame(edge)
+        fwd_raw = OrienterExpress.canonical_edge_dir(edge)
+        return nil if fwd_raw.length < 1e-9
+        fwd = fwd_raw.normalize
+
+        outward = nil
+        raw_n   = avg_face_normal_for_edge(edge)
+        if raw_n && raw_n.length > 1e-9
+          d = raw_n.dot(fwd)
+          outward = raw_n - Geom::Vector3d.new(fwd.x * d, fwd.y * d, fwd.z * d)
+          outward = nil if outward.length < 1e-9
+        end
+        unless outward
+          up  = Geom::Vector3d.new(0, 0, 1)
+          d   = up.dot(fwd)
+          cand = up - Geom::Vector3d.new(fwd.x * d, fwd.y * d, fwd.z * d)
+          if cand.length > 1e-9
+            outward = cand
+          else
+            ax = Geom::Vector3d.new(1, 0, 0)
+            d  = ax.dot(fwd)
+            outward = ax - Geom::Vector3d.new(fwd.x * d, fwd.y * d, fwd.z * d)
+          end
+        end
+        return nil if outward.nil? || outward.length < 1e-9
+        outward = outward.normalize
+        side    = fwd.cross(outward)
+        return nil if side.length < 1e-9
+        [side.normalize, outward, fwd]
+      end
+
+      # Sign resolver: rotation_mode decides the shape of the orientation, but
+      # the "up/outward" perpendicular axis can still end up flipped relative
+      # to the surface (e.g. pointing into a solid instead of away from it).
+      # After orienting, check if the outward-candidate axis has a positive
+      # projection onto the outward reference (face normal → naked-edge normal
+      # → world +Z); if it's negative, rotate 180° around the primary axis.
+      def ensure_outward_sign(entity_copy, edge)
+        Debug.log(OrienterExpress, :ensure_outward_sign, "eid=#{OrienterExpress.edge_id(edge)} enter")
+        t = entity_copy.transformation
+
+        primary      = nil
+        outward_axis = nil
+        ref_override = nil
+
+        # In :ground mode with :z scale_axis, pick the outward axis that
+        # gives a consistent result across verticals AND horizontals:
+        #  - Vertical-face edges (face normal horizontal): X = face outward
+        #    (matches orient_x_ground's convention for vertical edges).
+        #  - Top/bottom-face edges (face normal vertical): Y = world up
+        #    (falls back to the generic logic).
+        if defined?(@rotation_mode) && @rotation_mode == :ground && @scale_axis == :z
+          fn = avg_face_normal_for_edge(edge)
+          if fn && fn.z.abs < 0.5
+            primary, outward_axis = t.zaxis, t.xaxis
+            ref_override = fn
+          end
+        end
+
+        if primary.nil?
+          primary, outward_axis =
+            case @scale_axis
+            when :x then [t.xaxis, t.zaxis]
+            when :y then [t.yaxis, t.zaxis]
+            else         [t.zaxis, t.yaxis]
+            end
+        end
+
+        return if primary.length < 1e-9
+
+        ref = ref_override || outward_reference(edge, primary)
+        return unless ref
+
+        pn   = primary.normalize
+        d    = ref.dot(pn)
+        proj = ref - Geom::Vector3d.new(pn.x * d, pn.y * d, pn.z * d)
+        return if proj.length < 1e-9
+
+        # Tolerance guards the orthogonal case: when the outward_axis is
+        # already aligned with the ref, the perpendicular component drifts
+        # ±1e-15 with float noise and can flip edges at random.
+        if outward_axis.dot(proj) < -1e-6
+          entity_copy.transform!(
+            Geom::Transformation.rotation(entity_copy.bounds.center, primary, Math::PI)
+          )
+          Debug.log(OrienterExpress, :ensure_outward_sign, "eid=#{OrienterExpress.edge_id(edge)} FLIPPED")
+        else
+          Debug.log(OrienterExpress, :ensure_outward_sign, "eid=#{OrienterExpress.edge_id(edge)} no-flip")
+        end
+      rescue => e
+        Debug.log(OrienterExpress, :ensure_outward_sign, "eid=#{OrienterExpress.edge_id(edge)} ERROR: #{e.class}: #{e.message}")
+        raise
+      end
+
+      # Mode-aware outward reference for ensure_outward_sign.
+      # :normal → face normal (surface-aligned).
+      # :ground → world +Z for non-vertical edges; horizontalized face-normal /
+      #           connected-edge fallback for vertical edges (where +Z is ∥ primary).
+      # :flow   → face normal (flow handles tangential alignment separately).
+      def outward_reference(edge, primary)
+        mode = defined?(@rotation_mode) ? @rotation_mode : :normal
+        pn   = primary.length > 1e-9 ? primary.normalize : nil
+
+        if mode == :ground
+          if pn && pn.z.abs < 0.95
+            return Geom::Vector3d.new(0, 0, 1)
+          end
+          # Vertical edges: match orient_x_ground's reference
+          # (vertex-flow horizontalized) so ensure_outward_sign doesn't
+          # counter-flip the geometry-intrinsic frame.
+          ref = OrienterExpress.send(:horizontal_ref_for_vertical_edge, edge, @h_dir_map)
+          return ref if ref && ref.length > 1e-9
+          return Geom::Vector3d.new(1, 0, 0)
+        end
+
+        n = avg_face_normal_for_edge(edge)
+        return n if n && n.length > 1e-9
+        begin
+          n = OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)
+          return n if n && n.length > 1e-9
+        rescue
+        end
+        return Geom::Vector3d.new(0, 0, 1) if pn.nil? || pn.z.abs < 0.95
+        Geom::Vector3d.new(1, 0, 0)
       end
 
       def on_external_selection_change
@@ -1147,7 +1352,7 @@ module ASM_Extensions
       end
 
       def on_selection_changed(_new_set, _old_set)
-        apply(self.class.last_offset_str)
+        apply
       end
 
       def sync_selection
@@ -1166,12 +1371,336 @@ module ASM_Extensions
           Sketchup.set_status_text("", 1)
           Sketchup.set_status_text("", 2)
           Sketchup.set_status_text(no_sample_hint, 0)
+          notify_panel
           return
         end
         render_vcb
+        notify_panel
       end
 
       def render_vcb; end
+
+      public
+
+      def notify_panel
+        return unless defined?(Dialogs) && Dialogs.respond_to?(:tool_panel_visible?) && Dialogs.tool_panel_visible?
+        Dialogs.push_tool_state(self)
+      end
+
+      PIVOT_LABEL_KEYS = {
+        center: :pivot_center_short,
+        base:   :pivot_base_short,
+        origin: :pivot_origin_short
+      }.freeze
+
+      def panel_pivots
+        list = respond_to?(:valid_pivots) ? valid_pivots : %i[base center origin]
+        %i[base center origin].select { |p| list.include?(p) }
+      end
+
+      def panel_schema
+        pivot_default =
+          if self.class.respond_to?(:config_prefix)
+            OrienterExpress.send(:resolved_pivot, self.class.config_prefix).to_s
+          else
+            'center'
+          end
+        schema = []
+        if defined?(@rotation_mode) && !@rotation_mode.nil?
+          schema << {
+            'key' => 'rotation_mode', 'type' => 'select', 'resettable' => true,
+            'label' => Lang.t(:html, :settings, :rotation_mode).to_s,
+            'default' => (CONFIG[:rotation_mode] || 'ground').to_s,
+            'options' => %i[ground flow normal].map { |m|
+              { 'value' => m.to_s, 'label' => Lang.t(:html, :settings, "rotation_#{m}".to_sym).to_s }
+            }
+          }
+        end
+        schema << {
+          'key' => 'pivot', 'type' => 'select', 'resettable' => true,
+          'label' => Lang.t(:html, :settings, :pivot).to_s,
+          'default' => pivot_default,
+          'options' => panel_pivots.map { |p|
+            { 'value' => p.to_s, 'label' => Lang.t(:html, :settings, PIVOT_LABEL_KEYS[p]).to_s }
+          }
+        }
+        if instance_variable_defined?(:@scale_axis)
+          schema << {
+            'key' => 'scale_axis', 'type' => 'select', 'resettable' => true,
+            'label' => Lang.t(:html, :settings, :axis).to_s,
+            'default' => 'z',
+            'options' => [
+              { 'value' => 'x', 'label' => 'X' },
+              { 'value' => 'y', 'label' => 'Y' },
+              { 'value' => 'z', 'label' => 'Z' }
+            ]
+          }
+        end
+        schema << {
+          'key' => 'offset_enabled', 'type' => 'switch',
+          'label' => Lang.t(:html, :settings, :use_offset).to_s
+        }
+        if @offset_enabled
+          schema << {
+            'key' => 'offset_frame', 'type' => 'select', 'resettable' => true,
+            'group' => 'offset', 'group_first' => true,
+            'label' => Lang.t(:html, :settings, :offset_frame).to_s,
+            'default' => 'world',
+            'options' => [
+              { 'value' => 'world', 'label' => Lang.t(:html, :settings, :axes_world).to_s },
+              { 'value' => 'local', 'label' => Lang.t(:html, :settings, :axes_local).to_s }
+            ]
+          }
+          unit_name = Dialogs.unit_info[:name]
+          axes = %w[x y z]
+          axes.each_with_index do |axis, i|
+            base = Lang.t(:html, :settings, "offset_#{axis}".to_sym).to_s
+            schema << {
+              'key' => "offset_#{axis}", 'type' => 'length',
+              'scrollable' => true, 'resettable' => true,
+              'group' => 'offset', 'group_last' => (i == axes.length - 1),
+              'label' => "#{base} (#{unit_name})"
+            }
+          end
+        end
+        schema << { 'key' => 'roll', 'type' => 'number',
+                    'scrollable' => true, 'resettable' => true,
+                    'label' => Lang.t(:html, :settings, :default_roll).to_s.gsub(/<[^>]+>/, ''),
+                    'step' => 1, 'min' => 0, 'max' => 359 }
+        schema
+      end
+
+      def panel_state
+        key = self.class.respond_to?(:config_prefix) ? self.class.config_prefix : nil
+        return { 'tool' => nil } unless key
+
+        deg = ((@roll_angle || 0.0) * 180.0 / Math::PI) % 360.0
+        title_leaf = Lang.t(:commands, key, :label)
+
+        values = {
+          'pivot'          => (@pivot || :center).to_s,
+          'offset_enabled' => @offset_enabled ? 'on' : 'off',
+          'offset_frame'   => (@offset_frame || :world).to_s,
+          'offset_x'       => offset_display_value(:x),
+          'offset_y'       => offset_display_value(:y),
+          'offset_z'       => offset_display_value(:z),
+          'roll'           => deg.round(2)
+        }
+        values['rotation_mode'] = (@rotation_mode || :ground).to_s if defined?(@rotation_mode) && !@rotation_mode.nil?
+        values['scale_axis'] = (@scale_axis || :z).to_s if instance_variable_defined?(:@scale_axis)
+
+        {
+          'tool'   => key.to_s,
+          'title'  => title_leaf.to_s,
+          'schema' => panel_schema,
+          'values' => values
+        }
+      rescue => e
+        Debug.log(self.class, :panel_state, "#{e.class}: #{e.message}")
+        Debug.log(self.class, :panel_state, e.backtrace.first(5).join(" | ")) if e.backtrace
+        { 'tool' => nil }
+      end
+
+      def apply_panel_change(key, value)
+        case key
+        when :rotation_mode
+          return unless defined?(@rotation_mode)
+          sym = value.to_s.to_sym
+          return unless %i[ground flow normal].include?(sym)
+          return if sym == @rotation_mode
+          @rotation_mode = sym
+          rebuild_flow_map  if @rotation_mode == :flow  && respond_to?(:rebuild_flow_map, true)
+          rebuild_h_dir_map if @rotation_mode != :flow  && respond_to?(:rebuild_h_dir_map, true)
+          update_vcb
+          apply
+        when :pivot
+          sym = value.to_s.to_sym
+          return unless panel_pivots.include?(sym)
+          return if sym == @pivot
+          @pivot = sym
+          custom = CONFIG[:pivot_custom].dup
+          custom[self.class.config_prefix] = @pivot.to_s
+          OrienterExpress.user_settings(pivot_custom: custom)
+          update_vcb
+          apply
+        when :scale_axis
+          return unless instance_variable_defined?(:@scale_axis)
+          sym = value.to_s.to_sym
+          return unless %i[x y z].include?(sym)
+          return if sym == @scale_axis
+          @scale_axis = sym
+          update_vcb
+          apply
+        when :offset_enabled
+          enabled = value == true || value.to_s == 'on' || value.to_s == 'true'
+          return if enabled == @offset_enabled
+          @offset_enabled = enabled
+          OrienterExpress.user_settings(offset_enabled: enabled)
+          update_vcb
+          apply
+        when :offset_frame
+          sym = value.to_s.to_sym
+          return unless %i[world local].include?(sym)
+          return if sym == @offset_frame
+          @offset_frame = sym
+          OrienterExpress.user_settings(offset_frame: sym.to_s)
+          update_vcb
+          apply
+        when :offset_x, :offset_y, :offset_z
+          text = value.to_s.strip
+          return if text.empty?
+          if text =~ /\A-?[\d.,]+\z/
+            text = "#{text.tr(',', '.')}#{Dialogs.unit_info[:name]}"
+          end
+          axis = key.to_s.sub('offset_', '').to_sym
+          store_offset_axis(axis, text)
+          update_vcb
+          apply
+        when :roll
+          deg = value.to_f % 360.0
+          @roll_angle = deg * Math::PI / 180.0
+          OrienterExpress.send(:set_last_roll, self.class.config_prefix, deg)
+          apply
+          update_vcb
+        end
+      end
+
+      # Panel-scroll hold: Ruby owns the cadence via UI.start_timer so the
+      # repeat rate is independent of JS setInterval jitter and per-apply
+      # duration. JS just sends start/stop signals.
+      PANEL_SCROLL_HOLD_DELAY = 0.35  # seconds before repeat kicks in
+      PANEL_SCROLL_INTERVAL   = 0.04  # seconds between repeat ticks
+
+      def apply_panel_scroll_start(key, dir)
+        apply_panel_scroll_stop
+        d = dir.to_i
+        return if d.zero?
+        @_scroll_key    = key
+        @_scroll_dir    = d
+        @_scroll_active = true
+        do_panel_scroll_tick # immediate first step
+        @_scroll_hold_timer = UI.start_timer(PANEL_SCROLL_HOLD_DELAY, false) do
+          @_scroll_hold_timer = nil
+          schedule_next_panel_scroll_tick
+        end
+      end
+
+      def apply_panel_scroll_stop
+        @_scroll_active = false
+        if @_scroll_hold_timer
+          UI.stop_timer(@_scroll_hold_timer) rescue nil
+          @_scroll_hold_timer = nil
+        end
+        if @_scroll_repeat_timer
+          UI.stop_timer(@_scroll_repeat_timer) rescue nil
+          @_scroll_repeat_timer = nil
+        end
+        @_scroll_key = nil
+        @_scroll_dir = nil
+      end
+
+      def do_panel_scroll_tick
+        key = @_scroll_key
+        d   = @_scroll_dir
+        return if key.nil? || d.nil? || d.zero?
+        case key
+        when :offset_x, :offset_y, :offset_z
+          axis = key.to_s.sub('offset_', '').to_sym
+          scroll_offset_axis(axis, d)
+        when :roll       then scroll_roll(d)
+        when :scale_axis then scroll_scale_axis(d)
+        end
+      end
+
+      # Re-schedule the next tick at the end of the current one so variable
+      # apply duration can't collide with a fixed-cadence timer.
+      def schedule_next_panel_scroll_tick
+        return unless @_scroll_active
+        @_scroll_repeat_timer = UI.start_timer(PANEL_SCROLL_INTERVAL, false) do
+          @_scroll_repeat_timer = nil
+          if @_scroll_active
+            do_panel_scroll_tick
+            schedule_next_panel_scroll_tick
+          end
+        end
+      end
+
+      def scroll_scale_axis(dir)
+        return unless instance_variable_defined?(:@scale_axis)
+        order = %i[x y z]
+        idx   = order.index(@scale_axis) || 2
+        @scale_axis = order[(idx + dir.to_i) % 3]
+        apply
+        update_vcb
+      end
+
+      def store_offset_axis(axis, text)
+        instance_variable_set("@offset_#{axis}", text)
+        self.class.last_offset_str = text if axis == :z
+        OrienterExpress.user_settings("#{self.class.config_prefix}_offset_#{axis}".to_sym => text) if CONFIG[:remember_offset]
+      end
+
+      # Convert stored length ("10cm", "1.5", etc.) into a unit-less numeric
+      # string in the current model unit, for display in the tool panel.
+      def offset_display_value(axis)
+        stored = instance_variable_get("@offset_#{axis}").to_s
+        return "0" if stored.empty?
+        inches = OrienterExpress.send(:parse_length_safe, stored).to_f
+        factor = Dialogs.unit_info[:factor].to_f
+        value  = (inches * factor).round(4)
+        value == value.to_i ? value.to_i.to_s : value.to_s
+      end
+
+      def scroll_offset_axis(axis, dir)
+        step_str = CONFIG[:offset_step].to_s
+        step     = OrienterExpress.send(:parse_length_safe, step_str).to_f
+        return if step == 0
+        current  = OrienterExpress.send(:parse_length_safe, instance_variable_get("@offset_#{axis}").to_s).to_f
+        new_val  = current + (dir * step)
+        store_offset_axis(axis, Sketchup.format_length(new_val))
+        apply
+        update_vcb
+      end
+
+      def apply_panel_reset(key)
+        case key
+        when :offset_x, :offset_y, :offset_z
+          axis = key.to_s.sub('offset_', '').to_sym
+          zero = Sketchup.format_length(0)
+          store_offset_axis(axis, zero)
+          update_vcb
+          apply
+        when :roll
+          @roll_angle = 0.0
+          OrienterExpress.send(:set_last_roll, self.class.config_prefix, 0.0)
+          apply
+          update_vcb
+        when :offset_frame
+          return if @offset_frame == :world
+          @offset_frame = :world
+          OrienterExpress.user_settings(offset_frame: 'world')
+          update_vcb
+          apply
+        when :scale_axis
+          return unless instance_variable_defined?(:@scale_axis)
+          return if @scale_axis == :z
+          @scale_axis = :z
+          update_vcb
+          apply
+        when :pivot
+          default = OrienterExpress.send(:resolved_pivot, self.class.config_prefix).to_sym
+          return if default == @pivot
+          return unless panel_pivots.include?(default)
+          @pivot = default
+          custom = CONFIG[:pivot_custom].dup
+          custom[self.class.config_prefix] = @pivot.to_s
+          OrienterExpress.user_settings(pivot_custom: custom)
+          update_vcb
+          apply
+        end
+      end
+
+      private
 
       def debug_tool_name; "unknown"; end
 
@@ -1225,6 +1754,17 @@ module ASM_Extensions
         deg = (@roll_angle * 180.0 / Math::PI) % 360.0
         deg_str = (deg % 1.0).abs < 0.05 ? deg.round.to_s : format('%.1f', deg)
         "#{deg_str} deg"
+      end
+
+      def vcb_offset_info
+        oa          = (@offset_axis || :z)
+        oa_label    = oa.to_s.upcase
+        off_label   = Lang.t(:html, :settings, :off).to_s.upcase
+        frame_key   = @offset_frame == :local ? :axes_local : :axes_world
+        frame_label = @offset_enabled ? Lang.t(:html, :settings, frame_key).to_s : off_label
+        current_off = @offset_enabled ? instance_variable_get("@offset_#{oa}").to_s : off_label
+        current_off = Sketchup.format_length(0) if current_off.empty?
+        [oa_label, frame_label, current_off]
       end
 
       # reference_vec must be the direction scale_axis was originally aligned
@@ -1293,7 +1833,7 @@ module ASM_Extensions
         @first_apply   = true
         update_cursor
         update_vcb
-        apply(self.class.last_offset_str)
+        apply
         sync_selection
       end
 
@@ -1403,11 +1943,11 @@ module ASM_Extensions
       def on_selection_changed(new_set, old_set)
         if @rotation_mode == :flow
           rebuild_flow_map
-          apply(OEVertexTool.last_offset_str)
+          apply
         else
           rebuild_h_dir_map if @rotation_mode != :flow
-          offset = OrienterExpress.send(:parse_length_safe, OEVertexTool.last_offset_str)
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+          
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
       end
 
@@ -1440,7 +1980,7 @@ module ASM_Extensions
         @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OEVertexTool.last_offset_str)
+        apply
       end
 
       def handle_ins_key
@@ -1449,7 +1989,7 @@ module ASM_Extensions
         custom[:oevertex] = @pivot.to_s
         OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
-        apply(OEVertexTool.last_offset_str)
+        apply
       end
 
       def handle_mode_key
@@ -1457,7 +1997,7 @@ module ASM_Extensions
         rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
-        apply(OEVertexTool.last_offset_str)
+        apply
       end
 
       def debug_tool_name;  "oevertex"; end
@@ -1470,17 +2010,18 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oevertex.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEVertexTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEVertexTool.last_offset_str, 2)
+        oa_label, frame_label, current_off = vcb_offset_info
+        hint = format(Lang.commands.oevertex.vcb_hint.to_s,
+                      mode: mode_label, axis: axis_label, ip: ip_label,
+                      offset_axis: oa_label, frame: frame_label)
+        Sketchup.set_status_text("#{Lang.commands.oevertex.offset_prompt} #{oa_label} (#{frame_label})", 1)
+        Sketchup.set_status_text(current_off, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
 
-      def apply(text)
+      def apply(*_)
         return unless @entity_def
-        offset = OrienterExpress.send(:parse_length_safe, text)
-        return if offset.nil?
 
         transparent = !@first_apply
         @model.start_operation("Orienter Express: Edge Vertex Placement", true, false, transparent)
@@ -1490,15 +2031,12 @@ module ASM_Extensions
           @previous_entities = []
           @placement_map     = {}
 
-          @geometry.each { |edge| place_for_edge(edge, offset) }
+          @geometry.each { |edge| place_for_edge(edge) }
 
           @model.commit_operation
           @first_apply   = false
           @applied       = true
           @skipped_edges = []
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oevertex_offset)
-          OEVertexTool.last_offset_str = formatted
-          Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -1506,8 +2044,8 @@ module ASM_Extensions
         end
       end
 
-      def apply_diff(added, removed, offset)
-        return unless offset && @entity_def
+      def apply_diff(added, removed, *_)
+        return unless @entity_def
         @model.start_operation("Orienter Express: Edge Vertex Placement", true, false, true)
         begin
           removed.each do |edge|
@@ -1515,7 +2053,7 @@ module ASM_Extensions
             to_erase.each { |ent| ent.erase! if ent.valid? }
             to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
-          added.each { |edge| place_for_edge(edge, offset) }
+          added.each { |edge| place_for_edge(edge) }
           @model.commit_operation
           @model.active_view.invalidate
         rescue => e
@@ -1524,21 +2062,18 @@ module ASM_Extensions
         end
       end
 
-      def place_for_edge(edge, offset)
+      def place_for_edge(edge)
         return if edge.length.zero?
-        edge_vec = edge.end.position - edge.start.position
+        edge_vec = OrienterExpress.canonical_edge_dir(edge)
         return if edge_vec.length < 1e-6
         edge_dir = edge_vec.normalize
-        [
-          [edge.start.position, edge_dir],
-          [edge.end.position,   edge_dir.reverse]
-        ].each do |vertex_pos, inward_dir|
+        [edge.start.position, edge.end.position].each do |vertex_pos|
           entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
           t = entity_copy.transformation
           case @scale_axis
-          when :x then OrienterExpress.send(:align_axis, entity_copy, t.origin, t.xaxis, inward_dir)
-          when :y then OrienterExpress.send(:align_axis, entity_copy, t.origin, t.yaxis, inward_dir)
-          else         OrienterExpress.send(:align_axis, entity_copy, t.origin, t.zaxis, inward_dir)
+          when :x then OrienterExpress.send(:align_axis, entity_copy, t.origin, t.xaxis, edge_dir)
+          when :y then OrienterExpress.send(:align_axis, entity_copy, t.origin, t.yaxis, edge_dir)
+          else         OrienterExpress.send(:align_axis, entity_copy, t.origin, t.zaxis, edge_dir)
           end
           case @rotation_mode
           when :flow
@@ -1560,9 +2095,10 @@ module ASM_Extensions
             else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
             end
           end
-          target_point = vertex_pos.offset(inward_dir, offset)
+          ensure_outward_sign(entity_copy, edge)
           apply_roll(entity_copy)
-          OrienterExpress.send(:move_pivot_to, entity_copy, target_point, @pivot, @scale_axis)
+          OrienterExpress.send(:move_pivot_to, entity_copy, vertex_pos, @pivot, @scale_axis)
+          apply_offset_vector(entity_copy)
           @previous_entities << entity_copy
           @placement_map[entity_copy] = edge
         end
@@ -1672,11 +2208,11 @@ module ASM_Extensions
       def on_selection_changed(new_set, old_set)
         if @rotation_mode == :flow
           rebuild_flow_map
-          apply(OECenterTool.last_offset_str)
+          apply
         else
           rebuild_h_dir_map if @rotation_mode != :flow
-          offset = OrienterExpress.send(:parse_length_safe, OECenterTool.last_offset_str)
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+          
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
       end
 
@@ -1709,7 +2245,7 @@ module ASM_Extensions
         @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OECenterTool.last_offset_str)
+        apply
       end
 
       def handle_ins_key
@@ -1718,7 +2254,7 @@ module ASM_Extensions
         custom[:oecenter] = @pivot.to_s
         OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
-        apply(OECenterTool.last_offset_str)
+        apply
       end
 
       def handle_mode_key
@@ -1726,7 +2262,7 @@ module ASM_Extensions
         rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
-        apply(OECenterTool.last_offset_str)
+        apply
       end
 
       def debug_tool_name;  "oecenter"; end
@@ -1739,17 +2275,18 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oecenter.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OECenterTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OECenterTool.last_offset_str, 2)
+        oa_label, frame_label, current_off = vcb_offset_info
+        hint = format(Lang.commands.oecenter.vcb_hint.to_s,
+                      mode: mode_label, axis: axis_label, ip: ip_label,
+                      offset_axis: oa_label, frame: frame_label)
+        Sketchup.set_status_text("#{Lang.commands.oecenter.offset_prompt} #{oa_label} (#{frame_label})", 1)
+        Sketchup.set_status_text(current_off, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
 
-      def apply(text)
+      def apply(*_)
         return unless @entity_def
-        offset = OrienterExpress.send(:parse_length_safe, text)
-        return if offset.nil?
 
         transparent = !@first_apply
         @model.start_operation("Orienter Express: Center Placement", true, false, transparent)
@@ -1759,15 +2296,12 @@ module ASM_Extensions
           @previous_entities = []
           @placement_map     = {}
 
-          @geometry.each { |edge| place_for_edge(edge, offset) }
+          @geometry.each { |edge| place_for_edge(edge) }
 
           @model.commit_operation
           @first_apply   = false
           @applied       = true
           @skipped_edges = []
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oecenter_offset)
-          OECenterTool.last_offset_str = formatted
-          Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -1775,8 +2309,8 @@ module ASM_Extensions
         end
       end
 
-      def apply_diff(added, removed, offset)
-        return unless offset && @entity_def
+      def apply_diff(added, removed, *_)
+        return unless @entity_def
         @model.start_operation("Orienter Express: Center Placement", true, false, true)
         begin
           removed.each do |edge|
@@ -1784,7 +2318,7 @@ module ASM_Extensions
             to_erase.each { |ent| ent.erase! if ent.valid? }
             to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
-          added.each { |edge| place_for_edge(edge, offset) }
+          added.each { |edge| place_for_edge(edge) }
           @model.commit_operation
           @model.active_view.invalidate
         rescue => e
@@ -1793,7 +2327,7 @@ module ASM_Extensions
         end
       end
 
-      def place_for_edge(edge, offset)
+      def place_for_edge(edge)
         return if edge.length.zero?
         entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
         case @scale_axis
@@ -1821,12 +2355,12 @@ module ASM_Extensions
           else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
           end
         end
-        edge_vec = edge.end.position - edge.start.position
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
-        midpoint = midpoint.offset(edge_vec.normalize, offset) unless edge_vec.length < 1e-6
+        ensure_outward_sign(entity_copy, edge)
         apply_roll(entity_copy)
         edge_normal = avg_face_normal_for_edge(edge)
         place_with_pivot(entity_copy, midpoint, edge_normal, edge)
+        apply_offset_vector(entity_copy)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -1937,11 +2471,11 @@ module ASM_Extensions
       def on_selection_changed(new_set, old_set)
         if @rotation_mode == :flow
           rebuild_flow_map
-          apply(OEAxisScaleTool.last_offset_str)
+          apply
         else
           rebuild_h_dir_map if @rotation_mode != :flow
-          offset = OrienterExpress.send(:parse_length_safe, OEAxisScaleTool.last_offset_str)
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+          
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
       end
 
@@ -1974,7 +2508,7 @@ module ASM_Extensions
         @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OEAxisScaleTool.last_offset_str)
+        apply
       end
 
       def handle_ins_key
@@ -1983,7 +2517,7 @@ module ASM_Extensions
         custom[:oeaxisscale] = @pivot.to_s
         OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
-        apply(OEAxisScaleTool.last_offset_str)
+        apply
       end
 
       def handle_mode_key
@@ -1991,11 +2525,11 @@ module ASM_Extensions
         rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
-        apply(OEAxisScaleTool.last_offset_str)
+        apply
       end
 
       def debug_tool_name;        "oeaxisscale"; end
-      def valid_pivots; %i[center base]; end
+      def valid_pivots; %i[base center]; end
       def no_sample_hint;   Lang.commands.oeaxisscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeaxisscale.no_geometry_hint.to_s; end
 
@@ -2005,17 +2539,18 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = @pivot == :base ? :pivot_base_short : :pivot_center_short
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oeaxisscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEAxisScaleTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oeaxisscale.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEAxisScaleTool.last_offset_str, 2)
+        oa_label, frame_label, current_off = vcb_offset_info
+        hint = format(Lang.commands.oeaxisscale.vcb_hint.to_s,
+                      mode: mode_label, axis: axis_label, ip: ip_label,
+                      offset_axis: oa_label, frame: frame_label)
+        Sketchup.set_status_text("#{Lang.commands.oeaxisscale.offset_prompt} #{oa_label} (#{frame_label})", 1)
+        Sketchup.set_status_text(current_off, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
 
-      def apply(text)
+      def apply(*_)
         return unless @entity_def
-        offset = OrienterExpress.send(:parse_length_safe, text)
-        return if offset.nil?
 
         transparent = !@first_apply
         @model.start_operation("Orienter Express: Z-Scaling", true, false, transparent)
@@ -2024,17 +2559,13 @@ module ASM_Extensions
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
           @placement_map     = {}
-          skipped            = []
 
-          @geometry.each { |edge| place_for_edge(edge, offset, skipped) }
+          @geometry.each { |edge| place_for_edge(edge) }
 
           @model.commit_operation
           @first_apply   = false
           @applied       = true
-          @skipped_edges = skipped
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeaxisscale_offset)
-          OEAxisScaleTool.last_offset_str = formatted
-          Sketchup.set_status_text(formatted, 2)
+          @skipped_edges = []
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -2042,17 +2573,17 @@ module ASM_Extensions
         end
       end
 
-      def apply_diff(added, removed, offset)
-        return unless offset && @entity_def
+      def apply_diff(added, removed, *_)
+        return unless @entity_def
         @model.start_operation("Orienter Express: Z-Scaling", true, false, true)
         begin
           removed.each do |edge|
-            @skipped_edges.delete(edge)
+            @skipped_edges.delete(edge) if @skipped_edges
             to_erase = @placement_map.select { |_, e| e == edge }.keys
             to_erase.each { |ent| ent.erase! if ent.valid? }
             to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
-          added.each { |edge| place_for_edge(edge, offset, @skipped_edges) }
+          added.each { |edge| place_for_edge(edge) }
           @model.commit_operation
           @model.active_view.invalidate
         rescue => e
@@ -2061,23 +2592,18 @@ module ASM_Extensions
         end
       end
 
-      def place_for_edge(edge, offset, skipped = nil)
+      def place_for_edge(edge)
         return if edge.length.zero?
-        effective_length = edge.length - 2 * offset
-        if effective_length <= 1e-6
-          skipped << edge if skipped
-          return
-        end
         entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
         case @scale_axis
         when :x
-          OrienterExpress.x_scale(entity_copy, edge, effective_length)
+          OrienterExpress.x_scale(entity_copy, edge, edge.length)
           OrienterExpress.orient_x_to_edge(entity_copy, edge)
         when :y
-          OrienterExpress.y_scale(entity_copy, edge, effective_length)
+          OrienterExpress.y_scale(entity_copy, edge, edge.length)
           OrienterExpress.orient_y_to_edge(entity_copy, edge)
         else
-          OrienterExpress.z_scale(entity_copy, edge, effective_length)
+          OrienterExpress.z_scale(entity_copy, edge, edge.length)
           OrienterExpress.orient_z(entity_copy, edge)
         end
         case @rotation_mode
@@ -2101,6 +2627,7 @@ module ASM_Extensions
           end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+        ensure_outward_sign(entity_copy, edge)
         apply_roll(entity_copy)
         if @pivot == :base
           OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, :center, @scale_axis)
@@ -2123,6 +2650,7 @@ module ASM_Extensions
         else
           OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, @pivot, @scale_axis)
         end
+        apply_offset_vector(entity_copy)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -2230,11 +2758,11 @@ module ASM_Extensions
       def on_selection_changed(new_set, old_set)
         if @rotation_mode == :flow
           rebuild_flow_map
-          apply(OEUScaleTool.last_offset_str)
+          apply
         else
           rebuild_h_dir_map if @rotation_mode != :flow
-          offset = OrienterExpress.send(:parse_length_safe, OEUScaleTool.last_offset_str)
-          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a, offset)
+          
+          apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
       end
 
@@ -2267,7 +2795,7 @@ module ASM_Extensions
         @scale_axis  = { x: :y, y: :z, z: :x }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OEUScaleTool.last_offset_str)
+        apply
       end
 
       def handle_ins_key
@@ -2276,7 +2804,7 @@ module ASM_Extensions
         custom[:oeuscale] = @pivot.to_s
         OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
-        apply(OEUScaleTool.last_offset_str)
+        apply
       end
 
       def handle_mode_key
@@ -2284,11 +2812,11 @@ module ASM_Extensions
         rebuild_flow_map   if @rotation_mode == :flow
         rebuild_h_dir_map  if @rotation_mode != :flow
         update_vcb
-        apply(OEUScaleTool.last_offset_str)
+        apply
       end
 
       def debug_tool_name;        "oeuscale"; end
-      def valid_pivots; %i[center base]; end
+      def valid_pivots; %i[base center]; end
       def no_sample_hint;   Lang.commands.oeuscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeuscale.no_geometry_hint.to_s; end
 
@@ -2298,17 +2826,18 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = @pivot == :base ? :pivot_base_short : :pivot_center_short
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oeuscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEUScaleTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oeuscale.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEUScaleTool.last_offset_str, 2)
+        oa_label, frame_label, current_off = vcb_offset_info
+        hint = format(Lang.commands.oeuscale.vcb_hint.to_s,
+                      mode: mode_label, axis: axis_label, ip: ip_label,
+                      offset_axis: oa_label, frame: frame_label)
+        Sketchup.set_status_text("#{Lang.commands.oeuscale.offset_prompt} #{oa_label} (#{frame_label})", 1)
+        Sketchup.set_status_text(current_off, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
 
-      def apply(text)
+      def apply(*_)
         return unless @entity_def
-        offset = OrienterExpress.send(:parse_length_safe, text)
-        return if offset.nil?
 
         transparent = !@first_apply
         @model.start_operation("Orienter Express: Uniform Scaling", true, false, transparent)
@@ -2317,17 +2846,13 @@ module ASM_Extensions
           @previous_entities.each { |e| e.erase! if e.valid? }
           @previous_entities = []
           @placement_map     = {}
-          skipped            = []
 
-          @geometry.each { |edge| place_for_edge(edge, offset, skipped) }
+          @geometry.each { |edge| place_for_edge(edge) }
 
           @model.commit_operation
           @first_apply   = false
           @applied       = true
-          @skipped_edges = skipped
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeuscale_offset)
-          OEUScaleTool.last_offset_str = formatted
-          Sketchup.set_status_text(formatted, 2)
+          @skipped_edges = []
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -2335,17 +2860,17 @@ module ASM_Extensions
         end
       end
 
-      def apply_diff(added, removed, offset)
-        return unless offset && @entity_def
+      def apply_diff(added, removed, *_)
+        return unless @entity_def
         @model.start_operation("Orienter Express: Uniform Scaling", true, false, true)
         begin
           removed.each do |edge|
-            @skipped_edges.delete(edge)
+            @skipped_edges.delete(edge) if @skipped_edges
             to_erase = @placement_map.select { |_, e| e == edge }.keys
             to_erase.each { |ent| ent.erase! if ent.valid? }
             to_erase.each { |ent| @previous_entities.delete(ent); @placement_map.delete(ent) }
           end
-          added.each { |edge| place_for_edge(edge, offset, @skipped_edges) }
+          added.each { |edge| place_for_edge(edge) }
           @model.commit_operation
           @model.active_view.invalidate
         rescue => e
@@ -2354,15 +2879,10 @@ module ASM_Extensions
         end
       end
 
-      def place_for_edge(edge, offset, skipped = nil)
+      def place_for_edge(edge)
         return if edge.length.zero?
-        effective_length = edge.length - 2 * offset
-        if effective_length <= 1e-6
-          skipped << edge if skipped
-          return
-        end
         entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
-        OrienterExpress.uniform_scale(entity_copy, edge, @scale_axis, effective_length)
+        OrienterExpress.uniform_scale(entity_copy, edge, @scale_axis, edge.length)
         case @scale_axis
         when :x then OrienterExpress.orient_x_to_edge(entity_copy, edge)
         when :y then OrienterExpress.orient_y_to_edge(entity_copy, edge)
@@ -2389,6 +2909,7 @@ module ASM_Extensions
           end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
+        ensure_outward_sign(entity_copy, edge)
         apply_roll(entity_copy)
         if @pivot == :base
           OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, :center, @scale_axis)
@@ -2406,6 +2927,7 @@ module ASM_Extensions
         else
           OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, @pivot, @scale_axis)
         end
+        apply_offset_vector(entity_copy)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -2478,7 +3000,7 @@ module ASM_Extensions
       end
 
       def on_selection_changed(_new_set, _old_set)
-        apply(OEFlowTool.last_offset_str)
+        apply
       end
 
       # Flow tool deliberately does not add full_faces to the selection.
@@ -2506,7 +3028,7 @@ module ASM_Extensions
         @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OEFlowTool.last_offset_str)
+        apply
       end
 
       def handle_ins_key
@@ -2515,13 +3037,13 @@ module ASM_Extensions
         custom[:oeflow] = @pivot.to_s
         OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
-        apply(OEFlowTool.last_offset_str)
+        apply
       end
 
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         update_vcb
-        apply(OEFlowTool.last_offset_str)
+        apply
       end
 
       def debug_tool_name;  "oeflow"; end
@@ -2534,17 +3056,18 @@ module ASM_Extensions
         axis_label = @scale_axis.to_s.upcase
         ip_key     = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oeflow.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEFlowTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OEFlowTool.last_offset_str, 2)
+        oa_label, frame_label, current_off = vcb_offset_info
+        hint = format(Lang.commands.oeflow.vcb_hint.to_s,
+                      mode: mode_label, axis: axis_label, ip: ip_label,
+                      offset_axis: oa_label, frame: frame_label)
+        Sketchup.set_status_text("#{Lang.commands.oeflow.offset_prompt} #{oa_label} (#{frame_label})", 1)
+        Sketchup.set_status_text(current_off, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
 
-      def apply(text)
+      def apply(*_)
         return unless @entity_def
-        offset = OrienterExpress.send(:parse_length_safe, text)
-        return unless offset
 
         vertex_edges = {}
         @geometry.select(&:valid?).each do |edge|
@@ -2565,7 +3088,7 @@ module ASM_Extensions
           @placement_map     = {}
 
           flow_map.each do |vertex, direction|
-            target      = vertex.position.offset(direction.normalize, offset)
+            target      = vertex.position
             entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
             t           = entity_copy.transformation
 
@@ -2632,6 +3155,7 @@ module ASM_Extensions
 
             apply_roll(entity_copy)
             OrienterExpress.send(:move_pivot_to, entity_copy, target, @pivot, @scale_axis)
+            apply_offset_vector(entity_copy)
             @previous_entities << entity_copy
             @placement_map[entity_copy] = vertex
           end
@@ -2639,9 +3163,6 @@ module ASM_Extensions
           @model.commit_operation
           @first_apply = false
           @applied     = true
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oeflow_offset)
-          OEFlowTool.last_offset_str = formatted
-          Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -2714,7 +3235,7 @@ module ASM_Extensions
           return if new_val == @smooth_groups
           @smooth_groups = new_val
           @first_apply   = true
-          apply(OESurfaceTool.last_offset_str)
+          apply
         end
       end
 
@@ -2800,7 +3321,7 @@ module ASM_Extensions
 
       # Full re-apply: group boundaries depend on the full set of selected faces.
       def on_selection_changed(_new_set, _old_set)
-        apply(OESurfaceTool.last_offset_str)
+        apply
       end
 
       def sync_selection
@@ -2829,7 +3350,7 @@ module ASM_Extensions
         @scale_axis  = { z: :x, x: :y, y: :z }[@scale_axis]
         @first_apply = true
         update_vcb
-        apply(OESurfaceTool.last_offset_str)
+        apply
       end
 
       def handle_ins_key
@@ -2838,13 +3359,13 @@ module ASM_Extensions
         custom[:oesurface] = @pivot.to_s
         OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
-        apply(OESurfaceTool.last_offset_str)
+        apply
       end
 
       def handle_mode_key
         @axis_idx = (@axis_idx + 1) % 2
         update_vcb
-        apply(OESurfaceTool.last_offset_str)
+        apply
       end
 
       def debug_tool_name;  "oesurface"; end
@@ -2859,21 +3380,22 @@ module ASM_Extensions
         ][@axis_idx].to_s.upcase
         ip_key   = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label = Lang.t(:html, :settings, ip_key).to_s.upcase
-        hint = format(Lang.commands.oesurface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label, offset: OESurfaceTool.last_offset_str)
-        Sketchup.set_status_text(Lang.commands.oesurface.offset_prompt.to_s, 1)
-        Sketchup.set_status_text(OESurfaceTool.last_offset_str, 2)
+        oa_label, frame_label, current_off = vcb_offset_info
+        hint = format(Lang.commands.oesurface.vcb_hint.to_s,
+                      axis: scale_label, orient: orient_label, ip: ip_label,
+                      offset_axis: oa_label, frame: frame_label)
+        Sketchup.set_status_text("#{Lang.commands.oesurface.offset_prompt} #{oa_label} (#{frame_label})", 1)
+        Sketchup.set_status_text(current_off, 2)
         Sketchup.set_status_text(build_status(hint), 0)
         debug_state
       end
 
-      def apply_diff(_added, _removed, _offset)
-        apply(OESurfaceTool.last_offset_str)
+      def apply_diff(*_)
+        apply
       end
 
-      def apply(text)
+      def apply(*_)
         return unless @entity_def
-        offset = OrienterExpress.send(:parse_length_safe, text)
-        return unless offset
 
         transparent = !@first_apply
         @model.start_operation("Orienter Express: Surface Placement", true, false, transparent)
@@ -2884,17 +3406,14 @@ module ASM_Extensions
           @placement_map     = {}
 
           if @smooth_groups
-            compute_groups.each { |group| place_for_group(group, offset) }
+            compute_groups.each { |group| place_for_group(group) }
           else
-            @geometry.select(&:valid?).each { |face| place_for_group([face], offset) }
+            @geometry.select(&:valid?).each { |face| place_for_group([face]) }
           end
 
           @model.commit_operation
           @first_apply = false
           @applied     = true
-          formatted = OrienterExpress.send(:format_and_persist_offset, offset, :oesurface_offset)
-          OESurfaceTool.last_offset_str = formatted
-          Sketchup.set_status_text(formatted, 2)
           @model.active_view.invalidate
         rescue => e
           @model.abort_operation
@@ -2916,7 +3435,7 @@ module ASM_Extensions
         groups
       end
 
-      def place_for_group(group_faces, offset)
+      def place_for_group(group_faces)
         valid = group_faces.select(&:valid?)
         return if valid.empty?
 
@@ -2958,7 +3477,7 @@ module ASM_Extensions
           contact   = avg_centroid.offset(n, ray_t)
         end
 
-        target = contact.offset(n, offset)
+        target = contact
 
         entity_copy = OrienterExpress.create_entity_copy(@entity_def, @entity_t)
         t           = entity_copy.transformation
@@ -2983,6 +3502,7 @@ module ASM_Extensions
         apply_roll(entity_copy)
         base_axis = @pivot == :base ? axis_most_aligned_to(entity_copy, avg_normal) : @scale_axis
         OrienterExpress.send(:move_pivot_to, entity_copy, target, @pivot, base_axis)
+        apply_offset_vector(entity_copy)
 
         @previous_entities << entity_copy
         @placement_map[entity_copy] = primary

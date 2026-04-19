@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en-US" class="h-100">
+<head>
+  <meta charset="UTF-8">
+  <link href="../vendor/modus/modus.min.css" rel="stylesheet">
+  <link href="../vendor/modus/modus-layout.min.css" rel="stylesheet">
+  <link href="../vendor/modus/modus-icons.css" rel="stylesheet">
+  <link href="../libs/asav.css" rel="stylesheet">
+  <link href="../libs/orienterexpress.css" rel="stylesheet">
+  <script src="../vendor/modus/jquery.js"></script>
+  <script src="../vendor/modus/bootstrap.bundle.min.js"></script>
+  <script src="../vendor/vue.min.js"></script>
+  <script src="../libs/asav.js"></script>
+  <script src="../libs/orienterexpress.js"></script>
+</head>
+<body>
+  <script>if (localStorage.getItem('asav_dark_mode') === 'true') document.body.classList.add('dark-mode');</script>
+  <div class="asav-root">
+    <div id="app" class="modus-layout" v-cloak>
+      <hr class="asav-hr">
+
+      <!-- Body -->
+      <div class="modus-body d-flex" data-modus-item="body">
+
+        <!-- Tool sidebar -->
+        <nav class="nav flex-column modus-sidebar oe-tool-sidebar pt-2">
+          <ul>
+            <li v-for="key in tools" :key="key">
+              <a href="#" class="nav-link d-flex align-items-center"
+                 @click.prevent="activateTool(key)">
+                <span class="left-nav-icon d-inline-flex align-items-center"
+                      :class="{ 'is-active': toolKey === key }"
+                      data-toggle="tooltip" data-placement="right" data-container="body" data-boundary="window"
+                      :data-original-title="t('commands.' + key + '.tooltip')">
+                  <img class="oe-tool-icon"
+                       :src="'../graphics/icons/' + key + '_32.svg'"
+                       alt="">
+                </span>
+              </a>
+            </li>
+          </ul>
+        </nav>
+
+        <!-- Content -->
+        <div class="modus-content-rows asav-content">
+
+          <!-- Title -->
+          <div class="modus-content-row pb-2">
+            <span class="h2 font-weight-bold">{{ t('html.info.name') }}</span>
+            <span class="h2 font-weight-normal">&#32;&middot;&#32;</span>
+            <span class="h2 font-weight-normal">{{ t('html.tool_panel.title') }}</span>
+          </div>
+
+          <div class="modus-content-row oe-panel">
+
+            <div v-if="!toolKey" class="oe-empty">
+              {{ t('commands.tool_panel.empty') }}
+            </div>
+
+            <div v-else>
+              <h6>{{ toolTitle }}</h6>
+
+              <div v-for="field in schema" :key="field.key" class="oe-field"
+                   :class="{
+                     'oe-field-switch':      field.type === 'switch',
+                     'oe-field-in-group':    !!field.group,
+                     'oe-field-group-first': !!field.group_first,
+                     'oe-field-group-last':  !!field.group_last
+                   }">
+                <label v-if="field.type !== 'switch'" :for="'f_' + field.key">{{ field.label }}</label>
+
+                <div :class="(field.scrollable || field.resettable) ? 'oe-scroll-row' : ''">
+
+                  <div v-if="field.type === 'select'" class="btn-group" role="group"
+                       :class="(field.scrollable || field.resettable) ? '' : 'w-100'"
+                       :style="(field.scrollable || field.resettable) ? { flex: '1 1 auto', minWidth: 0 } : {}">
+                    <button v-for="opt in field.options" :key="opt.value" type="button"
+                            :class="['btn', 'btn-sm', values[field.key] === opt.value ? 'btn-primary' : 'btn-outline-secondary']"
+                            :style="{ flex: '1 1 0', maxWidth: (100 / field.options.length) + '%', fontSize: 'inherit' }"
+                            @click="onField(field.key, opt.value)">
+                      {{ opt.label }}
+                    </button>
+                  </div>
+
+                  <input v-else-if="field.type === 'length'"
+                         type="text"
+                         inputmode="decimal"
+                         :id="'f_' + field.key"
+                         class="form-control form-control-sm"
+                         :value="values[field.key]"
+                         @change="onField(field.key, $event.target.value)">
+
+                  <input v-else-if="field.type === 'number'"
+                         type="number"
+                         :id="'f_' + field.key"
+                         class="form-control form-control-sm"
+                         :value="values[field.key]"
+                         :step="field.step || 1"
+                         :min="field.min"
+                         :max="field.max"
+                         @change="onField(field.key, Number($event.target.value))">
+
+                  <div v-else-if="field.type === 'switch'" class="custom-control custom-switch">
+                    <input type="checkbox" class="custom-control-input"
+                           :id="'f_' + field.key"
+                           :checked="values[field.key] === 'on' || values[field.key] === true"
+                           @change="onField(field.key, $event.target.checked ? 'on' : 'off')">
+                    <label class="custom-control-label" :for="'f_' + field.key" v-html="field.label"></label>
+                  </div>
+
+                  <template v-if="field.scrollable">
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm oe-scroll-btn"
+                            @pointerdown.prevent="startScroll($event, field.key, -1)"
+                            @pointerup="stopScroll"
+                            @pointercancel="stopScroll"
+                            @contextmenu.prevent>
+                      <i class="modus-outlined-icon-caret-left-bold modus-icons">caret_left</i>
+                    </button>
+                    <button type="button"
+                            class="btn btn-outline-secondary btn-sm oe-scroll-btn"
+                            @pointerdown.prevent="startScroll($event, field.key, +1)"
+                            @pointerup="stopScroll"
+                            @pointercancel="stopScroll"
+                            @contextmenu.prevent>
+                      <i class="modus-outlined-icon-caret-right-bold modus-icons">caret_right</i>
+                    </button>
+                  </template>
+                  <button v-if="field.resettable" type="button"
+                          class="btn btn-outline-secondary btn-sm oe-scroll-btn"
+                          :disabled="isDefault(field, values[field.key])"
+                          @click="onReset(field.key)">
+                    <i class="modus-outlined-icon-refresh modus-icons">refresh</i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div class="modus-footer">
+        <p class="form-labels text-gray-4 text-right mr-1 my-0">
+          <span>{{ t('html.info.copyright') }}</span>
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>window.sketchup = window.sketchup || {};</script>
+  <script>
+    window.app = new Vue({
+      el: '#app',
+      data: {
+        i18nLocale: (window.APP_I18N && window.APP_I18N.locale) ? window.APP_I18N.locale : 'en-US',
+        i18nData:   (window.APP_I18N && window.APP_I18N.data)   ? window.APP_I18N.data   : {},
+        i18nReady:  false,
+        tools:      ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oeaxisscale', 'oeuscale'],
+        toolKey:    null,
+        toolTitle:  "",
+        schema:     [],
+        values:     {},
+        darkMode:   false,
+        debugMode:  false
+      },
+      mounted: function() {
+        document.documentElement.lang = this.i18nLocale;
+        var self = this;
+        this.$nextTick(function() {
+          $('[data-toggle="tooltip"]').tooltip();
+          if (window.sketchup && window.sketchup.ready) {
+            window.sketchup.ready();
+          }
+        });
+      },
+      watch: {
+        i18nLocale: function(val) {
+          document.documentElement.lang = val;
+          this.$nextTick(function() {
+            $('[data-toggle="tooltip"]').tooltip('dispose').tooltip();
+          });
+        }
+      },
+      methods: {
+        t: function(path) {
+          if (!this.i18nReady) return "";
+          var parts = (path || '').split('.');
+          var obj = this.i18nData;
+          for (var i = 0; i < parts.length; i++) {
+            if (!obj || obj[parts[i]] === undefined) return '\u26A0 ' + path;
+            obj = obj[parts[i]];
+          }
+          return obj;
+        },
+        activateTool: function(key) {
+          if (!window.sketchup || !window.sketchup.activate_tool) return;
+          window.sketchup.activate_tool(JSON.stringify({ key: key }));
+        },
+        onField: function(key, value) {
+          if (window._toolPanelLoading) return;
+          toolPanelSet(key, value);
+        },
+        startScroll: function(event, key, dir) {
+          if (window._toolPanelLoading) return;
+          this.stopScroll();
+          var btn = event && event.currentTarget;
+          this._scrollBtn     = btn || null;
+          this._scrollActive  = true;
+          toolPanelScrollStart(key, dir);
+          var self = this;
+          // Poll :active as a robust release detector for CEF quirks.
+          this._scrollPoll = setInterval(function() {
+            if (!self._scrollBtn || !self._scrollBtn.isConnected || !self._scrollBtn.matches(':active')) {
+              self.stopScroll();
+            }
+          }, 80);
+          var stop = function() { self.stopScroll(); };
+          this._scrollSafetyHandler = stop;
+          document.addEventListener('mouseup',          stop, true);
+          document.addEventListener('pointerup',        stop, true);
+          document.addEventListener('pointercancel',    stop, true);
+          document.addEventListener('visibilitychange', stop, true);
+          window.addEventListener('blur',               stop, true);
+        },
+        stopScroll: function() {
+          if (this._scrollPoll) { clearInterval(this._scrollPoll); this._scrollPoll = null; }
+          if (this._scrollActive) {
+            toolPanelScrollStop();
+            this._scrollActive = false;
+          }
+          this._scrollBtn = null;
+          if (this._scrollSafetyHandler) {
+            var stop = this._scrollSafetyHandler;
+            document.removeEventListener('mouseup',          stop, true);
+            document.removeEventListener('pointerup',        stop, true);
+            document.removeEventListener('pointercancel',    stop, true);
+            document.removeEventListener('visibilitychange', stop, true);
+            window.removeEventListener('blur',               stop, true);
+            this._scrollSafetyHandler = null;
+          }
+        },
+        onReset: function(key) {
+          if (window._toolPanelLoading) return;
+          toolPanelReset(key);
+        },
+        isZero: function(value) {
+          if (value === null || value === undefined || value === '') return true;
+          var num = parseFloat(String(value).replace(',', '.'));
+          return !isFinite(num) || num === 0;
+        },
+        isDefault: function(field, value) {
+          if (field && field.default !== undefined) return value === field.default;
+          return this.isZero(value);
+        }
+      }
+    });
+  </script>
+</body>
+</html>

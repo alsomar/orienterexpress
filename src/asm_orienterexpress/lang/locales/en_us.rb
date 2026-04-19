@@ -13,7 +13,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ← = offset axis (%<offset_axis>s)  |  ↑ = frame (%<frame>s)"
             },
             oecenter: {
               label:            "Edge Center Placement",
@@ -22,7 +22,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ← = offset axis (%<offset_axis>s)  |  ↑ = frame (%<frame>s)"
             },
             oeaxisscale: {
               label:            "Axis Scaling",
@@ -31,7 +31,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = scaled axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = scaled axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ← = offset axis (%<offset_axis>s)  |  ↑ = frame (%<frame>s)"
             },
             oeuscale: {
               label:            "Uniform Scaling",
@@ -40,7 +40,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = scaled axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = scaled axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ← = offset axis (%<offset_axis>s)  |  ↑ = frame (%<frame>s)"
             },
             oeflow: {
               label:            "Vertex Flow Placement",
@@ -49,7 +49,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on an edge or face",
-              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)"
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = mode (%<mode>s)  |  ← = offset axis (%<offset_axis>s)  |  ↑ = frame (%<frame>s)"
             },
             oesurface: {
               label:            "Surface Placement",
@@ -58,7 +58,7 @@ module ASM_Extensions
               offset_prompt:    "Offset",
               no_sample_hint:   "Click on a component",
               no_geometry_hint: "Click on a face",
-              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = alignment (%<orient>s)  |  ←/→ = adjust offset (%<offset>s)  |  ↑/↓ = adjust roll (%<roll>s)",
+              vcb_hint:         "SHIFT = pivot (%<ip>s)  |  TAB = oriented axis (%<axis>s)  |  ALT = alignment (%<orient>s)  |  ← = offset axis (%<offset_axis>s)  |  ↑ = frame (%<frame>s)",
               axis_parallel:    "dominant",
               axis_ground:      "horizontal"
             },
@@ -87,6 +87,12 @@ module ASM_Extensions
               status:           "Reset rotation of selected entities to global axes.",
               no_geometry_hint: "Click on a component",
               vcb_hint:         "TAB = pivot (%<ip>s)  |  ESC = cancel and exit"
+            },
+            tool_panel: {
+              label:   "Tool Panel",
+              tooltip: "Tool Panel",
+              status:  "Show a floating panel with controls for the active tool.",
+              empty:   "No active tool."
             },
             settings: {
               label:   "#{EXT_NAME} Settings",
@@ -125,14 +131,27 @@ module ASM_Extensions
               pivot_base_short:   "base",
               pivot_center_short: "center",
               pivot_origin_short: "origin",
+              axis:               "Orientation axis",
+              use_offset:         "Add <strong>position offset</strong>",
+              on:                 "On",
+              off:                "Off",
+              offset_frame:       "Axis frame",
+              axes_world:         "World",
+              axes_local:         "Local",
+              offset_x:           "Offset X",
+              offset_y:           "Offset Y",
+              offset_z:           "Offset Z",
               steps:            "Magnitudes",
-              roll_step:        "<strong>ROLL</strong> increment",
-              offset_step:      "<strong>OFFSET</strong> increment",
-              default_roll:     "Default <strong>ROLL</strong>",
-              default_offset:   "Default <strong>OFFSET</strong>",
-              remember_offset:  "Remember <strong>OFFSET</strong>",
-              remember_roll:    "Remember <strong>ROLL</strong>",
+              roll_step:        "<strong>Roll</strong> increment",
+              offset_step:      "<strong>Offset</strong> increment",
+              default_roll:     "Default <strong>roll</strong>",
+              default_offset:   "Default <strong>offset</strong>",
+              remember_offset:  "Remember <strong>offset</strong>",
+              remember_roll:    "Remember <strong>roll</strong>",
               smooth_groups:  "Treat smooth surfaces as a single face"
+            },
+            tool_panel: {
+              title:   "Tools"
             },
             about: {
               title:       "Info",

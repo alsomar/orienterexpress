@@ -1,3 +1,55 @@
+// Ruby → JS: push tool state / schema / values to the tool panel.
+function toolPanelUpdate(payload) {
+  window._toolPanelLoading = true;
+  try {
+    if (typeof payload === "string") payload = JSON.parse(payload);
+    if (!window.app) return;
+
+    if (!payload || !payload.tool) {
+      window.app.toolKey = null;
+      window.app.toolTitle = "";
+      window.app.schema = [];
+      window.app.values = {};
+    } else {
+      window.app.toolKey   = payload.tool;
+      window.app.toolTitle = payload.title || "";
+      window.app.schema    = Array.isArray(payload.schema) ? payload.schema : [];
+      window.app.values    = payload.values || {};
+    }
+
+    window.app.$nextTick(() => {
+      window._toolPanelLoading = false;
+      window.app.appReady = true;
+    });
+  } catch (e) {
+    window._toolPanelLoading = false;
+    console.error("toolPanelUpdate failed:", e);
+  }
+}
+
+// JS → Ruby: user edited a field.
+function toolPanelSet(key, value) {
+  if (!window.sketchup || !window.sketchup.tool_panel_set) return;
+  window.sketchup.tool_panel_set(JSON.stringify({ key: key, value: value }));
+}
+
+// JS → Ruby: user pressed a caret step button. Ruby owns the repeat cadence
+// while held; JS only sends start/stop.
+function toolPanelScrollStart(key, dir) {
+  if (!window.sketchup || !window.sketchup.tool_panel_scroll_start) return;
+  window.sketchup.tool_panel_scroll_start(JSON.stringify({ key: key, dir: dir }));
+}
+function toolPanelScrollStop() {
+  if (!window.sketchup || !window.sketchup.tool_panel_scroll_stop) return;
+  window.sketchup.tool_panel_scroll_stop("{}");
+}
+
+// JS → Ruby: user clicked the reset button for a field.
+function toolPanelReset(key) {
+  if (!window.sketchup || !window.sketchup.tool_panel_reset) return;
+  window.sketchup.tool_panel_reset(JSON.stringify({ key: key }));
+}
+
 // Ruby → JS (settings)
 function settingsJSON(payload) {
   try {
@@ -29,7 +81,7 @@ function settingsJSON(payload) {
       window.app.defaultOffset  = config.default_offset != null ? config.default_offset : 0;
       window.app.rememberOffset = config.remember_offset != null ? config.remember_offset : true;
       window.app.rememberRoll   = config.remember_roll   != null ? config.remember_roll   : true;
-      window.app.smoothGroups   = config.smooth_groups ?? true;
+      window.app.smoothGroups   = config.smooth_groups != null ? config.smooth_groups : true;
       window.app.darkMode      = config.dark_mode  || false;
       window.app.debugMode     = config.debug_mode || false;
 

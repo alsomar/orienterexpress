@@ -4,6 +4,7 @@ module ASM_Extensions
 
       def self.init
         Sketchup.require 'asm_orienterexpress/dialogs/settings_dialog'
+        Sketchup.require 'asm_orienterexpress/dialogs/tool_panel'
         true
       end
 
