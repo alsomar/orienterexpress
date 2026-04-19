@@ -101,26 +101,26 @@
             <!-- Accordion -->
             <div class="accordion" id="accordionSettings">
 
-              <!-- Insertion Point -->
+              <!-- Pivot -->
               <div class="card">
                 <div class="card-header" id="accordionTab2" role="button"
                   data-toggle="collapse" data-target="#collapseTab2"
                   aria-expanded="false" aria-controls="collapseTab2">
-                  <h6 class="mb-0">{{ t('html.settings.insertion_point') }}</h6>
+                  <h6 class="mb-0">{{ t('html.settings.pivot') }}</h6>
                 </div>
                 <div class="collapse" id="collapseTab2"
                   aria-labelledby="accordionTab2" data-parent="#accordionSettings">
                   <div class="card-body card-custom">
 
-                    <!-- Per-tool insertion points -->
+                    <!-- Per-tool pivots -->
                     <div v-for="tool in customTools" :key="tool" class="mb-2">
                       <div class="form-label mb-1">{{ t('commands.' + tool + '.label') }}</div>
                       <div class="btn-group w-100" role="group">
-                        <button v-for="mode in (toolModesMap[tool] || insertionModes)" :key="mode" type="button"
-                          :class="['btn', 'btn-sm', settingsInsertionPointCustom[tool] === mode ? 'btn-primary' : 'btn-outline-secondary']"
+                        <button v-for="mode in (toolModesMap[tool] || pivotModes)" :key="mode" type="button"
+                          :class="['btn', 'btn-sm', settingsPivotCustom[tool] === mode ? 'btn-primary' : 'btn-outline-secondary']"
                           :style="Object.assign({ fontSize: 'inherit' }, toolModesMap[tool] ? { flex: '0 0 33.333%', maxWidth: '33.333%' } : {})"
                           @click="setCustomPoint(tool, mode)">
-                          {{ t('html.settings.insertion_' + mode + '_short') }}
+                          {{ t('html.settings.pivot_' + mode + '_short') }}
                         </button>
                       </div>
                     </div>
@@ -377,7 +377,7 @@
           // Entity Options
           rotationMode:  'ground',
           rotationModes: ['ground', 'flow', 'normal'],
-          settingsInsertionPointCustom: {
+          settingsPivotCustom: {
             oevertex:    'center',
             oecenter:    'center',
             oeaxisscale: 'center',
@@ -385,8 +385,8 @@
             oeflow:      'center',
             oesurface:   'base'
           },
-          customTools:    ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oeaxisscale', 'oeuscale'],
-          insertionModes: ['base', 'center', 'origin'],
+          customTools: ['oevertex', 'oecenter', 'oeflow', 'oesurface', 'oeaxisscale', 'oeuscale'],
+          pivotModes:  ['base', 'center', 'origin'],
           toolModesMap: {
             oeaxisscale: ['base', 'center'],
             oeuscale:    ['base', 'center']
@@ -459,7 +459,7 @@
             language:               this.settingsLanguage,
             context_menu:           this.settingsContextMenu,
             rotation_mode:          this.rotationMode,
-            insertion_point_custom: this.settingsInsertionPointCustom,
+            pivot_custom:           this.settingsPivotCustom,
             roll_step:              this.rollStep,
             offset_step:            this.offsetStep,
             default_roll:           this.defaultRoll,
@@ -485,7 +485,7 @@
           this.settingsLanguage             = 'auto';
           this.settingsContextMenu          = false;
           this.rotationMode                 = 'ground';
-          this.settingsInsertionPointCustom = { oevertex: 'center', oecenter: 'center', oeaxisscale: 'center', oeuscale: 'center', oeflow: 'center', oesurface: 'base' };
+          this.settingsPivotCustom = { oevertex: 'center', oecenter: 'center', oeaxisscale: 'center', oeuscale: 'center', oeflow: 'center', oesurface: 'base' };
           this.rollStep                     = 15;
           this.offsetStep                   = '1cm';
           this.defaultRoll                  = 0;
@@ -498,7 +498,7 @@
           this.$nextTick(() => this.saveNow());
         },
         setCustomPoint(tool, mode) {
-          this.settingsInsertionPointCustom = Object.assign({}, this.settingsInsertionPointCustom, { [tool]: mode });
+          this.settingsPivotCustom = Object.assign({}, this.settingsPivotCustom, { [tool]: mode });
         },
         openUrl(url) {
           window.open(url);

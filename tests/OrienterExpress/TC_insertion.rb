@@ -124,60 +124,60 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # move_insertion_to — :center
+      # move_pivot_to — :center
       # =========================================================================
 
-      def test_center_insertion_lands_at_target
+      def test_center_pivot_lands_at_target
         inst   = make_instance
         target = Geom::Point3d.new(500, 500, 500)
-        OE.send(:move_insertion_to, inst, target, :center, :z)
+        OE.send(:move_pivot_to, inst, target, :center, :z)
         assert_in_delta target.x, inst.bounds.center.x, TOL
         assert_in_delta target.y, inst.bounds.center.y, TOL
         assert_in_delta target.z, inst.bounds.center.z, TOL
       end
 
-      def test_center_insertion_rotated_instance_lands_at_target
+      def test_center_pivot_rotated_instance_lands_at_target
         rot    = Geom::Transformation.rotation(ORIGIN, X_AXIS, 45.degrees)
         inst   = make_instance(rot)
         target = Geom::Point3d.new(200, 300, 100)
-        OE.send(:move_insertion_to, inst, target, :center, :z)
+        OE.send(:move_pivot_to, inst, target, :center, :z)
         assert_in_delta target.x, inst.bounds.center.x, TOL
         assert_in_delta target.y, inst.bounds.center.y, TOL
         assert_in_delta target.z, inst.bounds.center.z, TOL
       end
 
       # =========================================================================
-      # move_insertion_to — :origin
+      # move_pivot_to — :origin
       # =========================================================================
 
-      def test_origin_insertion_lands_at_target
+      def test_origin_pivot_lands_at_target
         inst   = make_instance
         target = Geom::Point3d.new(300, 200, 100)
-        OE.send(:move_insertion_to, inst, target, :origin, :z)
+        OE.send(:move_pivot_to, inst, target, :origin, :z)
         assert_in_delta target.x, inst.transformation.origin.x, TOL
         assert_in_delta target.y, inst.transformation.origin.y, TOL
         assert_in_delta target.z, inst.transformation.origin.z, TOL
       end
 
-      def test_origin_insertion_rotated_instance_lands_at_target
+      def test_origin_pivot_rotated_instance_lands_at_target
         rot    = Geom::Transformation.rotation(ORIGIN, Z_AXIS, 30.degrees)
         inst   = make_instance(rot)
         target = Geom::Point3d.new(400, 0, 0)
-        OE.send(:move_insertion_to, inst, target, :origin, :z)
+        OE.send(:move_pivot_to, inst, target, :origin, :z)
         assert_in_delta target.x, inst.transformation.origin.x, TOL
         assert_in_delta target.y, inst.transformation.origin.y, TOL
         assert_in_delta target.z, inst.transformation.origin.z, TOL
       end
 
       # =========================================================================
-      # move_insertion_to — :base, various scale_axes (unrotated instance)
+      # move_pivot_to — :base, various scale_axes (unrotated instance)
       # =========================================================================
 
       # scale_axis nil → min-Z face center should land at target.
-      def test_base_insertion_scale_axis_z_min_z_face_at_target
+      def test_base_pivot_scale_axis_z_min_z_face_at_target
         inst   = make_instance
         target = Geom::Point3d.new(0, 0, 100)
-        OE.send(:move_insertion_to, inst, target, :base, nil)
+        OE.send(:move_pivot_to, inst, target, :base, nil)
         db    = inst.definition.bounds
         local = Geom::Point3d.new(db.center.x, db.center.y, db.min.z)
         world = inst.transformation * local
@@ -187,10 +187,10 @@ module ASM_Extensions
       end
 
       # scale_axis :x → min-X face center should land at target.
-      def test_base_insertion_scale_axis_x_min_x_face_at_target
+      def test_base_pivot_scale_axis_x_min_x_face_at_target
         inst   = make_instance
         target = Geom::Point3d.new(50, 50, 50)
-        OE.send(:move_insertion_to, inst, target, :base, :x)
+        OE.send(:move_pivot_to, inst, target, :base, :x)
         db    = inst.definition.bounds
         local = Geom::Point3d.new(db.min.x, db.center.y, db.center.z)
         world = inst.transformation * local
@@ -200,10 +200,10 @@ module ASM_Extensions
       end
 
       # scale_axis :y → min-Y face center should land at target.
-      def test_base_insertion_scale_axis_y_min_y_face_at_target
+      def test_base_pivot_scale_axis_y_min_y_face_at_target
         inst   = make_instance
         target = Geom::Point3d.new(0, 200, 0)
-        OE.send(:move_insertion_to, inst, target, :base, :y)
+        OE.send(:move_pivot_to, inst, target, :base, :y)
         db    = inst.definition.bounds
         local = Geom::Point3d.new(db.center.x, db.min.y, db.center.z)
         world = inst.transformation * local
@@ -449,18 +449,18 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # Integration: move_base_to_surface vs. move_insertion_to for :center
+      # Integration: move_base_to_surface vs. move_pivot_to for :center
       # =========================================================================
 
       # For :center, both methods should give the same result (bounds.center at target).
-      def test_center_insertion_consistent_with_move_insertion_to
+      def test_center_pivot_consistent_with_move_pivot_to
         inst1  = make_instance
         inst2  = make_instance
         target = Geom::Point3d.new(300, 300, 300)
         orient_z_to(inst1, X_AXIS)
         orient_z_to(inst2, X_AXIS)
 
-        OE.send(:move_insertion_to, inst1, target, :center, :z)
+        OE.send(:move_pivot_to, inst1, target, :center, :z)
 
         proxy = make_tool_proxy
         proxy.move_base_to_surface(inst2, target, Z_AXIS)
@@ -472,27 +472,27 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # Regression: base insertion survives nil normal (no faces on edge)
+      # Regression: base pivot survives nil normal (no faces on edge)
       # =========================================================================
 
-      def test_place_with_insertion_base_no_normal_falls_back_to_move_insertion_to
-        # Create a tool-like object that mirrors place_with_insertion logic
+      def test_place_with_pivot_base_no_normal_falls_back_to_move_pivot_to
+        # Create a tool-like object that mirrors place_with_pivot logic
         inst   = make_instance
         target = Geom::Point3d.new(0, 0, 200)
         scale_axis     = :z
         rotation_mode  = :normal
-        insertion_point = :base
+        pivot = :base
         edge_normal    = nil   # naked edge
 
-        # Expected: fall back to move_insertion_to with scale_axis
+        # Expected: fall back to move_pivot_to with scale_axis
         inst2 = make_instance
-        OE.send(:move_insertion_to, inst2, target, insertion_point, scale_axis)
+        OE.send(:move_pivot_to, inst2, target, pivot, scale_axis)
 
-        # Actual: simulate place_with_insertion with nil normal
-        if insertion_point == :base && rotation_mode == :normal && edge_normal
+        # Actual: simulate place_with_pivot with nil normal
+        if pivot == :base && rotation_mode == :normal && edge_normal
           # would call move_base_to_surface
         else
-          OE.send(:move_insertion_to, inst, target, insertion_point, scale_axis)
+          OE.send(:move_pivot_to, inst, target, pivot, scale_axis)
         end
 
         assert_in_delta inst2.transformation.origin.x, inst.transformation.origin.x, TOL
@@ -696,7 +696,7 @@ module ASM_Extensions
       # face_normal defaults to world +Z (naked-edge fallback).
       def zscale_base_place(inst, target, scale_axis_vec, face_normal = nil)
         ref_up  = face_normal || Geom::Vector3d.new(0, 0, 1)
-        OE.send(:move_insertion_to, inst, target, :center, :z)
+        OE.send(:move_pivot_to, inst, target, :center, :z)
         scale_n = scale_axis_vec.normalize
         s_dot   = ref_up.dot(scale_n)
         up_perp = Geom::Vector3d.new(
@@ -747,7 +747,7 @@ module ASM_Extensions
         inst   = make_instance
         target = Geom::Point3d.new(10, 20, 50)
         orient_z_to(inst, Z_AXIS)
-        OE.send(:move_insertion_to, inst, target, :center, :z)
+        OE.send(:move_pivot_to, inst, target, :center, :z)
         ctr = inst.bounds.center
         assert_in_delta target.x, ctr.x, TOL
         assert_in_delta target.y, ctr.y, TOL
@@ -775,31 +775,31 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # place_with_insertion — base mode, all rotation modes
+      # place_with_pivot — base mode, all rotation modes
       # =========================================================================
       #
-      # These tests call the REAL OEPlacementTool#place_with_insertion method
+      # These tests call the REAL OEPlacementTool#place_with_pivot method
       # (not a simulation) so bugs in the implementation are caught directly.
 
       # Build a real OEPlacementTool instance (no initialize) with the given state.
-      def make_placement_tool(rotation_mode:, insertion_point:, scale_axis: :z)
+      def make_placement_tool(rotation_mode:, pivot:, scale_axis: :z)
         tool = OEPlacementTool.allocate
         tool.instance_variable_set(:@rotation_mode,   rotation_mode)
-        tool.instance_variable_set(:@insertion_point, insertion_point)
+        tool.instance_variable_set(:@pivot, pivot)
         tool.instance_variable_set(:@scale_axis,      scale_axis)
         tool
       end
 
       # ground mode, floor normal (+Z): bottom face must land at target.z
       [0, 1, 2, 3].each do |steps|
-        define_method("test_place_with_insertion_ground_base_floor_roll_#{steps * 90}deg") do
+        define_method("test_place_with_pivot_ground_base_floor_roll_#{steps * 90}deg") do
           inst   = make_instance
           target = Geom::Point3d.new(200, 150, 300)
           orient_z_to(inst, X_AXIS)
           apply_roll(inst, steps, X_AXIS)
 
-          tool = make_placement_tool(rotation_mode: :ground, insertion_point: :base)
-          tool.send(:place_with_insertion, inst, target, Z_AXIS)
+          tool = make_placement_tool(rotation_mode: :ground, pivot: :base)
+          tool.send(:place_with_pivot, inst, target, Z_AXIS)
 
           actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
           assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
@@ -809,15 +809,15 @@ module ASM_Extensions
 
       # ground mode, ceiling normal (-Z): top face must land at target (component hangs below).
       [0, 1, 2, 3].each do |steps|
-        define_method("test_place_with_insertion_ground_base_ceiling_roll_#{steps * 90}deg") do
+        define_method("test_place_with_pivot_ground_base_ceiling_roll_#{steps * 90}deg") do
           inst      = make_instance
           target    = Geom::Point3d.new(200, 150, 300)
           ceiling_n = Geom::Vector3d.new(0, 0, -1)
           orient_z_to(inst, X_AXIS)
           apply_roll(inst, steps, X_AXIS)
 
-          tool = make_placement_tool(rotation_mode: :ground, insertion_point: :base)
-          tool.send(:place_with_insertion, inst, target, ceiling_n)
+          tool = make_placement_tool(rotation_mode: :ground, pivot: :base)
+          tool.send(:place_with_pivot, inst, target, ceiling_n)
 
           actual_min = world_corners(inst).map { |p| proj(p, ceiling_n) }.min
           assert_in_delta proj(target, ceiling_n), actual_min, TOL,
@@ -826,13 +826,13 @@ module ASM_Extensions
       end
 
       # ground mode, no face normal (naked edge): falls back to +Z.
-      def test_place_with_insertion_ground_base_no_normal_falls_back_to_z
+      def test_place_with_pivot_ground_base_no_normal_falls_back_to_z
         inst   = make_instance
         target = Geom::Point3d.new(0, 0, 200)
         orient_z_to(inst, X_AXIS)
 
-        tool = make_placement_tool(rotation_mode: :ground, insertion_point: :base)
-        tool.send(:place_with_insertion, inst, target, nil)
+        tool = make_placement_tool(rotation_mode: :ground, pivot: :base)
+        tool.send(:place_with_pivot, inst, target, nil)
 
         actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
         assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
@@ -841,14 +841,14 @@ module ASM_Extensions
 
       # flow mode, no face normal: same fallback to +Z.
       [0, 1, 2, 3].each do |steps|
-        define_method("test_place_with_insertion_flow_no_normal_base_roll_#{steps * 90}deg") do
+        define_method("test_place_with_pivot_flow_no_normal_base_roll_#{steps * 90}deg") do
           inst   = make_instance
           target = Geom::Point3d.new(100, 100, 500)
           orient_z_to(inst, Y_AXIS)
           apply_roll(inst, steps, Y_AXIS)
 
-          tool = make_placement_tool(rotation_mode: :flow, insertion_point: :base)
-          tool.send(:place_with_insertion, inst, target, nil)
+          tool = make_placement_tool(rotation_mode: :flow, pivot: :base)
+          tool.send(:place_with_pivot, inst, target, nil)
 
           actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
           assert_in_delta proj(target, Z_AXIS), actual_min, TOL,
@@ -857,13 +857,13 @@ module ASM_Extensions
       end
 
       # normal mode, face normal +Z: bottom face at target.
-      def test_place_with_insertion_normal_base_floor_normal
+      def test_place_with_pivot_normal_base_floor_normal
         inst   = make_instance
         target = Geom::Point3d.new(0, 0, 300)
         orient_z_to(inst, X_AXIS)
 
-        tool = make_placement_tool(rotation_mode: :normal, insertion_point: :base)
-        tool.send(:place_with_insertion, inst, target, Z_AXIS)
+        tool = make_placement_tool(rotation_mode: :normal, pivot: :base)
+        tool.send(:place_with_pivot, inst, target, Z_AXIS)
 
         actual_min = world_corners(inst).map { |p| proj(p, Z_AXIS) }.min
         assert_in_delta proj(target, Z_AXIS), actual_min, TOL,

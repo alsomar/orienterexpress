@@ -11,7 +11,7 @@ module ASM_Extensions
 
       # Entity Options
       rotation_mode:  "ground",
-      insertion_point_custom: {
+      pivot_custom: {
         oevertex:     "center",
         oecenter:     "center",
         oeaxisscale:  "center",
@@ -28,9 +28,9 @@ module ASM_Extensions
       default_offset: "0cm",
 
       # Inner Options
-      dark_mode: false,
-      debug_mode: false,
-      smooth_groups: true,
+      dark_mode:          false,
+      debug_mode:         false,
+      smooth_groups:      true,
       oevertex_offset:    "0cm",
       oecenter_offset:    "0cm",
       oeaxisscale_offset: "0cm",

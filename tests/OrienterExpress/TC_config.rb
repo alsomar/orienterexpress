@@ -8,7 +8,7 @@ module ASM_Extensions
 
       EXPECTED_KEYS = %i[
         language context_menu
-        rotation_mode insertion_point_custom smooth_groups
+        rotation_mode pivot_custom smooth_groups
         roll_step offset_step default_roll default_offset
         dark_mode debug_mode
         oevertex_offset oecenter_offset oeaxisscale_offset oeuscale_offset oesurface_offset oeflow_offset
@@ -45,22 +45,22 @@ module ASM_Extensions
         assert_equal "auto", DEFAULT_CONFIG[:language]
       end
 
-      def test_default_config_insertion_point_custom_has_all_tool_keys
-        custom = DEFAULT_CONFIG[:insertion_point_custom]
-        assert_instance_of Hash, custom, "insertion_point_custom should be a Hash"
+      def test_default_config_pivot_custom_has_all_tool_keys
+        custom = DEFAULT_CONFIG[:pivot_custom]
+        assert_instance_of Hash, custom, "pivot_custom should be a Hash"
         expected_tools = %i[oevertex oecenter oeaxisscale oeflow oesurface oereset]
         expected_tools.each do |tool|
-          assert custom.key?(tool), "insertion_point_custom missing tool key: #{tool}"
+          assert custom.key?(tool), "pivot_custom missing tool key: #{tool}"
         end
       end
 
-      def test_default_config_insertion_point_custom_values_are_valid
+      def test_default_config_pivot_custom_values_are_valid
         valid = %w[center base origin]
-        DEFAULT_CONFIG[:insertion_point_custom].each do |tool, value|
+        DEFAULT_CONFIG[:pivot_custom].each do |tool, value|
           assert_instance_of String, value,
-            "insertion_point_custom[:#{tool}] should be a String, got #{value.class}"
+            "pivot_custom[:#{tool}] should be a String, got #{value.class}"
           assert valid.include?(value),
-            "insertion_point_custom[:#{tool}] = #{value.inspect} is not one of #{valid}"
+            "pivot_custom[:#{tool}] = #{value.inspect} is not one of #{valid}"
         end
       end
 

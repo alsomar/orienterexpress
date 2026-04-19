@@ -11,7 +11,7 @@ function settingsJSON(config) {
       window.app.settingsLanguage             = config.language;
       window.app.settingsContextMenu          = config.context_menu;
       window.app.rotationMode                 = config.rotation_mode || 'ground';
-      window.app.settingsInsertionPointCustom = config.insertion_point_custom || {
+      window.app.settingsPivotCustom          = config.pivot_custom || {
         oevertex:  'origin',
         oecenter:  'center',
         oeflow:    'center',

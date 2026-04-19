@@ -599,15 +599,15 @@ module ASM_Extensions
       raw
     end
 
-    def self.resolved_insertion_point(tool_key)
-      custom = CONFIG[:insertion_point_custom]
+    def self.resolved_pivot(tool_key)
+      custom = CONFIG[:pivot_custom]
       (custom.is_a?(Hash) && custom[tool_key]) || 'center'
     end
 
-    # insertion_point: :origin, :base, or :center.
+    # pivot: :origin, :base, or :center.
     # scale_axis picks which face is the "base": :x → min-X, :y → min-Y, else → min-Z.
-    def self.move_insertion_to(entity, point, insertion_point, scale_axis = nil)
-      entity_ref = case insertion_point
+    def self.move_pivot_to(entity, point, pivot, scale_axis = nil)
+      entity_ref = case pivot
                    when :origin
                      entity.transformation.origin
                    when :base
@@ -739,14 +739,14 @@ module ASM_Extensions
       end
 
       def on_config_changed(changed)
-        return unless changed.key?(:insertion_point_custom)
+        return unless changed.key?(:pivot_custom)
         key = debug_tool_name.to_sym
-        new_ip = OrienterExpress.send(:resolved_insertion_point, key).to_sym
-        new_ip = :center unless respond_to?(:valid_insertion_points) ?
-                                  valid_insertion_points.include?(new_ip) :
+        new_ip = OrienterExpress.send(:resolved_pivot, key).to_sym
+        new_ip = :center unless respond_to?(:valid_pivots) ?
+                                  valid_pivots.include?(new_ip) :
                                   %i[center base origin].include?(new_ip)
-        return if new_ip == @insertion_point
-        @insertion_point = new_ip
+        return if new_ip == @pivot
+        @pivot = new_ip
         update_vcb
         apply(self.class.last_offset_str)
       end
@@ -1147,7 +1147,7 @@ module ASM_Extensions
         return unless Debug.enabled
         parts  = []
         parts << @rotation_mode.to_s          if defined?(@rotation_mode)
-        parts << (@insertion_point || :center).to_s
+        parts << (@pivot || :center).to_s
         parts << (@scale_axis || :z).to_s.upcase
         deg = defined?(@roll_angle) ? ((@roll_angle * 180.0 / Math::PI) % 360.0).round(1) : 0.0
         parts << "#{deg}°"
@@ -1226,19 +1226,19 @@ module ASM_Extensions
       # Base mode uses world-space OBB projection so the result is correct at
       # all roll steps. Surface priority: face normal → naked_edge_surface_normal
       # → +Z (ground/flow only). Normal mode without a face normal, and every
-      # other insertion point, fall through to move_insertion_to.
-      def place_with_insertion(entity_copy, target, edge_normal_vec = nil, edge = nil)
-        if @insertion_point == :base
+      # other pivot, fall through to move_pivot_to.
+      def place_with_pivot(entity_copy, target, edge_normal_vec = nil, edge = nil)
+        if @pivot == :base
           surface_dir = edge_normal_vec ||
                         (edge && OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)) ||
                         (@rotation_mode != :normal && Geom::Vector3d.new(0, 0, 1))
           if surface_dir
             move_base_to_surface(entity_copy, target, surface_dir)
           else
-            OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+            OrienterExpress.send(:move_pivot_to, entity_copy, target, @pivot, @scale_axis)
           end
         else
-          OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+          OrienterExpress.send(:move_pivot_to, entity_copy, target, @pivot, @scale_axis)
         end
       end
 
@@ -1319,7 +1319,7 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oevertex).to_sym
+        @pivot = OrienterExpress.send(:resolved_pivot, :oevertex).to_sym
       end
 
       def activate
@@ -1408,10 +1408,10 @@ module ASM_Extensions
       end
 
       def handle_ins_key
-        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-        custom = CONFIG[:insertion_point_custom].dup
-        custom[:oevertex] = @insertion_point.to_s
-        OrienterExpress.user_settings(insertion_point_custom: custom)
+        @pivot = { center: :base, base: :origin, origin: :center }[@pivot]
+        custom = CONFIG[:pivot_custom].dup
+        custom[:oevertex] = @pivot.to_s
+        OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
         apply(OEVertexTool.last_offset_str)
       end
@@ -1432,7 +1432,7 @@ module ASM_Extensions
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
-        ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip_key     = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oevertex.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEVertexTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oevertex.offset_prompt.to_s, 1)
@@ -1526,7 +1526,7 @@ module ASM_Extensions
           end
           target_point = vertex_pos.offset(inward_dir, offset)
           apply_roll(entity_copy)
-          OrienterExpress.send(:move_insertion_to, entity_copy, target_point, @insertion_point, @scale_axis)
+          OrienterExpress.send(:move_pivot_to, entity_copy, target_point, @pivot, @scale_axis)
           @previous_entities << entity_copy
           @placement_map[entity_copy] = edge
         end
@@ -1584,7 +1584,7 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oecenter).to_sym
+        @pivot = OrienterExpress.send(:resolved_pivot, :oecenter).to_sym
       end
 
       def activate
@@ -1673,10 +1673,10 @@ module ASM_Extensions
       end
 
       def handle_ins_key
-        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-        custom = CONFIG[:insertion_point_custom].dup
-        custom[:oecenter] = @insertion_point.to_s
-        OrienterExpress.user_settings(insertion_point_custom: custom)
+        @pivot = { center: :base, base: :origin, origin: :center }[@pivot]
+        custom = CONFIG[:pivot_custom].dup
+        custom[:oecenter] = @pivot.to_s
+        OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
         apply(OECenterTool.last_offset_str)
       end
@@ -1697,7 +1697,7 @@ module ASM_Extensions
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
-        ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip_key     = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oecenter.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OECenterTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oecenter.offset_prompt.to_s, 1)
@@ -1786,7 +1786,7 @@ module ASM_Extensions
         midpoint = midpoint.offset(edge_vec.normalize, offset) unless edge_vec.length < 1e-6
         apply_roll(entity_copy)
         edge_normal = avg_face_normal_for_edge(edge)
-        place_with_insertion(entity_copy, midpoint, edge_normal, edge)
+        place_with_pivot(entity_copy, midpoint, edge_normal, edge)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -1844,8 +1844,8 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        ip = OrienterExpress.send(:resolved_insertion_point, :oeaxisscale).to_sym
-        @insertion_point = [:center, :base].include?(ip) ? ip : :center
+        ip = OrienterExpress.send(:resolved_pivot, :oeaxisscale).to_sym
+        @pivot = [:center, :base].include?(ip) ? ip : :center
       end
 
       def activate
@@ -1934,10 +1934,10 @@ module ASM_Extensions
       end
 
       def handle_ins_key
-        @insertion_point = @insertion_point == :center ? :base : :center
-        custom = CONFIG[:insertion_point_custom].dup
-        custom[:oeaxisscale] = @insertion_point.to_s
-        OrienterExpress.user_settings(insertion_point_custom: custom)
+        @pivot = @pivot == :center ? :base : :center
+        custom = CONFIG[:pivot_custom].dup
+        custom[:oeaxisscale] = @pivot.to_s
+        OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
         apply(OEAxisScaleTool.last_offset_str)
       end
@@ -1951,7 +1951,7 @@ module ASM_Extensions
       end
 
       def debug_tool_name;        "oeaxisscale"; end
-      def valid_insertion_points; %i[center base]; end
+      def valid_pivots; %i[center base]; end
       def no_sample_hint;   Lang.commands.oeaxisscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeaxisscale.no_geometry_hint.to_s; end
 
@@ -1959,7 +1959,7 @@ module ASM_Extensions
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
-        ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
+        ip_key     = @pivot == :base ? :pivot_base_short : :pivot_center_short
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oeaxisscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEAxisScaleTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oeaxisscale.offset_prompt.to_s, 1)
@@ -2058,8 +2058,8 @@ module ASM_Extensions
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         apply_roll(entity_copy)
-        if @insertion_point == :base
-          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, :center, @scale_axis)
+        if @pivot == :base
+          OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, :center, @scale_axis)
           # Project the "up" reference onto the cross-section plane (⊥ scale axis),
           # so base lands on the correct side of the surface regardless of mode.
           # Face normal first; fall back to naked_edge_surface_normal, then world +Z.
@@ -2077,7 +2077,7 @@ module ASM_Extensions
           # cross-section) — skip the base adjustment there.
           move_base_to_surface(entity_copy, midpoint, up_perp) if up_perp.length > 1e-6
         else
-          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+          OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, @pivot, @scale_axis)
         end
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
@@ -2133,8 +2133,8 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        ip = OrienterExpress.send(:resolved_insertion_point, :oeuscale).to_sym
-        @insertion_point = [:center, :base].include?(ip) ? ip : :center
+        ip = OrienterExpress.send(:resolved_pivot, :oeuscale).to_sym
+        @pivot = [:center, :base].include?(ip) ? ip : :center
       end
 
       def activate
@@ -2223,10 +2223,10 @@ module ASM_Extensions
       end
 
       def handle_ins_key
-        @insertion_point = @insertion_point == :center ? :base : :center
-        custom = CONFIG[:insertion_point_custom].dup
-        custom[:oeuscale] = @insertion_point.to_s
-        OrienterExpress.user_settings(insertion_point_custom: custom)
+        @pivot = @pivot == :center ? :base : :center
+        custom = CONFIG[:pivot_custom].dup
+        custom[:oeuscale] = @pivot.to_s
+        OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
         apply(OEUScaleTool.last_offset_str)
       end
@@ -2240,7 +2240,7 @@ module ASM_Extensions
       end
 
       def debug_tool_name;        "oeuscale"; end
-      def valid_insertion_points; %i[center base]; end
+      def valid_pivots; %i[center base]; end
       def no_sample_hint;   Lang.commands.oeuscale.no_sample_hint.to_s;   end
       def no_geometry_hint; Lang.commands.oeuscale.no_geometry_hint.to_s; end
 
@@ -2248,7 +2248,7 @@ module ASM_Extensions
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
-        ip_key     = @insertion_point == :base ? :insertion_base_short : :insertion_center_short
+        ip_key     = @pivot == :base ? :pivot_base_short : :pivot_center_short
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oeuscale.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEUScaleTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oeuscale.offset_prompt.to_s, 1)
@@ -2342,8 +2342,8 @@ module ASM_Extensions
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         apply_roll(entity_copy)
-        if @insertion_point == :base
-          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, :center, @scale_axis)
+        if @pivot == :base
+          OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, :center, @scale_axis)
           scale_axis_world = roll_axis(entity_copy).normalize
           ref_up  = avg_face_normal_for_edge(edge)
           ref_up ||= OrienterExpress.send(:naked_edge_surface_normal, edge, @h_dir_map, @z_sign_map)
@@ -2356,7 +2356,7 @@ module ASM_Extensions
           )
           move_base_to_surface(entity_copy, midpoint, up_perp) if up_perp.length > 1e-6
         else
-          OrienterExpress.send(:move_insertion_to, entity_copy, midpoint, @insertion_point, @scale_axis)
+          OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, @pivot, @scale_axis)
         end
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
@@ -2413,7 +2413,7 @@ module ASM_Extensions
         @flow_map        = flow_map
         @rotation_mode   = rotation_mode
         @scale_axis      = :z
-        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oeflow).to_sym
+        @pivot = OrienterExpress.send(:resolved_pivot, :oeflow).to_sym
       end
 
       private
@@ -2458,10 +2458,10 @@ module ASM_Extensions
       end
 
       def handle_ins_key
-        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-        custom = CONFIG[:insertion_point_custom].dup
-        custom[:oeflow] = @insertion_point.to_s
-        OrienterExpress.user_settings(insertion_point_custom: custom)
+        @pivot = { center: :base, base: :origin, origin: :center }[@pivot]
+        custom = CONFIG[:pivot_custom].dup
+        custom[:oeflow] = @pivot.to_s
+        OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
         apply(OEFlowTool.last_offset_str)
       end
@@ -2480,7 +2480,7 @@ module ASM_Extensions
         mode_key   = { ground: :rotation_ground, flow: :rotation_flow, normal: :rotation_normal }[@rotation_mode]
         mode_label = Lang.t(:html, :settings, mode_key).to_s.upcase
         axis_label = @scale_axis.to_s.upcase
-        ip_key     = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip_key     = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label   = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oeflow.vcb_hint.to_s, mode: mode_label, axis: axis_label, ip: ip_label, roll: roll_label, offset: OEFlowTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oeflow.offset_prompt.to_s, 1)
@@ -2579,7 +2579,7 @@ module ASM_Extensions
             end
 
             apply_roll(entity_copy)
-            OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, @scale_axis)
+            OrienterExpress.send(:move_pivot_to, entity_copy, target, @pivot, @scale_axis)
             @previous_entities << entity_copy
             @placement_map[entity_copy] = vertex
           end
@@ -2645,7 +2645,7 @@ module ASM_Extensions
 
       def initialize(faces, entity)
         super(faces, entity)
-        @insertion_point = OrienterExpress.send(:resolved_insertion_point, :oesurface).to_sym
+        @pivot = OrienterExpress.send(:resolved_pivot, :oesurface).to_sym
         @scale_axis      = :z
         @axis_idx        = 0
         @smooth_groups   = CONFIG[:smooth_groups] != false
@@ -2777,10 +2777,10 @@ module ASM_Extensions
       end
 
       def handle_ins_key
-        @insertion_point = { center: :base, base: :origin, origin: :center }[@insertion_point]
-        custom = CONFIG[:insertion_point_custom].dup
-        custom[:oesurface] = @insertion_point.to_s
-        OrienterExpress.user_settings(insertion_point_custom: custom)
+        @pivot = { center: :base, base: :origin, origin: :center }[@pivot]
+        custom = CONFIG[:pivot_custom].dup
+        custom[:oesurface] = @pivot.to_s
+        OrienterExpress.user_settings(pivot_custom: custom)
         update_vcb
         apply(OESurfaceTool.last_offset_str)
       end
@@ -2801,7 +2801,7 @@ module ASM_Extensions
           Lang.commands.oesurface.axis_parallel,
           Lang.commands.oesurface.axis_ground
         ][@axis_idx].to_s.upcase
-        ip_key   = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip_key   = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip_label = Lang.t(:html, :settings, ip_key).to_s.upcase
         hint = format(Lang.commands.oesurface.vcb_hint.to_s, axis: scale_label, orient: orient_label, ip: ip_label, roll: roll_label, offset: OESurfaceTool.last_offset_str)
         Sketchup.set_status_text(Lang.commands.oesurface.offset_prompt.to_s, 1)
@@ -2925,8 +2925,8 @@ module ASM_Extensions
         end
 
         apply_roll(entity_copy)
-        base_axis = @insertion_point == :base ? axis_most_aligned_to(entity_copy, avg_normal) : @scale_axis
-        OrienterExpress.send(:move_insertion_to, entity_copy, target, @insertion_point, base_axis)
+        base_axis = @pivot == :base ? axis_most_aligned_to(entity_copy, avg_normal) : @scale_axis
+        OrienterExpress.send(:move_pivot_to, entity_copy, target, @pivot, base_axis)
 
         @previous_entities << entity_copy
         @placement_map[entity_copy] = primary
@@ -2965,8 +2965,8 @@ module ASM_Extensions
       def initialize(targets)
         @model           = Sketchup.active_model
         @hovered         = nil
-        custom = CONFIG[:insertion_point_custom]
-        @insertion_point = (custom.is_a?(Hash) && custom[:oereset] ? custom[:oereset].to_sym : :base)
+        custom = CONFIG[:pivot_custom]
+        @pivot = (custom.is_a?(Hash) && custom[:oereset] ? custom[:oereset].to_sym : :base)
         @pending_targets = targets
       end
 
@@ -3046,9 +3046,9 @@ module ASM_Extensions
         when 27
           @model.select_tool(nil)
         when 9
-          @insertion_point = { center: :origin, origin: :base, base: :center }[@insertion_point]
-          custom = CONFIG[:insertion_point_custom] || {}
-          OrienterExpress.user_settings(insertion_point_custom: custom.merge(oereset: @insertion_point.to_s))
+          @pivot = { center: :origin, origin: :base, base: :center }[@pivot]
+          custom = CONFIG[:pivot_custom] || {}
+          OrienterExpress.user_settings(pivot_custom: custom.merge(oereset: @pivot.to_s))
           update_vcb
         end
       end
@@ -3056,7 +3056,7 @@ module ASM_Extensions
       private
 
       def pivot_for(entity, original_t)
-        case @insertion_point
+        case @pivot
         when :origin
           original_t.origin
         when :base
@@ -3068,7 +3068,7 @@ module ASM_Extensions
       end
 
       def update_vcb
-        ip_key = { base: :insertion_base_short, center: :insertion_center_short, origin: :insertion_origin_short }[@insertion_point]
+        ip_key = { base: :pivot_base_short, center: :pivot_center_short, origin: :pivot_origin_short }[@pivot]
         ip     = Lang.t(:html, :settings, ip_key).to_s.upcase
         desc   = Lang.commands.oereset.no_geometry_hint
         hint   = format(Lang.commands.oereset.vcb_hint.to_s, ip: ip.to_s)
@@ -4864,8 +4864,8 @@ module ASM_Extensions
     private_class_method :orient_to_face_normal_around
     private_class_method :orient_to_flow
     private_class_method :face_centroid
-    private_class_method :resolved_insertion_point
-    private_class_method :move_insertion_to
+    private_class_method :resolved_pivot
+    private_class_method :move_pivot_to
     private_class_method :vertex_flow_direction
     private_class_method :all_vertex_flow_directions
 

@@ -508,16 +508,16 @@ module ASM_Extensions
       end
 
       # =========================================================================
-      # move_insertion_to — axis-aware base placement
+      # move_pivot_to — axis-aware base placement
       # Regression: before the fix, scale_axis was ignored and base always used
       # min.z regardless of which axis was active.
       # =========================================================================
 
-      def move_to(inst, point, insertion, axis = nil)
-        OE.send(:move_insertion_to, inst, point, insertion, axis)
+      def move_to(inst, point, pivot, axis = nil)
+        OE.send(:move_pivot_to, inst, point, pivot, axis)
       end
 
-      def test_move_insertion_center_lands_on_target
+      def test_move_pivot_center_lands_on_target
         inst   = make_instance
         target = Geom::Point3d.new(500, 500, 500)
         move_to(inst, target, :center)
@@ -526,7 +526,7 @@ module ASM_Extensions
         assert_in_delta target.z, inst.bounds.center.z, TOL
       end
 
-      def test_move_insertion_origin_lands_on_target
+      def test_move_pivot_origin_lands_on_target
         inst   = make_instance
         target = Geom::Point3d.new(300, 400, 500)
         move_to(inst, target, :origin)
@@ -535,7 +535,7 @@ module ASM_Extensions
         assert_in_delta target.z, inst.transformation.origin.z, TOL
       end
 
-      def test_move_insertion_base_z_uses_min_z
+      def test_move_pivot_base_z_uses_min_z
         inst   = make_instance
         target = Geom::Point3d.new(0, 0, 0)
         move_to(inst, target, :base, :z)
@@ -546,7 +546,7 @@ module ASM_Extensions
         assert_in_delta target.z, world_base.z, TOL
       end
 
-      def test_move_insertion_base_x_uses_min_x
+      def test_move_pivot_base_x_uses_min_x
         inst   = make_instance
         target = Geom::Point3d.new(100, 200, 300)
         move_to(inst, target, :base, :x)
@@ -557,7 +557,7 @@ module ASM_Extensions
         assert_in_delta target.z, world_base.z, TOL
       end
 
-      def test_move_insertion_base_y_uses_min_y
+      def test_move_pivot_base_y_uses_min_y
         inst   = make_instance
         target = Geom::Point3d.new(100, 200, 300)
         move_to(inst, target, :base, :y)
@@ -570,7 +570,7 @@ module ASM_Extensions
 
       # Regression: axis :x must NOT produce the same result as axis :z when
       # the component is not a cube (different extent in each axis).
-      def test_move_insertion_base_x_differs_from_base_z
+      def test_move_pivot_base_x_differs_from_base_z
         # Asymmetric component: 100x100x200 box, so min.x != min.z in world coords
         inst_x = make_instance
         inst_z = make_instance
@@ -834,10 +834,10 @@ module ASM_Extensions
       # OEResetTool — reset rotation + pivot preservation
       # =========================================================================
 
-      def reset_with(inst, insertion_point)
+      def reset_with(inst, pivot)
         tool = OEResetTool.allocate
         tool.instance_variable_set(:@model,           @model)
-        tool.instance_variable_set(:@insertion_point, insertion_point)
+        tool.instance_variable_set(:@pivot, pivot)
         tool.send(:apply_to, [inst])
       end
 

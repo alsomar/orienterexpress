@@ -65,7 +65,7 @@ module ASM_Extensions
       end
 
       # Called by user_settings whenever config changes so an open dialog stays
-      # in sync with changes made during tool execution (e.g. insertion point).
+      # in sync with changes made during tool execution (e.g. pivot).
       def self.refresh_settings_dialog
         return unless @settings && @settings.visible?
         push_initial_data(@settings)
