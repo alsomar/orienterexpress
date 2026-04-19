@@ -170,7 +170,13 @@ module ASM_Extensions
       entity.transform!(rotation)
     end
 
-    def self.orient_to_flow(entity, edge, flow_map)
+    def self.orient_to_flow(entity, edge, flow_map, h_dir_map = nil, dom_dirs = nil)
+      # Vertical edges: flow projection to XY is degenerate; reuse the ground
+      # tangent logic so all verticals on similarly-oriented walls share X.
+      ev = edge.end.position - edge.start.position
+      if ev.length > 1e-6 && ev.normalize.z.abs > 0.999
+        return orient_x_ground(entity, edge, h_dir_map, dom_dirs)
+      end
       z_axis     = entity.transformation.zaxis
       flow_start = flow_map[edge.start]
       flow_end   = flow_map[edge.end]
@@ -246,7 +252,15 @@ module ASM_Extensions
       end
     end
 
-    def self.orient_to_flow_around(entity, edge, flow_map, rot_axis_vec, face_axis_vec)
+    def self.orient_to_flow_around(entity, edge, flow_map, rot_axis_vec, face_axis_vec, h_dir_map = nil, dom_dirs = nil, scale_axis = nil)
+      # Vertical edges: flow is degenerate; delegate to the matching ground helper.
+      ev = edge.end.position - edge.start.position
+      if ev.length > 1e-6 && ev.normalize.z.abs > 0.999 && scale_axis
+        case scale_axis
+        when :x then return orient_z_ground(entity, edge, h_dir_map, dom_dirs)
+        when :y then return orient_y_ground(entity, edge, h_dir_map, dom_dirs)
+        end
+      end
       flow_start = flow_map[edge.start]
       flow_end   = flow_map[edge.end]
       candidates = [flow_start, flow_end].compact
@@ -310,43 +324,76 @@ module ASM_Extensions
     # For vertical edges orient_x is a no-op (all horizontal directions are
     # already ground-parallel); fall back to h_dir_map (vertex flow with BFS
     # sign propagation) for a geometry-intrinsic X that rotates with the mesh.
-    def self.orient_x_ground(entity, edge = nil, h_dir_map = nil)
+    def self.orient_x_ground(entity, edge = nil, h_dir_map = nil, dom_dirs = nil)
       orient_x(entity)
       return unless edge
       z = entity.transformation.zaxis.normalize
       return unless (z.z.abs - 1.0).abs < 1e-3   # only for near-vertical edges
-      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
-      Debug.log(self, :orient_x_ground, "eid=#{edge_id(edge)} ref=#{ref ? ref.to_a.map{|c|'%+.2f'%c}.join(',') : 'nil'}")
-      orient_x_to_horizontal(entity, ref) if ref
+      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map, dom_dirs)
+      return unless ref
+      orient_x_to_horizontal(entity, ref)
+      # ref is a face-normal-like direction; rotate 90° so X is tangent to the
+      # wall (all verticals on a wall then share a coherent tangent axis).
+      z2 = entity.transformation.zaxis.normalize
+      entity.transform!(Geom::Transformation.rotation(entity.bounds.center, z2, 90.degrees))
     end
 
-    # Priority: propagated h_dir_map (handles symmetric naked-edge meshes where
-    # simple averaging cancels), then face normal XY, then connected-edge XY.
-    def self.horizontal_ref_for_vertical_edge(edge, h_dir_map = nil)
-      if h_dir_map
-        [edge.start, edge.end].each do |v|
-          d = h_dir_map[v]
-          return d if d
-        end
-      end
+    # Priority: face normals of the edge's own faces (consistent per wall), then
+    # "flow of normals" — sum of face normals at both vertices (catches naked
+    # verticals adjacent to faced caps), then h_dir_map flow, then connected-edge
+    # XY. When dom_dirs is provided, snaps the final ref to the nearest dominant
+    # direction so all verticals on similarly-oriented walls share one X axis.
+    def self.horizontal_ref_for_vertical_edge(edge, h_dir_map = nil, dom_dirs = nil)
+      ref = nil
+
       normals = edge.faces.map(&:normal).select { |n| n.length > 1e-6 }
       unless normals.empty?
         avg = normals.reduce(Geom::Vector3d.new(0, 0, 0)) { |s, n| s + n }
-        ref = Geom::Vector3d.new(avg.x, avg.y, 0)
-        return ref.normalize if ref.length > 1e-6
+        xy  = Geom::Vector3d.new(avg.x, avg.y, 0)
+        ref = xy.normalize if xy.length > 1e-6
       end
-      sum = Geom::Vector3d.new(0, 0, 0)
-      [edge.start, edge.end].each do |vertex|
-        vertex.edges.each do |e|
-          next if e.equal?(edge)
-          other = (e.start == vertex) ? e.end.position : e.start.position
-          v     = other - vertex.position
-          xy    = Geom::Vector3d.new(v.x, v.y, 0)
-          sum   = sum + xy if xy.length > 1e-6
+
+      if ref.nil?
+        sum  = Geom::Vector3d.new(0, 0, 0)
+        seen = {}
+        [edge.start, edge.end].each do |vertex|
+          vertex.faces.each do |f|
+            next if seen[f.entityID]
+            seen[f.entityID] = true
+            n  = f.normal
+            xy = Geom::Vector3d.new(n.x, n.y, 0)
+            sum = sum + xy if xy.length > 1e-6
+          end
+        end
+        ref = sum.normalize if sum.length > 1e-6
+      end
+
+      if ref.nil? && h_dir_map
+        [edge.start, edge.end].each do |v|
+          d = h_dir_map[v]
+          if d
+            ref = d
+            break
+          end
         end
       end
-      ref = Geom::Vector3d.new(sum.x, sum.y, 0)
-      ref.length > 1e-6 ? ref.normalize : nil
+
+      if ref.nil?
+        sum = Geom::Vector3d.new(0, 0, 0)
+        [edge.start, edge.end].each do |vertex|
+          vertex.edges.each do |e|
+            next if e.equal?(edge)
+            other = (e.start == vertex) ? e.end.position : e.start.position
+            v     = other - vertex.position
+            xy    = Geom::Vector3d.new(v.x, v.y, 0)
+            sum   = sum + xy if xy.length > 1e-6
+          end
+        end
+        ref = sum.normalize if sum.length > 1e-6
+      end
+
+      return nil unless ref
+      snap_to_dominant(ref, dom_dirs)
     end
 
     def self.orient_x_to_horizontal(entity, ref_h)
@@ -371,17 +418,66 @@ module ASM_Extensions
       entity.transform!(Geom::Transformation.rotation(entity.bounds.center, x, angle))
     end
 
-    def self.orient_z_ground(entity, edge = nil, h_dir_map = nil)
+    # Ground mode (v2): align `scale_axis` to the face normal, then rotate
+    # around it so the next axis in the XYZ cycle lies parallel to world XY.
+    #   :z → Z↔normal, X horizontal
+    #   :x → X↔normal, Y horizontal
+    #   :y → Y↔normal, Z horizontal
+    # When primary ends up parallel to world Z, all perpendicular axes are
+    # already in the XY plane and no rotation is applied.
+    def self.orient_ground_to_normal(entity, normal, scale_axis, dom_dirs = nil)
+      return if normal.nil? || normal.length < 1e-6
+      n = normal.normalize
+      # For (near-)horizontal normals, snap to the dominant horizontal direction
+      # so all verticals on similarly-oriented walls share one primary axis.
+      if n.z.abs < 0.5 && dom_dirs && !dom_dirs.empty?
+        snapped = snap_to_dominant(n, dom_dirs)
+        n = snapped.normalize if snapped && snapped.length > 1e-6
+      end
+      t = entity.transformation
+      primary_vec =
+        case scale_axis
+        when :x then t.xaxis
+        when :y then t.yaxis
+        else         t.zaxis
+        end
+
+      align_axis(entity, t.origin, primary_vec, n)
+
+      t2 = entity.transformation
+      primary, secondary =
+        case scale_axis
+        when :x then [t2.xaxis, t2.yaxis]
+        when :y then [t2.yaxis, t2.zaxis]
+        else         [t2.zaxis, t2.xaxis]
+        end
+
+      pn = primary.normalize
+      return if pn.z.abs > 0.999
+
+      horiz = pn.cross(Geom::Vector3d.new(0, 0, 1))
+      return if horiz.length < 1e-6
+      horiz = horiz.normalize
+
+      sec_n  = secondary.normalize
+      target = sec_n.dot(horiz) >= 0 ? horiz : horiz.reverse
+      angle  = Math.atan2(sec_n.cross(target).dot(pn), sec_n.dot(target))
+      return if angle.abs < 1e-6
+
+      entity.transform!(Geom::Transformation.rotation(entity.bounds.center, pn, angle))
+    end
+
+    def self.orient_z_ground(entity, edge = nil, h_dir_map = nil, dom_dirs = nil)
       orient_ground_around(entity, entity.transformation.xaxis, entity.transformation.zaxis)
       return unless edge
-      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
+      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map, dom_dirs)
       orient_z_to_horizontal(entity, ref) if ref
     end
 
-    def self.orient_y_ground(entity, edge = nil, h_dir_map = nil)
+    def self.orient_y_ground(entity, edge = nil, h_dir_map = nil, dom_dirs = nil)
       orient_ground_around(entity, entity.transformation.yaxis, entity.transformation.zaxis)
       return unless edge
-      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map)
+      ref = horizontal_ref_for_vertical_edge(edge, h_dir_map, dom_dirs)
       if ref
         ref_xy = Geom::Vector3d.new(ref.x, ref.y, 0)
         return if ref_xy.length < 1e-6
@@ -445,9 +541,77 @@ module ASM_Extensions
       reliable
     end
 
+    # Greedy clustering of adjacent face-normal XYs (area-weighted); merges
+    # directions within 15°. Returns up to max_k canonical XY directions, sorted
+    # by total weight desc. Used to snap per-edge references so all verticals on
+    # similarly-oriented walls share one X axis (octagon/curved cases).
+    def self.dominant_horizontal_directions(geometry, max_k = 3)
+      return [] unless geometry && !geometry.empty?
+      seen  = {}
+      faces = []
+      geometry.each do |e|
+        next unless e.is_a?(Sketchup::Edge) && e.valid?
+        e.faces.each do |f|
+          next if seen[f.entityID]
+          seen[f.entityID] = true
+          faces << f
+        end
+      end
+      return [] if faces.empty?
+
+      cos_thresh = Math.cos(15.0 * Math::PI / 180)
+      clusters   = []
+      faces.each do |f|
+        n  = f.normal
+        xy = Geom::Vector3d.new(n.x, n.y, 0)
+        next if xy.length < 1e-6
+        u = xy.normalize
+        u = u.reverse if u.x < 0 || (u.x.abs < 1e-6 && u.y < 0)
+        w = f.area
+        hit = clusters.find { |c| c[0].dot(u).abs >= cos_thresh }
+        if hit
+          sign = hit[0].dot(u) >= 0 ? 1 : -1
+          ux = hit[0].x * hit[1] + sign * u.x * w
+          uy = hit[0].y * hit[1] + sign * u.y * w
+          combined = Geom::Vector3d.new(ux, uy, 0)
+          hit[0] = combined.length > 1e-6 ? combined.normalize : hit[0]
+          hit[1] += w
+        else
+          clusters << [u, w]
+        end
+      end
+
+      clusters.sort_by! { |c| -c[1] }
+      clusters[0, max_k].map { |c| c[0] }
+    end
+
+    # Picks the dominant direction with max |ref·d|, signed to match ref, only
+    # if ref is within ~30° of that direction. Otherwise returns ref unchanged —
+    # this preserves bisectors (e.g. cube corners at 45°) where snapping would
+    # arbitrarily pull toward one of two equidistant walls.
+    SNAP_COS = Math.cos(30.0 * Math::PI / 180)
+    def self.snap_to_dominant(ref, dom_dirs)
+      return ref unless ref && dom_dirs && !dom_dirs.empty?
+      rxy = Geom::Vector3d.new(ref.x, ref.y, 0)
+      return ref if rxy.length < 1e-6
+      rn = rxy.normalize
+      best = nil
+      best_abs = -1.0
+      dom_dirs.each do |d|
+        dot = rn.dot(d)
+        if dot.abs > best_abs
+          best_abs = dot.abs
+          best = dot >= 0 ? d : d.reverse
+        end
+      end
+      return ref if best_abs < SNAP_COS
+      best || ref
+    end
+
     private_class_method :horizontal_ref_for_vertical_edge, :orient_x_to_horizontal,
                          :orient_z_to_horizontal, :orient_z_ground, :orient_y_ground,
-                         :naked_edge_surface_normal, :vertical_surface_directions
+                         :naked_edge_surface_normal, :vertical_surface_directions,
+                         :dominant_horizontal_directions, :snap_to_dominant
 
     # Stable, short ID for an edge, invariant under endpoint order.
     # Used for cross-referencing between runtime Debug.log and in-SketchUp
@@ -874,7 +1038,7 @@ module ASM_Extensions
         @watcher = SelectionWatcher.new { on_external_selection_change }
         @model.selection.add_observer(@watcher)
         OEPlacementTool.active_instance = self
-        rebuild_h_dir_map if @rotation_mode != :flow
+        rebuild_h_dir_map
         Dialogs.open_tool_panel if defined?(Dialogs) && Dialogs.respond_to?(:open_tool_panel)
         update_vcb
         UI.start_timer(0, false) { apply; sync_selection; notify_panel } if @entity_def
@@ -1140,7 +1304,7 @@ module ASM_Extensions
       end
 
       def on_geometry_changed
-        rebuild_h_dir_map if @rotation_mode != :flow
+        rebuild_h_dir_map
       end
 
       def scroll_roll(direction)
@@ -1324,7 +1488,7 @@ module ASM_Extensions
           # Vertical edges: match orient_x_ground's reference
           # (vertex-flow horizontalized) so ensure_outward_sign doesn't
           # counter-flip the geometry-intrinsic frame.
-          ref = OrienterExpress.send(:horizontal_ref_for_vertical_edge, edge, @h_dir_map)
+          ref = OrienterExpress.send(:horizontal_ref_for_vertical_edge, edge, @h_dir_map, @h_dom_dirs)
           return ref if ref && ref.length > 1e-9
           return Geom::Vector3d.new(1, 0, 0)
         end
@@ -1564,7 +1728,7 @@ module ASM_Extensions
           return if sym == @rotation_mode
           @rotation_mode = sym
           rebuild_flow_map  if @rotation_mode == :flow  && respond_to?(:rebuild_flow_map, true)
-          rebuild_h_dir_map if @rotation_mode != :flow  && respond_to?(:rebuild_h_dir_map, true)
+          rebuild_h_dir_map if respond_to?(:rebuild_h_dir_map, true)
           update_vcb
           apply
         when :pivot
@@ -1916,6 +2080,7 @@ module ASM_Extensions
         end
         @h_dir_map  = OrienterExpress.send(:horizontal_flow_directions, vertex_edges)
         @z_sign_map = OrienterExpress.send(:vertical_surface_directions, vertex_edges)
+        @h_dom_dirs = OrienterExpress.send(:dominant_horizontal_directions, @geometry, 3)
       end
 
     end
@@ -1999,7 +2164,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply
         else
-          rebuild_h_dir_map if @rotation_mode != :flow
+          rebuild_h_dir_map
           
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
@@ -2049,7 +2214,7 @@ module ASM_Extensions
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         rebuild_flow_map   if @rotation_mode == :flow
-        rebuild_h_dir_map  if @rotation_mode != :flow
+        rebuild_h_dir_map
         update_vcb
         apply
       end
@@ -2132,9 +2297,9 @@ module ASM_Extensions
           case @rotation_mode
           when :flow
             case @scale_axis
-            when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
-            when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-            else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+            when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+            when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+            else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map, @h_dir_map, @h_dom_dirs)
             end
           when :normal
             case @scale_axis
@@ -2143,16 +2308,13 @@ module ASM_Extensions
             else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge, @h_dir_map)
             end
           else # ground
-            case @scale_axis
-            when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
-            when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
-            else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
-            end
+            n = avg_face_normal_for_edge(edge)
+            OrienterExpress.send(:orient_ground_to_normal, entity_copy, n, @scale_axis, @h_dom_dirs) if n
           end
           ensure_outward_sign(entity_copy, edge)
           apply_roll(entity_copy)
           OrienterExpress.send(:move_pivot_to, entity_copy, vertex_pos, @pivot, @scale_axis)
-          apply_offset_vector(entity_copy)
+          apply_offset_vector(entity_copy, edge)
           @previous_entities << entity_copy
           @placement_map[entity_copy] = edge
         end
@@ -2264,7 +2426,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply
         else
-          rebuild_h_dir_map if @rotation_mode != :flow
+          rebuild_h_dir_map
           
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
@@ -2314,7 +2476,7 @@ module ASM_Extensions
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         rebuild_flow_map   if @rotation_mode == :flow
-        rebuild_h_dir_map  if @rotation_mode != :flow
+        rebuild_h_dir_map
         update_vcb
         apply
       end
@@ -2392,9 +2554,9 @@ module ASM_Extensions
         case @rotation_mode
         when :flow
           case @scale_axis
-          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
-          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map, @h_dir_map, @h_dom_dirs)
           end
         when :normal
           case @scale_axis
@@ -2403,18 +2565,15 @@ module ASM_Extensions
           else         OrienterExpress.send(:orient_to_face_normal, entity_copy, edge, @h_dir_map)
           end
         else # ground
-          case @scale_axis
-          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
-          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
-          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
-          end
+          n = avg_face_normal_for_edge(edge)
+          OrienterExpress.send(:orient_ground_to_normal, entity_copy, n, @scale_axis, @h_dom_dirs) if n
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
         ensure_outward_sign(entity_copy, edge)
         apply_roll(entity_copy)
         edge_normal = avg_face_normal_for_edge(edge)
         place_with_pivot(entity_copy, midpoint, edge_normal, edge)
-        apply_offset_vector(entity_copy)
+        apply_offset_vector(entity_copy, edge)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -2527,7 +2686,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply
         else
-          rebuild_h_dir_map if @rotation_mode != :flow
+          rebuild_h_dir_map
           
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
@@ -2577,7 +2736,7 @@ module ASM_Extensions
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         rebuild_flow_map   if @rotation_mode == :flow
-        rebuild_h_dir_map  if @rotation_mode != :flow
+        rebuild_h_dir_map
         update_vcb
         apply
       end
@@ -2663,9 +2822,9 @@ module ASM_Extensions
         case @rotation_mode
         when :flow
           case @scale_axis
-          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
-          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map, @h_dir_map, @h_dom_dirs)
           end
         when :normal
           case @scale_axis
@@ -2675,9 +2834,9 @@ module ASM_Extensions
           end
         else # ground
           case @scale_axis
-          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
-          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
-          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
+          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map, @h_dom_dirs)
+          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map, @h_dom_dirs)
+          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map, @h_dom_dirs)
           end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
@@ -2704,7 +2863,7 @@ module ASM_Extensions
         else
           OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, @pivot, @scale_axis)
         end
-        apply_offset_vector(entity_copy)
+        apply_offset_vector(entity_copy, edge)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -2814,7 +2973,7 @@ module ASM_Extensions
           rebuild_flow_map
           apply
         else
-          rebuild_h_dir_map if @rotation_mode != :flow
+          rebuild_h_dir_map
           
           apply_diff((new_set - old_set).to_a, (old_set - new_set).to_a)
         end
@@ -2864,7 +3023,7 @@ module ASM_Extensions
       def handle_mode_key
         @rotation_mode = { ground: :flow, flow: :normal, normal: :ground }[@rotation_mode]
         rebuild_flow_map   if @rotation_mode == :flow
-        rebuild_h_dir_map  if @rotation_mode != :flow
+        rebuild_h_dir_map
         update_vcb
         apply
       end
@@ -2945,9 +3104,9 @@ module ASM_Extensions
         case @rotation_mode
         when :flow
           case @scale_axis
-          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis)
-          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis)
-          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map)
+          when :x then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.xaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+          when :y then OrienterExpress.send(:orient_to_flow_around, entity_copy, edge, @flow_map, entity_copy.transformation.yaxis, entity_copy.transformation.zaxis, @h_dir_map, @h_dom_dirs, @scale_axis)
+          else         OrienterExpress.send(:orient_to_flow, entity_copy, edge, @flow_map, @h_dir_map, @h_dom_dirs)
           end
         when :normal
           case @scale_axis
@@ -2957,9 +3116,9 @@ module ASM_Extensions
           end
         else # ground
           case @scale_axis
-          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map)
-          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map)
-          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map)
+          when :x then OrienterExpress.send(:orient_z_ground, entity_copy, edge, @h_dir_map, @h_dom_dirs)
+          when :y then OrienterExpress.send(:orient_y_ground, entity_copy, edge, @h_dir_map, @h_dom_dirs)
+          else         OrienterExpress.send(:orient_x_ground, entity_copy, edge, @h_dir_map, @h_dom_dirs)
           end
         end
         midpoint = Geom::Point3d.linear_combination(0.5, edge.start.position, 0.5, edge.end.position)
@@ -2981,7 +3140,7 @@ module ASM_Extensions
         else
           OrienterExpress.send(:move_pivot_to, entity_copy, midpoint, @pivot, @scale_axis)
         end
-        apply_offset_vector(entity_copy)
+        apply_offset_vector(entity_copy, edge)
         @previous_entities << entity_copy
         @placement_map[entity_copy] = edge
       end
@@ -3164,13 +3323,16 @@ module ASM_Extensions
                 when :x
                   OrienterExpress.send(:orient_to_flow_around, entity_copy, rep_edge, flow_map,
                                        entity_copy.transformation.xaxis,
-                                       entity_copy.transformation.zaxis)
+                                       entity_copy.transformation.zaxis,
+                                       @h_dir_map, @h_dom_dirs, @scale_axis)
                 when :y
                   OrienterExpress.send(:orient_to_flow_around, entity_copy, rep_edge, flow_map,
                                        entity_copy.transformation.yaxis,
-                                       entity_copy.transformation.zaxis)
+                                       entity_copy.transformation.zaxis,
+                                       @h_dir_map, @h_dom_dirs, @scale_axis)
                 else
-                  OrienterExpress.send(:orient_to_flow, entity_copy, rep_edge, flow_map)
+                  OrienterExpress.send(:orient_to_flow, entity_copy, rep_edge, flow_map,
+                                       @h_dir_map, @h_dom_dirs)
                 end
               else
                 OrienterExpress.orient_x(entity_copy)
@@ -3193,23 +3355,13 @@ module ASM_Extensions
                 OrienterExpress.orient_x(entity_copy)
               end
             else # ground
-              case @scale_axis
-              when :x
-                OrienterExpress.send(:orient_ground_around, entity_copy,
-                                     entity_copy.transformation.xaxis,
-                                     entity_copy.transformation.yaxis)
-              when :y
-                OrienterExpress.send(:orient_ground_around, entity_copy,
-                                     entity_copy.transformation.yaxis,
-                                     entity_copy.transformation.zaxis)
-              else
-                OrienterExpress.send(:orient_x_ground, entity_copy, rep_edge, @h_dir_map)
-              end
+              n = avg_face_normal_for_edge(rep_edge)
+              OrienterExpress.send(:orient_ground_to_normal, entity_copy, n, @scale_axis, @h_dom_dirs) if n
             end
 
             apply_roll(entity_copy)
             OrienterExpress.send(:move_pivot_to, entity_copy, target, @pivot, @scale_axis)
-            apply_offset_vector(entity_copy)
+            apply_offset_vector(entity_copy, rep_edge)
             @previous_entities << entity_copy
             @placement_map[entity_copy] = vertex
           end
