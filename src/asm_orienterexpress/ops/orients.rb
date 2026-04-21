@@ -957,7 +957,96 @@ module ASM_Extensions
         end
       end
 
-      reliable.merge(candidates)
+      result = reliable.merge(candidates)
+      diffuse_flow_directions(result, vertex_edges)
+      inherit_endpoint_dirs(result, vertex_edges)
+      result
+    end
+
+    # Averages neighbor directions into `vertex`'s outward sign convention.
+    # Each neighbor's direction is reversed so its arrow points from the
+    # neighbor toward `vertex`, matching how the intrinsic sum is computed
+    # in vertex_flow_direction (vertex.position - other.position).
+    def self.average_outward_dirs(vertex, edges, dirs)
+      sx = sy = sz = 0.0
+      count = 0
+      edges.each do |edge|
+        w = (edge.start == vertex) ? edge.end : edge.start
+        next unless dirs.key?(w)
+        d = dirs[w].reverse
+        sx += d.x; sy += d.y; sz += d.z
+        count += 1
+      end
+      return nil if count.zero?
+      v = Geom::Vector3d.new(sx, sy, sz)
+      return nil if v.length < 1e-6
+      v.normalize
+    end
+
+    # Fills vertices with no direction by averaging their resolved neighbors'
+    # directions (flipped to the vertex's outward sign convention). Iterates
+    # until no new vertex gets a direction or max passes reached.
+    def self.diffuse_flow_directions(dirs, vertex_edges, passes: 5)
+      return dirs if dirs.empty? || vertex_edges.empty?
+
+      passes.times do
+        progress = false
+        vertex_edges.each do |vertex, edges|
+          next if dirs.key?(vertex)
+          avg = average_outward_dirs(vertex, edges, dirs)
+          if avg
+            dirs[vertex] = avg
+            progress = true
+          end
+        end
+        break unless progress
+      end
+
+      dirs
+    end
+
+    # Endpoints (degree 1) get the tangent of their only edge from
+    # vertex_flow_direction, which on curved chains breaks the radial
+    # convention of interior vertices. Extrapolate: take the rotation that
+    # maps the second neighbor's dir to the first neighbor's dir, then apply
+    # the same rotation to the first neighbor's dir. On an arc this yields
+    # the true radial at the endpoint. Isolated A-B pairs keep their
+    # tangents; if there is no usable second vertex, inherit directly.
+    def self.inherit_endpoint_dirs(dirs, vertex_edges)
+      vertex_edges.each do |vertex, edges|
+        next unless edges.length == 1
+        neighbor       = (edges.first.start == vertex) ? edges.first.end : edges.first.start
+        neighbor_edges = vertex_edges[neighbor]
+        next unless neighbor_edges
+        next if neighbor_edges.length == 1
+        next unless dirs.key?(neighbor)
+
+        second = nil
+        neighbor_edges.each do |e|
+          w = (e.start == neighbor) ? e.end : e.start
+          next if w == vertex
+          if dirs.key?(w)
+            second = w
+            break
+          end
+        end
+
+        d1 = dirs[neighbor]
+        if second
+          d2    = dirs[second]
+          axis  = d2.cross(d1)
+          if axis.length > 1e-6
+            angle = d2.angle_between(d1)
+            rot   = Geom::Transformation.rotation(Geom::Point3d.new(0, 0, 0), axis, angle)
+            dirs[vertex] = d1.transform(rot)
+          else
+            dirs[vertex] = d1
+          end
+        else
+          dirs[vertex] = d1
+        end
+      end
+      dirs
     end
 
     ### MAIN TOOLS ### ------------------------------------------------------------
@@ -1233,17 +1322,18 @@ module ASM_Extensions
         ph    = view.pick_helper
         count = ph.do_pick(x, y, aperture)
         paths = count.times.map { |i| ph.path_at(i) }
-        placed = paths.find { |path| @placement_map.key?(path.first) }
-        return placed.first if placed
         root_edge = paths.find { |path| path.first.is_a?(Sketchup::Edge) && path.length == 1 }
         return root_edge.first if root_edge
+        placed = paths.find { |path| @placement_map.key?(path.first) }
+        return placed.first if placed
         ph.best_picked
       end
 
       def pick_geometry_from_entity(entity)
         case entity
-        when Sketchup::Edge then [entity]
-        when Sketchup::Face then entity.edges.to_a
+        when Sketchup::Edge   then [entity]
+        when Sketchup::Face   then entity.edges.to_a
+        when Sketchup::Vertex then entity.edges.to_a
         end
       end
 
@@ -3344,8 +3434,13 @@ module ASM_Extensions
                 OrienterExpress.orient_x(entity_copy)
               end
             else # ground
-              n = avg_face_normal_for_edge(rep_edge)
-              OrienterExpress.send(:orient_ground_to_normal, entity_copy, n, @scale_axis, @h_dom_dirs) if n
+              t2 = entity_copy.transformation
+              rot_axis, target_axis = case @scale_axis
+                                      when :x then [t2.xaxis, t2.yaxis]
+                                      when :y then [t2.yaxis, t2.zaxis]
+                                      else         [t2.zaxis, t2.xaxis]
+                                      end
+              OrienterExpress.send(:orient_ground_around, entity_copy, rot_axis, target_axis)
             end
 
             apply_roll(entity_copy)
@@ -3478,9 +3573,18 @@ module ASM_Extensions
       end
 
       def handle_geometry_click(ctrl, shift, view, x, y, click_type)
-        ph = view.pick_helper
-        ph.do_pick(x, y)
-        raw  = ph.best_picked
+        ph    = view.pick_helper
+        count = ph.do_pick(x, y, 16)
+        paths = count.times.map { |i| ph.path_at(i) }
+        root_geom = paths.find { |path|
+          path.length == 1 && (path.first.is_a?(Sketchup::Face) || path.first.is_a?(Sketchup::Edge))
+        }
+        raw = if root_geom
+                root_geom.first
+              else
+                placed = paths.find { |path| @placement_map.key?(path.first) }
+                placed ? placed.first : ph.best_picked
+              end
         best = @placement_map.key?(raw) ? @placement_map[raw] : raw
 
         picked = case click_type
@@ -5639,6 +5743,9 @@ module ASM_Extensions
     private_class_method :move_pivot_to
     private_class_method :vertex_flow_direction
     private_class_method :all_vertex_flow_directions
+    private_class_method :average_outward_dirs
+    private_class_method :diffuse_flow_directions
+    private_class_method :inherit_endpoint_dirs
 
   end # module OrienterExpress
 end # module ASM_Extensions
