@@ -1021,13 +1021,17 @@ module ASM_Extensions
         @drag_mode     = nil
         tool_key       = self.class.config_prefix
         if CONFIG[:remember_offset]
-          @offset_x = OrienterExpress.send(:load_offset_axis_str, tool_key, :x)
-          @offset_y = OrienterExpress.send(:load_offset_axis_str, tool_key, :y)
-          @offset_z = OrienterExpress.send(:load_offset_axis_str, tool_key, :z)
+          @offset_x      = OrienterExpress.send(:load_offset_axis_str, tool_key, :x)
+          @offset_y      = OrienterExpress.send(:load_offset_axis_str, tool_key, :y)
+          @offset_z      = OrienterExpress.send(:load_offset_axis_str, tool_key, :z)
+          @offset_align  = OrienterExpress.send(:load_offset_axis_str, tool_key, :align)
+          @offset_normal = OrienterExpress.send(:load_offset_axis_str, tool_key, :normal)
         else
-          @offset_x = OrienterExpress.send(:load_offset_axis_str, :_default, :x)
-          @offset_y = OrienterExpress.send(:load_offset_axis_str, :_default, :y)
-          @offset_z = OrienterExpress.send(:load_offset_axis_str, :_default, :z)
+          @offset_x      = OrienterExpress.send(:load_offset_axis_str, :_default, :x)
+          @offset_y      = OrienterExpress.send(:load_offset_axis_str, :_default, :y)
+          @offset_z      = OrienterExpress.send(:load_offset_axis_str, :_default, :z)
+          @offset_align  = OrienterExpress.send(:load_offset_axis_str, :_default, :align)
+          @offset_normal = OrienterExpress.send(:load_offset_axis_str, :_default, :normal)
         end
         @offset_axis    = :z
         @offset_frame   = (CONFIG[:offset_frame] || 'world').to_s.to_sym
@@ -1172,9 +1176,11 @@ module ASM_Extensions
           # reserved for Phase B: roll frame toggle
         when 36
           @roll_angle = CONFIG[:default_roll].to_f.degrees
-          @offset_x = OrienterExpress.send(:load_offset_axis_str, :_default, :x)
-          @offset_y = OrienterExpress.send(:load_offset_axis_str, :_default, :y)
-          @offset_z = OrienterExpress.send(:load_offset_axis_str, :_default, :z)
+          @offset_x      = OrienterExpress.send(:load_offset_axis_str, :_default, :x)
+          @offset_y      = OrienterExpress.send(:load_offset_axis_str, :_default, :y)
+          @offset_z      = OrienterExpress.send(:load_offset_axis_str, :_default, :z)
+          @offset_align  = OrienterExpress.send(:load_offset_axis_str, :_default, :align)
+          @offset_normal = OrienterExpress.send(:load_offset_axis_str, :_default, :normal)
           self.class.last_offset_str = @offset_z
           update_vcb
           apply
@@ -1334,37 +1340,29 @@ module ASM_Extensions
         dx = OrienterExpress.send(:parse_length_safe, @offset_x.to_s).to_f
         dy = OrienterExpress.send(:parse_length_safe, @offset_y.to_s).to_f
         dz = OrienterExpress.send(:parse_length_safe, @offset_z.to_s).to_f
-        return Geom::Vector3d.new(0, 0, 0) if dx.abs < 1e-9 && dy.abs < 1e-9 && dz.abs < 1e-9
-        if @offset_frame == :local
-          frame = nil
+        da = OrienterExpress.send(:parse_length_safe, @offset_align.to_s).to_f
+        dn = OrienterExpress.send(:parse_length_safe, @offset_normal.to_s).to_f
+
+        vx = dx; vy = dy; vz = dz
+
+        if da.abs >= 1e-9 || dn.abs >= 1e-9
           edge  = context.is_a?(Sketchup::Edge) ? context : @placement_map[entity_copy]
           frame = edge_outward_frame(edge) if edge.is_a?(Sketchup::Edge)
           if frame
-            side, outward, fwd = frame
-            # Map offset_{x,y,z} so "alignment" = scale_axis runs along fwd,
-            # "normal" = (Y for Z; Z for X,Y) runs along outward, hidden axis
-            # keeps side. Matches the local 2-axis UI (alignment + normal).
-            ax, ay, az =
-              case @scale_axis
-              when :x then [fwd,     side,    outward]
-              when :y then [side,    fwd,     outward]
-              else         [side,    outward, fwd    ]
-              end
-            return Geom::Vector3d.new(
-              ax.x * dx + ay.x * dy + az.x * dz,
-              ax.y * dx + ay.y * dy + az.y * dz,
-              ax.z * dx + ay.z * dy + az.z * dz
-            )
+            _side, outward, fwd = frame
+            vx += fwd.x * da + outward.x * dn
+            vy += fwd.y * da + outward.y * dn
+            vz += fwd.z * da + outward.z * dn
+          else
+            t  = entity_copy.transformation
+            ax = t.xaxis; az = t.zaxis
+            vx += ax.x * da + az.x * dn
+            vy += ax.y * da + az.y * dn
+            vz += ax.z * da + az.z * dn
           end
-          t = entity_copy.transformation
-          Geom::Vector3d.new(
-            t.xaxis.x * dx + t.yaxis.x * dy + t.zaxis.x * dz,
-            t.xaxis.y * dx + t.yaxis.y * dy + t.zaxis.y * dz,
-            t.xaxis.z * dx + t.yaxis.z * dy + t.zaxis.z * dz
-          )
-        else
-          Geom::Vector3d.new(dx, dy, dz)
         end
+
+        Geom::Vector3d.new(vx, vy, vz)
       end
 
       def apply_offset_vector(entity_copy, context = nil)
@@ -1613,9 +1611,10 @@ module ASM_Extensions
             ]
           }
         end
+        unit_name = Dialogs.unit_info[:name]
         schema << {
           'key' => 'offset_enabled', 'type' => 'switch',
-          'label' => Lang.t(:html, :settings, :use_offset).to_s
+          'label' => "#{Lang.t(:html, :settings, :use_offset)} (#{unit_name})"
         }
         if @offset_enabled
           schema << {
@@ -1628,31 +1627,19 @@ module ASM_Extensions
               { 'value' => 'local', 'label' => Lang.t(:html, :settings, :axes_local).to_s }
             ]
           }
-          unit_name = Dialogs.unit_info[:name]
           local_frame = @offset_frame == :local && instance_variable_defined?(:@scale_axis)
-          axes =
+          fields =
             if local_frame
-              case @scale_axis
-              when :x then %w[x z]
-              when :y then %w[y z]
-              else         %w[z y]
-              end
+              [['align', :offset_alignment], ['normal', :offset_normal]]
             else
-              %w[x y z]
+              [['x', :offset_x], ['y', :offset_y], ['z', :offset_z]]
             end
-          axes.each_with_index do |axis, i|
-            label_key =
-              if local_frame
-                i.zero? ? :offset_alignment : :offset_normal
-              else
-                "offset_#{axis}".to_sym
-              end
-            base = Lang.t(:html, :settings, label_key).to_s
+          fields.each_with_index do |(suffix, label_key), i|
             schema << {
-              'key' => "offset_#{axis}", 'type' => 'length',
+              'key' => "offset_#{suffix}", 'type' => 'length',
               'scrollable' => true, 'resettable' => true,
-              'group' => 'offset', 'group_last' => (i == axes.length - 1),
-              'label' => "#{base} (#{unit_name})"
+              'group' => 'offset', 'group_last' => (i == fields.length - 1),
+              'label' => Lang.t(:html, :settings, label_key).to_s
             }
           end
         end
@@ -1677,6 +1664,8 @@ module ASM_Extensions
           'offset_x'       => offset_display_value(:x),
           'offset_y'       => offset_display_value(:y),
           'offset_z'       => offset_display_value(:z),
+          'offset_align'   => offset_display_value(:align),
+          'offset_normal'  => offset_display_value(:normal),
           'roll'           => deg.round(2)
         }
         values['rotation_mode'] = (@rotation_mode || :ground).to_s if defined?(@rotation_mode) && !@rotation_mode.nil?
@@ -1764,7 +1753,7 @@ module ASM_Extensions
           OrienterExpress.user_settings(offset_frame: sym.to_s)
           update_vcb
           apply
-        when :offset_x, :offset_y, :offset_z
+        when :offset_x, :offset_y, :offset_z, :offset_align, :offset_normal
           text = value.to_s.strip
           return if text.empty?
           if text =~ /\A-?[\d.,]+\z/
@@ -1822,7 +1811,7 @@ module ASM_Extensions
         d   = @_scroll_dir
         return if key.nil? || d.nil? || d.zero?
         case key
-        when :offset_x, :offset_y, :offset_z
+        when :offset_x, :offset_y, :offset_z, :offset_align, :offset_normal
           axis = key.to_s.sub('offset_', '').to_sym
           scroll_offset_axis(axis, d)
         when :roll       then scroll_roll(d)
@@ -1882,7 +1871,7 @@ module ASM_Extensions
 
       def apply_panel_reset(key)
         case key
-        when :offset_x, :offset_y, :offset_z
+        when :offset_x, :offset_y, :offset_z, :offset_align, :offset_normal
           axis = key.to_s.sub('offset_', '').to_sym
           zero = Sketchup.format_length(0)
           store_offset_axis(axis, zero)

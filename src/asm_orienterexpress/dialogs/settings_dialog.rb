@@ -63,6 +63,10 @@ module ASM_Extensions
           push_initial_data(dialog)
         end
 
+        dialog.add_action_callback("center_tool_panel") do |_context, _json|
+          Dialogs.center_tool_panel
+        end
+
         dialog.add_action_callback("user_settings") do |_context, settings_json|
           settings = JSON.parse(settings_json, symbolize_names: true)
 

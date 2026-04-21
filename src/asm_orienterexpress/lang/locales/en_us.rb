@@ -118,6 +118,7 @@ module ASM_Extensions
               language_hint:      "You may need to restart SketchUp to update the language settings.",
               system_language:    "(system language)",
               context_menu:       "Display context menu",
+              center_tool_panel:  "Center tool panel on screen",
               reset_button:       "Show reset button",
               reset_settings:     "Reset settings",
               reset_confirm_body: "This will reset all settings to their default values. Are you sure?",

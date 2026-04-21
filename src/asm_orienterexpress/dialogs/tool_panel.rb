@@ -45,7 +45,7 @@ module ASM_Extensions
           preferences_key:  "asm_extensions.htmldialog.orienterexpress_tool_panel",
           style:            UI::HtmlDialog::STYLE_DIALOG,
           resizable:        false,
-          width:            490,
+          width:            470,
           height:           620,
           use_content_size: true
         }
@@ -134,6 +134,13 @@ module ASM_Extensions
         @tool_panel = nil
         @tool_panel_ready = false
         dialog.close
+      end
+
+      def self.center_tool_panel
+        open_tool_panel unless tool_panel_visible?
+        return unless @tool_panel
+        @tool_panel.center
+        @tool_panel.bring_to_front
       end
 
       def self.push_tool_panel_i18n

@@ -293,6 +293,13 @@
                       <label class="custom-control-label" for="settingsContextMenu">{{ t('html.settings.context_menu') }}</label>
                     </div>
 
+                    <!-- Center Tool Panel -->
+                    <div class="mt-2">
+                      <button type="button" class="btn btn-outline-secondary" @click="centerToolPanel">
+                        {{ t('html.settings.center_tool_panel') }}
+                      </button>
+                    </div>
+
                     <!-- Show Reset Button -->
                     <div class="custom-control custom-switch">
                       <input type="checkbox" class="custom-control-input" v-model="showReset" id="showReset">
@@ -561,6 +568,11 @@
         },
         openUrl(url) {
           window.open(url);
+        },
+        centerToolPanel() {
+          if (window.sketchup && window.sketchup.center_tool_panel) {
+            window.sketchup.center_tool_panel("{}");
+          }
         }
       },
       computed: {
