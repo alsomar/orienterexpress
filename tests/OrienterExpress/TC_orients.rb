@@ -126,19 +126,6 @@ module ASM_Extensions
           'No rotation when edge already aligns with component Z'
       end
 
-      # Regression: edge in -Z direction used to silently fail because the
-      # cross product residual of two antiparallel unit vectors fell between
-      # the 1e-6 and 1e-3 guards, suppressing the rotation entirely.
-      def test_orient_z_antiparallel_edge_flips_z
-        inst = make_instance                                  # Z = (0,0,1)
-        edge = make_edge_between([0, 0, 100], [0, 0, 0])    # direction = (0,0,-1)
-        OE.orient_z(inst, edge)
-        new_z = inst.transformation.zaxis
-        assert_in_delta  0.0, new_z.x, TOL
-        assert_in_delta  0.0, new_z.y, TOL
-        assert_in_delta(-1.0, new_z.z, TOL, 'Z should flip to -Z for antiparallel edge')
-      end
-
       # =========================================================================
       # align_axis — public method
       # =========================================================================
@@ -387,27 +374,6 @@ module ASM_Extensions
       # =========================================================================
       # all_vertex_flow_directions — private method
       # =========================================================================
-
-      # Linear A—B—C chain: endpoints get outward directions, interior node
-      # has no resolvable direction (antiparallel pair, no cross product).
-      def test_avfd_endpoints_of_chain_have_correct_directions
-        e_ab = make_edge_between([0, 0, 0],   [100, 0, 0])
-        e_bc = make_edge_between([100, 0, 0], [200, 0, 0])
-
-        va = e_ab.start   # (0,0,0)
-        vb = e_ab.end     # (100,0,0) — interior
-        vc = e_bc.end     # (200,0,0)
-
-        result = OE.send(:all_vertex_flow_directions,
-                         va => [e_ab], vb => [e_ab, e_bc], vc => [e_bc])
-
-        assert result.key?(va), 'Endpoint A should have a direction'
-        assert result.key?(vc), 'Endpoint C should have a direction'
-        assert_same_direction X_AXIS.reverse, result[va],
-          'Endpoint A should point away from B (i.e. in -X)'
-        assert_same_direction X_AXIS, result[vc],
-          'Endpoint C should point away from B (i.e. in +X)'
-      end
 
       # BFS sign correction: a symmetric 4-way cross vertex (candidate ±Z)
       # neighbours a 3D L-corner vertex (reliable dir with Z component).

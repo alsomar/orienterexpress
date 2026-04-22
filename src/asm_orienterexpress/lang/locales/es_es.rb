@@ -142,7 +142,7 @@ module ASM_Extensions
               offset_x:           "Desfase X",
               offset_y:           "Desfase Y",
               offset_z:           "Desfase Z",
-              offset_alignment:   "Desfase eje",
+              offset_alignment:   "Desfase tangente",
               offset_normal:      "Desfase normal",
               steps:            "Magnitudes",
               roll_step:        "Incremento de <strong>giro</strong>",
@@ -153,7 +153,7 @@ module ASM_Extensions
               default_offset_z: "<strong>Desfase Z</strong> por defecto",
               remember_offset:  "Recordar <strong>desfase</strong>",
               remember_roll:    "Recordar <strong>giro</strong>",
-              smooth_groups:  "Tratar superficies suavizadas como una única cara"
+              smooth_groups:    "Tratar superficies suavizadas como una única cara"
             },
             tool_panel: {
               title:    "Herramientas",

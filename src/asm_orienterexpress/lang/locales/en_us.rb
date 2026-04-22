@@ -142,7 +142,7 @@ module ASM_Extensions
               offset_x:           "Offset X",
               offset_y:           "Offset Y",
               offset_z:           "Offset Z",
-              offset_alignment:   "Offset axis",
+              offset_alignment:   "Offset tangent",
               offset_normal:      "Offset normal",
               steps:            "Magnitudes",
               roll_step:        "<strong>Roll</strong> increment",

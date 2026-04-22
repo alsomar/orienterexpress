@@ -6,15 +6,21 @@ module ASM_Extensions
   module OrienterExpress
     class TC_config < TestUp::TestCase
 
-      EXPECTED_KEYS = %i[
+      OFFSET_AXES = %i[x y z align normal].freeze
+      TOOL_KEYS   = %i[oevertex oecenter oeaxisscale oeuscale oesurface oeflow].freeze
+
+      EXPECTED_KEYS = (%i[
         language context_menu
         rotation_mode pivot_custom smooth_groups
-        roll_step offset_step default_roll default_offset
+        roll_step offset_step default_roll
+        offset_frame offset_enabled
         remember_offset remember_roll
         dark_mode debug_mode
-        oevertex_offset oecenter_offset oeaxisscale_offset oeuscale_offset oesurface_offset oeflow_offset
-        oevertex_roll oecenter_roll oeaxisscale_roll oeuscale_roll oesurface_roll oeflow_roll
-      ].freeze
+      ] +
+        OFFSET_AXES.map { |a| "default_offset_#{a}".to_sym } +
+        TOOL_KEYS.flat_map { |t| OFFSET_AXES.map { |a| "#{t}_offset_#{a}".to_sym } } +
+        TOOL_KEYS.map { |t| "#{t}_roll".to_sym }
+      ).freeze
 
       # Keys sent by the frontend's currentSettings() — debug_mode is excluded intentionally
       FRONTEND_KEYS = (EXPECTED_KEYS - %i[debug_mode]).freeze
@@ -45,9 +51,12 @@ module ASM_Extensions
       end
 
       def test_default_per_tool_offset_and_roll_are_nil
-        %i[oevertex oecenter oeaxisscale oeuscale oesurface oeflow].each do |tool|
-          assert_nil DEFAULT_CONFIG["#{tool}_offset".to_sym], "#{tool}_offset should default to nil"
-          assert_nil DEFAULT_CONFIG["#{tool}_roll".to_sym],   "#{tool}_roll should default to nil"
+        TOOL_KEYS.each do |tool|
+          OFFSET_AXES.each do |axis|
+            key = "#{tool}_offset_#{axis}".to_sym
+            assert_nil DEFAULT_CONFIG[key], "#{key} should default to nil"
+          end
+          assert_nil DEFAULT_CONFIG["#{tool}_roll".to_sym], "#{tool}_roll should default to nil"
         end
       end
 
@@ -135,21 +144,21 @@ module ASM_Extensions
       # --- load_offset_str / default_offset_str ---
 
       def test_default_offset_str_matches_load_with_nil_key
-        CONFIG[:default_offset] = "3cm"
+        CONFIG[:default_offset_z] = "3cm"
         assert_equal OrienterExpress.load_offset_str(nil),
                      OrienterExpress.default_offset_str
       end
 
       def test_load_offset_str_falls_back_to_default_when_per_tool_nil
-        CONFIG[:default_offset]   = "2cm"
-        CONFIG[:oevertex_offset]  = nil
+        CONFIG[:default_offset_z]  = "2cm"
+        CONFIG[:oevertex_offset_z] = nil
         assert_equal OrienterExpress.default_offset_str,
                      OrienterExpress.load_offset_str(:oevertex_offset)
       end
 
       def test_load_offset_str_prefers_stored_value_over_default
-        CONFIG[:default_offset]  = "0cm"
-        CONFIG[:oevertex_offset] = "5cm"
+        CONFIG[:default_offset_z]  = "0cm"
+        CONFIG[:oevertex_offset_z] = "5cm"
         refute_equal OrienterExpress.default_offset_str,
                      OrienterExpress.load_offset_str(:oevertex_offset)
       end

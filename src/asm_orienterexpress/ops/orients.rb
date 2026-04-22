@@ -656,19 +656,27 @@ module ASM_Extensions
 
       # BFS sign propagation from reliable to candidates via ALL connected
       # edges (so the signal reaches inner vertices with partial selections).
+      # Sum dots from ALL reliable neighbours so a single tangential neighbour
+      # cannot flip the sign arbitrarily (majority vote is order-independent).
       visited = reliable.keys.dup
       queue   = reliable.keys.dup
       until queue.empty?
-        v   = queue.shift
-        dir = reliable[v]
+        v = queue.shift
         v.edges.each do |edge|
           neighbor = (edge.start == v) ? edge.end : edge.start
           next if visited.include?(neighbor)
           next unless candidates.key?(neighbor)
-          cross = candidates[neighbor]
-          dot   = dir.dot(cross)
-          next if dot.abs < 0.1
-          reliable[neighbor] = dot >= 0 ? cross : cross.reverse
+
+          cross     = candidates[neighbor]
+          total_dot = 0.0
+          neighbor.edges.each do |ne|
+            n2 = (ne.start == neighbor) ? ne.end : ne.start
+            rd = reliable[n2]
+            total_dot += rd.dot(cross) if rd
+          end
+          next if total_dot.abs < 0.1
+
+          reliable[neighbor] = total_dot >= 0 ? cross : cross.reverse
           candidates.delete(neighbor)
           visited << neighbor
           queue   << neighbor
@@ -934,23 +942,30 @@ module ASM_Extensions
       end
 
       # BFS: propagate sign from reliable to candidates along shared edges.
+      # For each candidate, sum dots from ALL reliable neighbours to decide the
+      # sign — a single tangential neighbour can flip the sign arbitrarily, so
+      # majority voting is more robust and deterministic.
       visited = reliable.keys.dup
       queue   = reliable.keys.dup
 
       until queue.empty?
-        v   = queue.shift
-        dir = reliable[v]
+        v = queue.shift
 
         vertex_edges[v].each do |edge|
           neighbor = (edge.start == v) ? edge.end : edge.start
           next if visited.include?(neighbor)
           next unless candidates.key?(neighbor)
 
-          cross = candidates[neighbor]
-          dot   = dir.dot(cross)
-          next if dot.abs < 0.1   # in-plane neighbour — not useful for sign
+          cross     = candidates[neighbor]
+          total_dot = 0.0
+          vertex_edges[neighbor].each do |ne|
+            n2 = (ne.start == neighbor) ? ne.end : ne.start
+            rd = reliable[n2]
+            total_dot += rd.dot(cross) if rd
+          end
+          next if total_dot.abs < 0.1
 
-          reliable[neighbor] = dot >= 0 ? cross : cross.reverse
+          reliable[neighbor] = total_dot >= 0 ? cross : cross.reverse
           candidates.delete(neighbor)
           visited << neighbor
           queue   << neighbor
@@ -960,6 +975,7 @@ module ASM_Extensions
       result = reliable.merge(candidates)
       diffuse_flow_directions(result, vertex_edges)
       inherit_endpoint_dirs(result, vertex_edges)
+
       result
     end
 
@@ -973,8 +989,16 @@ module ASM_Extensions
       edges.each do |edge|
         w = (edge.start == vertex) ? edge.end : edge.start
         next unless dirs.key?(w)
+        arm = w.position - vertex.position
+        next if arm.length < 1e-9
+        ax = arm.x.to_f; ay = arm.y.to_f; az = arm.z.to_f
+        alen = Math.sqrt(ax * ax + ay * ay + az * az)
+        ax /= alen; ay /= alen; az /= alen
         d = dirs[w].reverse
-        sx += d.x; sy += d.y; sz += d.z
+        scalar = d.x * ax + d.y * ay + d.z * az
+        sx += ax * scalar
+        sy += ay * scalar
+        sz += az * scalar
         count += 1
       end
       return nil if count.zero?
