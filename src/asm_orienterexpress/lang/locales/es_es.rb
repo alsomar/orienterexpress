@@ -70,7 +70,7 @@ module ASM_Extensions
               desc_auto:                 "Haz clic sobre un componente",
               desc_reference_ref:        "Haz clic sobre una arista/cara o componente/grupo",
               desc_reference_target:     "Haz clic sobre un componente/grupo",
-              vcb_hint_entity:           "TAB = eje (%<axis>s)  |  ALT = modo (%<mode>s)",
+              vcb_hint_entity:           "CTRL + Clic = profundo (instancia interna)  |  TAB = eje (%<axis>s)  |  ALT = modo (%<mode>s)",
               vcb_hint_auto:             "ALT = modo (%<mode>s)",
               vcb_hint_reference_ref:    "TAB = eje (%<axis>s)  |  ALT = modo (%<mode>s)",
               vcb_hint_reference_target: "CTRL + Clic = fijar nueva referencia  |  TAB = eje (%<axis>s)  |  ALT = modo (%<mode>s)",

@@ -45,6 +45,23 @@ module ASM_Extensions
         def to_str
           to_s
         end
+
+        # Chained access on a missing/leaf node returns another Leaf so callers
+        # like `Lang.commands.oealigner.mode_entity` degrade to a "⚠ missing"
+        # string instead of NoMethodError when the lang dictionary is empty
+        # (e.g. tool reloaded but Lang.configure not re-run).
+        def [](key)
+          Leaf.new(@path + [key.to_sym], nil, nil)
+        end
+
+        def method_missing(name, *args, &block)
+          return super unless args.empty? && block.nil?
+          self[name]
+        end
+
+        def respond_to_missing?(_name, _include_private = false)
+          true
+        end
       end
 
       # Navigation node for hierarchical language keys

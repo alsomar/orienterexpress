@@ -70,7 +70,7 @@ module ASM_Extensions
               desc_auto:                 "Click on a component",
               desc_reference_ref:        "Click on a reference edge, face, or component",
               desc_reference_target:     "Click on a component or group",
-              vcb_hint_entity:           "TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
+              vcb_hint_entity:           "CTRL + Click = deep (inner instance)  |  TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
               vcb_hint_auto:             "ALT = mode (%<mode>s)",
               vcb_hint_reference_ref:    "TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
               vcb_hint_reference_target: "CTRL + Click = set new reference  |  TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",

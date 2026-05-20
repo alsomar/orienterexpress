@@ -5093,6 +5093,9 @@ module ASM_Extensions
         @mode           = @@last_mode
         @lock_axis      = @@last_lock_axis
         @alt_handled    = false
+        @mod_ctrl       = false
+        @hover_parent_t = nil
+        @hover_path     = nil
         @hover_kind     = nil
         @hover_entity   = nil
         @hover_loops    = nil
@@ -5136,6 +5139,9 @@ module ASM_Extensions
       end
 
       def onMouseMove(_flags, x, y, view)
+        # Don't read flags here: SU clears modifier bits between keydown and
+        # the next onMouseMove, so reading them resets @mod_ctrl to false
+        # every time the mouse twitches. Trust onKeyDown/onKeyUp instead.
         @last_x = x
         @last_y = y
         pick_at(x, y, view)
@@ -5163,24 +5169,50 @@ module ASM_Extensions
       end
 
       def pick_entity(ph, view, force_recapture: false)
-        leaf = nil; outer = nil; t_world = nil
+        leaf = nil; outer = nil; t_world = nil; parent_t = nil; chain = nil
         ph.count.times do |i|
           cand_leaf = ph.leaf_at(i)
           next unless cand_leaf.is_a?(Sketchup::Face) || cand_leaf.is_a?(Sketchup::Edge)
           path = ph.path_at(i) || []
-          candidate = path.first
-          next unless candidate.is_a?(Sketchup::ComponentInstance) || candidate.is_a?(Sketchup::Group)
-          leaf    = cand_leaf
-          outer   = candidate
-          t_world = ph.transformation_at(i)
+          # Walk wrappers in path multiplying transforms. parent_t is the
+          # running product STRICTLY BEFORE the chosen candidate (so for the
+          # outermost cand → identity; for the deepest cand → product of
+          # everything above it). We use parent_t * instance.bounds.corner
+          # in draw_bbox so we never touch definition.bounds, which has been
+          # flaky for groups in nested copies.
+          running_t  = Geom::Transformation.new
+          cand       = nil
+          cand_pt    = Geom::Transformation.new
+          cand_chain = []
+          path.each do |e|
+            next unless e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
+            if cand.nil? || @mod_ctrl
+              cand    = e
+              cand_pt = running_t
+              cand_chain << e
+            end
+            running_t = running_t * e.transformation
+            break unless @mod_ctrl
+          end
+          next if cand.nil?
+          leaf     = cand_leaf
+          outer    = cand
+          parent_t = cand_pt
+          t_world  = ph.transformation_at(i)
+          chain    = cand_chain
           break
         end
 
         changed = force_recapture || (leaf != @hover_entity) || (outer != @hovered)
         if changed
-          @hover_entity = leaf
-          @hovered      = outer
+          @hover_entity   = leaf
+          @hovered        = outer
           clear_hover_geom
+          # Assigned AFTER clear_hover_geom — otherwise the clear nils it out
+          # right after we set it, and draw_bbox falls back to identity (which
+          # makes nested bboxes draw at the world origin = the "original").
+          @hover_parent_t = parent_t
+          @hover_path     = chain
           if leaf && t_world
             case leaf
             when Sketchup::Face then capture_hover_face(leaf, t_world)
@@ -5257,7 +5289,7 @@ module ASM_Extensions
                        when :reference then invalid ? INVALID_RED : CYAN
                        else                 FUCHSIA
                        end
-            draw_bbox(view, eye, @hovered, bb_color, fill: invalid)
+            draw_bbox(view, eye, @hovered, bb_color, fill: invalid, parent_t: @hover_parent_t)
           end
         end
 
@@ -5275,10 +5307,19 @@ module ASM_Extensions
         end
       end
 
-      def draw_bbox(view, eye, instance, color, fill: false)
-        t       = instance.transformation
-        def_bb  = instance.definition.bounds
-        corners = 8.times.map { |i| t * def_bb.corner(i) }
+      def draw_bbox(view, eye, instance, color, fill: false, parent_t: nil)
+        # We use instance.bounds (AABB already in the parent's frame — applies
+        # instance.transformation internally) and lift it to world via parent_t.
+        # Avoids instance.definition.bounds, which has been unreliable for
+        # nested group copies (the user observed shared-definition copies
+        # highlighting at the "original" location).
+        inst_bb = instance.bounds
+        corners =
+          if parent_t
+            8.times.map { |i| parent_t * inst_bb.corner(i) }
+          else
+            8.times.map { |i| inst_bb.corner(i) }
+          end
         if fill
           view.drawing_color = Sketchup::Color.new(color.red, color.green, color.blue, 80)
           BB_FACES.each do |quad|
@@ -5440,24 +5481,89 @@ module ASM_Extensions
         end
       end
 
-      def onKeyDown(key, _repeat, _flags, view)
+      def onKeyDown(key, _repeat, flags, view)
         case key
         when 18 # Alt — cycle mode (entity → reference → auto)
           toggle_mode(view)
           @alt_handled = true
         when 9  # Tab — cycle axis (entity or reference mode)
           cycle_axis(view) if @mode == :entity || @mode == :reference
+        when 17 # Ctrl — toggle "deep" pick (innermost wrapper) in :entity mode
+          set_mod_ctrl(true, view)
+        else
+          # Flags is reliable when the event key isn't itself a modifier.
+          set_mod_ctrl((flags & COPY_MODIFIER_MASK) != 0, view)
         end
       end
 
-      def onKeyUp(key, _repeat, _flags, view)
-        if key == 18 # Alt — fallback if key-down was swallowed by the OS
+      def onKeyUp(key, _repeat, flags, view)
+        case key
+        when 18 # Alt — fallback if key-down was swallowed by the OS
           toggle_mode(view) unless @alt_handled
           @alt_handled = false
+        when 17
+          set_mod_ctrl(false, view)
+        else
+          set_mod_ctrl((flags & COPY_MODIFIER_MASK) != 0, view)
         end
       end
 
       private
+
+      def set_mod_ctrl(value, view)
+        return if value == @mod_ctrl
+        @mod_ctrl = value
+        return unless @mode == :entity && @last_x && @last_y
+        pick_at(@last_x, @last_y, view, force_recapture: true)
+      end
+
+      # Walks chain (outermost → cand) calling make_unique on each linked
+      # Group. Each make_unique creates a new def with copies of the entities,
+      # so subsequent path entries become orphaned — we re-resolve them by
+      # the index they held in the previous wrapper's original definition.
+      # This mirrors auto's isolation guarantee (a click should only affect
+      # the clicked branch) for deeply nested deep-picks.
+      #
+      # Aborts if any wrapper in the chain is a ComponentInstance: components
+      # share their definition by design and the user prefers not to
+      # make_unique them, so any propagation through a component is
+      # unavoidable — making the groups above it unique would just bloat the
+      # model without isolating anything.
+      # Walks chain (outermost → cand) calling make_unique on each linked
+      # Group. Each make_unique creates a new def with copies of the entities,
+      # so subsequent path entries become orphaned — we re-resolve them by
+      # the index they held in the previous wrapper's original definition.
+      # Components in the path are skipped (no make_unique on them, per user
+      # preference) but we still descend through their definition; partial
+      # isolation is the best we can do when a shared component sits between
+      # cand and the root. Returns the cand reference inside the (possibly
+      # rebuilt) chain.
+      def isolate_linked_group_chain(chain, cand)
+        return cand if chain.nil? || chain.length < 2
+
+        # Capture original indices BEFORE any make_unique invalidates them.
+        indices = []
+        chain.each_cons(2) do |parent, child|
+          idx = parent.definition.entities.to_a.index(child)
+          return cand unless idx
+          indices << idx
+        end
+
+        current = chain.first
+        indices.each do |idx|
+          if current.is_a?(Sketchup::Group) && current.definition.instances.size > 1
+            current.make_unique
+          end
+          current = current.definition.entities[idx]
+          unless current.is_a?(Sketchup::ComponentInstance) || current.is_a?(Sketchup::Group)
+            return cand
+          end
+        end
+        if current.is_a?(Sketchup::Group) && current.definition.instances.size > 1
+          current.make_unique
+        end
+        current
+      end
 
       def toggle_mode(view)
         idx = MODE_CYCLE.index(@mode) || 0
@@ -5475,7 +5581,12 @@ module ASM_Extensions
         @@last_lock_axis = @lock_axis
         refresh_sample_direction
         update_vcb
+        # invalidate alone only marks the view dirty; without a follow-up
+        # mouse event the hover colours stay stale until the user un-hovers.
+        # refresh forces an immediate redraw so the new axis colour shows up
+        # the moment TAB is pressed.
         view.invalidate
+        view.refresh
       end
 
       def promote_hovered_to_sample(view)
@@ -5538,6 +5649,8 @@ module ASM_Extensions
         @hover_dir      = nil
         @hover_fill_pts = nil
         @hover_centroid = nil
+        @hover_parent_t = nil
+        @hover_path     = nil
       end
 
       def clear_reference
@@ -5626,6 +5739,7 @@ module ASM_Extensions
           end
           @model.commit_operation
           @model.active_view.invalidate
+          @model.active_view.refresh
         rescue => e
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")
@@ -5660,6 +5774,7 @@ module ASM_Extensions
             view = @model.active_view
             pick_at(@last_x, @last_y, view, force_recapture: true) if @last_x && @last_y
             view.invalidate
+            view.refresh
           rescue => e
             @model.abort_operation
             UI.messagebox("Error: #{e.message}")
@@ -5667,7 +5782,19 @@ module ASM_Extensions
           return
         end
 
-        return if axis_already_aligned?(instance, dir_world, lock_axis)
+        # align_to_direction_lock operates in the instance's parent frame
+        # (its `t = instance.transformation` is parent-local). Convert the
+        # world-space direction into that frame so picks on nested instances
+        # don't mix coord systems and silently misalign.
+        dir_local = dir_world
+        if @hover_parent_t && !@hover_parent_t.identity?
+          raw = @hover_parent_t.inverse * dir_world
+          rl  = raw.length
+          return if rl < 1e-12
+          dir_local = Geom::Vector3d.new(raw.x / rl, raw.y / rl, raw.z / rl)
+        end
+
+        return if axis_already_aligned?(instance, dir_local, lock_axis)
         z_pre = instance.transformation.zaxis
         x_pre = instance.transformation.xaxis
         # :entity → full-component min-BB (slower but picks the rotation that
@@ -5676,7 +5803,14 @@ module ASM_Extensions
         use_min_bb = @mode == :entity
         @model.start_operation("Orienter Express: Direction-Lock Alignment", true)
         begin
-          OrienterExpress.send(:align_to_direction_lock, instance, dir_world, lock_axis,
+          # Walk down @hover_path making_unique each linked Group ancestor so
+          # the rotation doesn't propagate through shared outer chains. Each
+          # make_unique creates a new def with copies, so we re-index into
+          # the new def by the original positional index to find the
+          # corresponding next wrapper. After the walk, `instance` is the
+          # cand inside the now-unique chain.
+          instance = isolate_linked_group_chain(@hover_path, instance) if @hover_path
+          OrienterExpress.send(:align_to_direction_lock, instance, dir_local, lock_axis,
                                z_pre, x_pre, min_bb: use_min_bb)
           @model.commit_operation
           clear_hover
@@ -5685,6 +5819,7 @@ module ASM_Extensions
             pick_at(@last_x, @last_y, view, force_recapture: true)
           end
           view.invalidate
+          view.refresh
         rescue => e
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")
