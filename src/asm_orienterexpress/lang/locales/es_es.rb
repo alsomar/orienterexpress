@@ -153,7 +153,8 @@ module ASM_Extensions
               default_offset_z: "<strong>Desfase Z</strong> por defecto",
               remember_offset:  "Recordar <strong>desfase</strong>",
               remember_roll:    "Recordar <strong>giro</strong>",
-              smooth_groups:    "Tratar superficies suavizadas como una única cara"
+              smooth_groups:    "Tratar superficies suavizadas como una única cara",
+              ignore_soft_edges: "Ignorar aristas suavizadas"
             },
             tool_panel: {
               title:    "Herramientas",

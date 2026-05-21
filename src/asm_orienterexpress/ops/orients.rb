@@ -1687,6 +1687,12 @@ module ASM_Extensions
         %i[base center origin].select { |p| list.include?(p) }
       end
 
+      # Hooks for tool-specific panel controls. Defaults are empty; subclasses
+      # (e.g. OESurfaceTool) override to inject their own fields/values.
+      # Fields are appended to the schema so they appear at the bottom.
+      def panel_extra_fields; []; end
+      def panel_extra_values; {}; end
+
       def panel_schema
         pivot_default =
           if self.class.respond_to?(:config_prefix)
@@ -1761,6 +1767,7 @@ module ASM_Extensions
                     'scrollable' => true, 'resettable' => true,
                     'label' => Lang.t(:html, :settings, :default_roll).to_s.gsub(/<[^>]+>/, ''),
                     'step' => 1, 'min' => 0, 'max' => 359 }
+        schema.concat(panel_extra_fields)
         schema
       end
 
@@ -1784,6 +1791,7 @@ module ASM_Extensions
         }
         values['rotation_mode'] = (@rotation_mode || :ground).to_s if defined?(@rotation_mode) && !@rotation_mode.nil?
         values['scale_axis'] = (@scale_axis || :z).to_s if instance_variable_defined?(:@scale_axis)
+        values.merge!(panel_extra_values)
 
         {
           'tool'     => key.to_s,
@@ -1858,6 +1866,20 @@ module ASM_Extensions
           @offset_enabled = enabled
           OrienterExpress.user_settings(offset_enabled: enabled)
           update_vcb
+          apply
+        when :ignore_soft_edges
+          return unless instance_variable_defined?(:@smooth_groups)
+          # Ignoring soft edges merges the surface → ON maps directly to
+          # @smooth_groups (one copy per surface); OFF = one per face.
+          grouping = value == true || value.to_s == 'on' || value.to_s == 'true'
+          return if grouping == @smooth_groups
+          # Set @smooth_groups BEFORE user_settings: refresh_tool_panel fires
+          # inside user_settings (before on_config_changed), so it must read
+          # the new value or the switch reverts and needs a second click.
+          # on_config_changed then no-ops since the ivar already matches.
+          @smooth_groups = grouping
+          @first_apply   = true
+          OrienterExpress.user_settings(smooth_groups: grouping)
           apply
         when :offset_frame
           sym = value.to_s.to_sym
@@ -3550,7 +3572,26 @@ module ASM_Extensions
           @smooth_groups = new_val
           @first_apply   = true
           apply
+          # Settings-dialog path: refresh_tool_panel already ran inside
+          # user_settings with the stale ivar, so push the corrected state.
+          notify_panel
         end
+      end
+
+      # Surface-tool-only panel control: a switch to ignore softened edges
+      # live from the floating panel. Ignoring the soft edges merges a
+      # smoothed surface into one unit, so ON == @smooth_groups (one copy
+      # per surface); OFF places one copy per face.
+      def panel_extra_fields
+        [{
+          'key'   => 'ignore_soft_edges',
+          'type'  => 'switch',
+          'label' => Lang.t(:html, :settings, :ignore_soft_edges).to_s
+        }]
+      end
+
+      def panel_extra_values
+        { 'ignore_soft_edges' => @smooth_groups ? 'on' : 'off' }
       end
 
       private
@@ -3738,6 +3779,10 @@ module ASM_Extensions
           @first_apply = false
           @applied     = true
           @model.active_view.invalidate
+          # refresh forces an immediate redraw; without it a config-driven
+          # re-apply (e.g. toggling smooth_groups from a dialog) leaves the
+          # viewport stale until the next mouse/keyboard event.
+          @model.active_view.refresh
         rescue => e
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")

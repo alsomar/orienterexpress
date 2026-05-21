@@ -153,7 +153,8 @@ module ASM_Extensions
               default_offset_z: "Default <strong>offset Z</strong>",
               remember_offset:  "Remember <strong>offset</strong>",
               remember_roll:    "Remember <strong>roll</strong>",
-              smooth_groups:  "Treat smooth surfaces as a single face"
+              smooth_groups:  "Treat smooth surfaces as a single face",
+              ignore_soft_edges: "Ignore softened edges"
             },
             tool_panel: {
               title:    "Tools",
