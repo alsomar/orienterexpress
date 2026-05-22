@@ -1687,9 +1687,7 @@ module ASM_Extensions
         %i[base center origin].select { |p| list.include?(p) }
       end
 
-      # Hooks for tool-specific panel controls. Defaults are empty; subclasses
-      # (e.g. OESurfaceTool) override to inject their own fields/values.
-      # Fields are appended to the schema so they appear at the bottom.
+      # Tool-specific panel controls, appended at the bottom. Overridden by subclasses.
       def panel_extra_fields; []; end
       def panel_extra_values; {}; end
 
@@ -1869,14 +1867,9 @@ module ASM_Extensions
           apply
         when :ignore_soft_edges
           return unless instance_variable_defined?(:@smooth_groups)
-          # Ignoring soft edges merges the surface → ON maps directly to
-          # @smooth_groups (one copy per surface); OFF = one per face.
           grouping = value == true || value.to_s == 'on' || value.to_s == 'true'
           return if grouping == @smooth_groups
-          # Set @smooth_groups BEFORE user_settings: refresh_tool_panel fires
-          # inside user_settings (before on_config_changed), so it must read
-          # the new value or the switch reverts and needs a second click.
-          # on_config_changed then no-ops since the ivar already matches.
+          # set before user_settings so refresh_tool_panel reads it (else switch reverts)
           @smooth_groups = grouping
           @first_apply   = true
           OrienterExpress.user_settings(smooth_groups: grouping)
@@ -3572,16 +3565,11 @@ module ASM_Extensions
           @smooth_groups = new_val
           @first_apply   = true
           apply
-          # Settings-dialog path: refresh_tool_panel already ran inside
-          # user_settings with the stale ivar, so push the corrected state.
-          notify_panel
+          notify_panel # settings-dialog path: panel was refreshed with the stale value
         end
       end
 
-      # Surface-tool-only panel control: a switch to ignore softened edges
-      # live from the floating panel. Ignoring the soft edges merges a
-      # smoothed surface into one unit, so ON == @smooth_groups (one copy
-      # per surface); OFF places one copy per face.
+      # ON merges a smoothed surface (== @smooth_groups); OFF is one copy per face.
       def panel_extra_fields
         [{
           'key'   => 'ignore_soft_edges',
@@ -3779,10 +3767,7 @@ module ASM_Extensions
           @first_apply = false
           @applied     = true
           @model.active_view.invalidate
-          # refresh forces an immediate redraw; without it a config-driven
-          # re-apply (e.g. toggling smooth_groups from a dialog) leaves the
-          # viewport stale until the next mouse/keyboard event.
-          @model.active_view.refresh
+          @model.active_view.refresh # redraw now; dialog re-apply has no follow-up event
         rescue => e
           @model.abort_operation
           UI.messagebox("Error: #{e.message}")
@@ -5184,9 +5169,7 @@ module ASM_Extensions
       end
 
       def onMouseMove(_flags, x, y, view)
-        # Don't read flags here: SU clears modifier bits between keydown and
-        # the next onMouseMove, so reading them resets @mod_ctrl to false
-        # every time the mouse twitches. Trust onKeyDown/onKeyUp instead.
+        # don't read flags: SU clears the modifier bit between events; trust onKeyDown/Up
         @last_x = x
         @last_y = y
         pick_at(x, y, view)
@@ -5219,12 +5202,7 @@ module ASM_Extensions
           cand_leaf = ph.leaf_at(i)
           next unless cand_leaf.is_a?(Sketchup::Face) || cand_leaf.is_a?(Sketchup::Edge)
           path = ph.path_at(i) || []
-          # Walk wrappers in path multiplying transforms. parent_t is the
-          # running product STRICTLY BEFORE the chosen candidate (so for the
-          # outermost cand → identity; for the deepest cand → product of
-          # everything above it). We use parent_t * instance.bounds.corner
-          # in draw_bbox so we never touch definition.bounds, which has been
-          # flaky for groups in nested copies.
+          # parent_t = product of wrappers above the chosen cand (identity for outermost)
           running_t  = Geom::Transformation.new
           cand       = nil
           cand_pt    = Geom::Transformation.new
@@ -5253,10 +5231,7 @@ module ASM_Extensions
           @hover_entity   = leaf
           @hovered        = outer
           clear_hover_geom
-          # Assigned AFTER clear_hover_geom — otherwise the clear nils it out
-          # right after we set it, and draw_bbox falls back to identity (which
-          # makes nested bboxes draw at the world origin = the "original").
-          @hover_parent_t = parent_t
+          @hover_parent_t = parent_t # after clear_hover_geom, which nils it
           @hover_path     = chain
           if leaf && t_world
             case leaf
@@ -5353,18 +5328,11 @@ module ASM_Extensions
       end
 
       def draw_bbox(view, eye, instance, color, fill: false, parent_t: nil)
-        # We use instance.bounds (AABB already in the parent's frame — applies
-        # instance.transformation internally) and lift it to world via parent_t.
-        # Avoids instance.definition.bounds, which has been unreliable for
-        # nested group copies (the user observed shared-definition copies
-        # highlighting at the "original" location).
-        inst_bb = instance.bounds
-        corners =
-          if parent_t
-            8.times.map { |i| parent_t * inst_bb.corner(i) }
-          else
-            8.times.map { |i| inst_bb.corner(i) }
-          end
+        # definition.bounds in the local frame so corners follow the local axes
+        # (instance.bounds would be a parent-axis-aligned AABB)
+        t       = parent_t ? parent_t * instance.transformation : instance.transformation
+        def_bb  = instance.definition.bounds
+        corners = 8.times.map { |i| t * def_bb.corner(i) }
         if fill
           view.drawing_color = Sketchup::Color.new(color.red, color.green, color.blue, 80)
           BB_FACES.each do |quad|
@@ -5533,17 +5501,16 @@ module ASM_Extensions
           @alt_handled = true
         when 9  # Tab — cycle axis (entity or reference mode)
           cycle_axis(view) if @mode == :entity || @mode == :reference
-        when 17 # Ctrl — toggle "deep" pick (innermost wrapper) in :entity mode
+        when 17 # Ctrl — deep pick
           set_mod_ctrl(true, view)
         else
-          # Flags is reliable when the event key isn't itself a modifier.
           set_mod_ctrl((flags & COPY_MODIFIER_MASK) != 0, view)
         end
       end
 
       def onKeyUp(key, _repeat, flags, view)
         case key
-        when 18 # Alt — fallback if key-down was swallowed by the OS
+        when 18 # Alt
           toggle_mode(view) unless @alt_handled
           @alt_handled = false
         when 17
@@ -5562,31 +5529,13 @@ module ASM_Extensions
         pick_at(@last_x, @last_y, view, force_recapture: true)
       end
 
-      # Walks chain (outermost → cand) calling make_unique on each linked
-      # Group. Each make_unique creates a new def with copies of the entities,
-      # so subsequent path entries become orphaned — we re-resolve them by
-      # the index they held in the previous wrapper's original definition.
-      # This mirrors auto's isolation guarantee (a click should only affect
-      # the clicked branch) for deeply nested deep-picks.
-      #
-      # Aborts if any wrapper in the chain is a ComponentInstance: components
-      # share their definition by design and the user prefers not to
-      # make_unique them, so any propagation through a component is
-      # unavoidable — making the groups above it unique would just bloat the
-      # model without isolating anything.
-      # Walks chain (outermost → cand) calling make_unique on each linked
-      # Group. Each make_unique creates a new def with copies of the entities,
-      # so subsequent path entries become orphaned — we re-resolve them by
-      # the index they held in the previous wrapper's original definition.
-      # Components in the path are skipped (no make_unique on them, per user
-      # preference) but we still descend through their definition; partial
-      # isolation is the best we can do when a shared component sits between
-      # cand and the root. Returns the cand reference inside the (possibly
-      # rebuilt) chain.
+      # make_unique each linked Group from root to cand, re-indexing into each
+      # new def. Components are skipped (descended through), so isolation is
+      # partial when one sits in the chain. Returns the resolved cand.
       def isolate_linked_group_chain(chain, cand)
         return cand if chain.nil? || chain.length < 2
 
-        # Capture original indices BEFORE any make_unique invalidates them.
+        # indices captured before make_unique invalidates the references
         indices = []
         chain.each_cons(2) do |parent, child|
           idx = parent.definition.entities.to_a.index(child)
@@ -5626,12 +5575,8 @@ module ASM_Extensions
         @@last_lock_axis = @lock_axis
         refresh_sample_direction
         update_vcb
-        # invalidate alone only marks the view dirty; without a follow-up
-        # mouse event the hover colours stay stale until the user un-hovers.
-        # refresh forces an immediate redraw so the new axis colour shows up
-        # the moment TAB is pressed.
         view.invalidate
-        view.refresh
+        view.refresh # TAB has no follow-up event, so redraw now
       end
 
       def promote_hovered_to_sample(view)
@@ -5827,10 +5772,7 @@ module ASM_Extensions
           return
         end
 
-        # align_to_direction_lock operates in the instance's parent frame
-        # (its `t = instance.transformation` is parent-local). Convert the
-        # world-space direction into that frame so picks on nested instances
-        # don't mix coord systems and silently misalign.
+        # align_to_direction_lock works in the parent frame; convert dir for nested picks
         dir_local = dir_world
         if @hover_parent_t && !@hover_parent_t.identity?
           raw = @hover_parent_t.inverse * dir_world
@@ -5848,12 +5790,6 @@ module ASM_Extensions
         use_min_bb = @mode == :entity
         @model.start_operation("Orienter Express: Direction-Lock Alignment", true)
         begin
-          # Walk down @hover_path making_unique each linked Group ancestor so
-          # the rotation doesn't propagate through shared outer chains. Each
-          # make_unique creates a new def with copies, so we re-index into
-          # the new def by the original positional index to find the
-          # corresponding next wrapper. After the walk, `instance` is the
-          # cand inside the now-unique chain.
           instance = isolate_linked_group_chain(@hover_path, instance) if @hover_path
           OrienterExpress.send(:align_to_direction_lock, instance, dir_local, lock_axis,
                                z_pre, x_pre, min_bb: use_min_bb)
