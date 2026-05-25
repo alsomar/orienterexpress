@@ -5089,7 +5089,6 @@ module ASM_Extensions
         [2, 3, 7, 6], [0, 2, 6, 4], [1, 5, 7, 3],
       ].freeze
 
-      MODE_CYCLE = [:entity, :reference, :auto].freeze
       AXIS_CYCLE = [:z, :x, :y].freeze
 
       AXIS_COLOR = {
@@ -5105,7 +5104,6 @@ module ASM_Extensions
       ORANGE      = Sketchup::Color.new(255, 165, 0).freeze
       INVALID_RED = Sketchup::Color.new(255, 0, 0).freeze
 
-      @@last_mode      = :entity
       @@last_lock_axis = :z
 
       def self.cursor_id
@@ -5116,13 +5114,12 @@ module ASM_Extensions
         end
       end
 
-      def initialize(instances)
+      def initialize(instances, mode = :entity)
         @model          = Sketchup.active_model
         @instances      = instances
         @hovered        = nil
-        @mode           = @@last_mode
+        @mode           = mode
         @lock_axis      = @@last_lock_axis
-        @alt_handled    = false
         @mod_ctrl       = false
         @hover_parent_t = nil
         @hover_path     = nil
@@ -5186,14 +5183,50 @@ module ASM_Extensions
         end
       end
 
-      def pick_auto(ph, view)
-        entity = ph.best_picked
-        candidate = (entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)) ? entity : nil
-        if candidate != @hovered
-          @hovered = candidate
-          clear_hover_geom
-          view.invalidate
+      # For a pick path returns [cand, parent_t, chain]: the outermost wrapper
+      # (or innermost when @mod_ctrl), the world transform of the wrappers above
+      # it, and the wrapper chain down to it.
+      def deepest_or_outer_wrapper(path)
+        running_t  = Geom::Transformation.new
+        cand       = nil
+        cand_pt    = Geom::Transformation.new
+        cand_chain = []
+        path.each do |e|
+          next unless e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
+          if cand.nil? || @mod_ctrl
+            cand    = e
+            cand_pt = running_t
+            cand_chain << e
+          end
+          running_t = running_t * e.transformation
+          break unless @mod_ctrl
         end
+        [cand, cand_pt, cand_chain]
+      end
+
+      # Front-most pick that resolves to a wrapper.
+      def front_wrapper(ph)
+        ph.count.times do |i|
+          cand, pt, chain = deepest_or_outer_wrapper(ph.path_at(i) || [])
+          return [cand, pt, chain] if cand
+        end
+        [nil, nil, nil]
+      end
+
+      # A shared instance can appear at several world positions (its parent is
+      # instanced), so the hover must also track parent_t, not just the entity.
+      def same_hover_parent_t?(pt)
+        (@hover_parent_t && @hover_parent_t.to_a) == (pt && pt.to_a)
+      end
+
+      def pick_auto(ph, view)
+        cand, parent_t, chain = front_wrapper(ph)
+        return if cand == @hovered && same_hover_parent_t?(parent_t)
+        @hovered = cand
+        clear_hover_geom
+        @hover_parent_t = parent_t
+        @hover_path     = chain
+        view.invalidate
       end
 
       def pick_entity(ph, view, force_recapture: false)
@@ -5201,23 +5234,8 @@ module ASM_Extensions
         ph.count.times do |i|
           cand_leaf = ph.leaf_at(i)
           next unless cand_leaf.is_a?(Sketchup::Face) || cand_leaf.is_a?(Sketchup::Edge)
-          path = ph.path_at(i) || []
-          # parent_t = product of wrappers above the chosen cand (identity for outermost)
-          running_t  = Geom::Transformation.new
-          cand       = nil
-          cand_pt    = Geom::Transformation.new
-          cand_chain = []
-          path.each do |e|
-            next unless e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group)
-            if cand.nil? || @mod_ctrl
-              cand    = e
-              cand_pt = running_t
-              cand_chain << e
-            end
-            running_t = running_t * e.transformation
-            break unless @mod_ctrl
-          end
-          next if cand.nil?
+          cand, cand_pt, cand_chain = deepest_or_outer_wrapper(ph.path_at(i) || [])
+          next unless cand
           leaf     = cand_leaf
           outer    = cand
           parent_t = cand_pt
@@ -5226,7 +5244,7 @@ module ASM_Extensions
           break
         end
 
-        changed = force_recapture || (leaf != @hover_entity) || (outer != @hovered)
+        changed = force_recapture || (leaf != @hover_entity) || (outer != @hovered) || !same_hover_parent_t?(parent_t)
         if changed
           @hover_entity   = leaf
           @hovered        = outer
@@ -5243,19 +5261,24 @@ module ASM_Extensions
         end
       end
 
-      # Prefers raw edges/faces (direction reference); falls back to a
-      # component/group hover, which is clickable either as a sample (no ref
-      # yet) or as an alignment target (ref already stored).
+      # Resolves the front-most pick to either a wrapper (component/group) or a
+      # raw model-root face/edge — whichever the cursor is actually over. Raw
+      # geometry behind a component no longer steals the hover.
       def pick_reference(ph, view, force_recapture: false)
+        instance = nil; parent_t = nil; chain = nil
         raw_leaf = nil; raw_t = nil
         ph.count.times do |i|
-          cand = ph.leaf_at(i)
-          next unless cand.is_a?(Sketchup::Face) || cand.is_a?(Sketchup::Edge)
-          path = ph.path_at(i) || []
-          next if path.any? { |e| e.is_a?(Sketchup::ComponentInstance) || e.is_a?(Sketchup::Group) }
-          raw_leaf = cand
-          raw_t    = ph.transformation_at(i) || Geom::Transformation.new
-          break
+          cand, pt, ch = deepest_or_outer_wrapper(ph.path_at(i) || [])
+          if cand
+            instance = cand; parent_t = pt; chain = ch
+            break
+          end
+          leaf = ph.leaf_at(i)
+          if leaf.is_a?(Sketchup::Face) || leaf.is_a?(Sketchup::Edge)
+            raw_leaf = leaf
+            raw_t    = ph.transformation_at(i) || Geom::Transformation.new
+            break
+          end
         end
 
         if raw_leaf
@@ -5274,20 +5297,12 @@ module ASM_Extensions
           return
         end
 
-        instance = nil
-        ph.count.times do |i|
-          path = ph.path_at(i) || []
-          inst = path.first
-          if inst.is_a?(Sketchup::ComponentInstance) || inst.is_a?(Sketchup::Group)
-            instance = inst
-            break
-          end
-        end
-
-        if instance != @hovered || @hover_entity
+        if instance != @hovered || @hover_entity || !same_hover_parent_t?(parent_t)
           @hovered      = instance
           @hover_entity = nil
           clear_hover_geom
+          @hover_parent_t = parent_t
+          @hover_path     = chain
           sync_hover_preview_selection
           view.invalidate
         end
@@ -5301,7 +5316,9 @@ module ASM_Extensions
         # in :reference mode when no sample has been set yet.
 
         if @hovered && @hovered.valid? && @hovered != @ref_entity
-          native_preview = @mode == :reference && @ref_entity.nil?
+          # Native preview only for top-level hovers; a nested instance can't be
+          # selected at the root context so SU would highlight every copy.
+          native_preview = @mode == :reference && @ref_entity.nil? && !nested_hover?
           unless native_preview
             invalid  = @mode == :reference && hover_invalid?
             bb_color = case @mode
@@ -5469,20 +5486,18 @@ module ASM_Extensions
       def onLButtonDown(flags, x, y, view)
         case @mode
         when :auto
-          ph = view.pick_helper
-          ph.do_pick(x, y)
-          entity = ph.best_picked
-          return unless entity.is_a?(Sketchup::ComponentInstance) || entity.is_a?(Sketchup::Group)
-          apply_auto([entity])
+          pick_at(x, y, view, force_recapture: true)
+          return unless @hovered && @hovered.valid?
+          apply_auto([@hovered])
         when :reference
-          ctrl = (flags & COPY_MODIFIER_MASK) != 0
+          shift = (flags & CONSTRAIN_MODIFIER_MASK) != 0
           if @hover_entity && @hover_entity.valid? && @hover_dir
             return if @hover_entity == @ref_entity  # click on current ref: no-op
             promote_hover_to_reference
             update_vcb
             view.invalidate
           elsif @hovered && @hovered.valid?
-            if ctrl || @ref_entity.nil?
+            if shift || @ref_entity.nil?
               promote_hovered_to_sample(view)
             elsif @ref_dir && !hover_invalid?
               apply_lock(@hovered, @ref_dir, @lock_axis)
@@ -5496,9 +5511,6 @@ module ASM_Extensions
 
       def onKeyDown(key, _repeat, flags, view)
         case key
-        when 18 # Alt — cycle mode (entity → reference → auto)
-          toggle_mode(view)
-          @alt_handled = true
         when 9  # Tab — cycle axis (entity or reference mode)
           cycle_axis(view) if @mode == :entity || @mode == :reference
         when 17 # Ctrl — deep pick
@@ -5510,9 +5522,6 @@ module ASM_Extensions
 
       def onKeyUp(key, _repeat, flags, view)
         case key
-        when 18 # Alt
-          toggle_mode(view) unless @alt_handled
-          @alt_handled = false
         when 17
           set_mod_ctrl(false, view)
         else
@@ -5525,7 +5534,7 @@ module ASM_Extensions
       def set_mod_ctrl(value, view)
         return if value == @mod_ctrl
         @mod_ctrl = value
-        return unless @mode == :entity && @last_x && @last_y
+        return unless @last_x && @last_y
         pick_at(@last_x, @last_y, view, force_recapture: true)
       end
 
@@ -5557,16 +5566,6 @@ module ASM_Extensions
           current.make_unique
         end
         current
-      end
-
-      def toggle_mode(view)
-        idx = MODE_CYCLE.index(@mode) || 0
-        @mode = MODE_CYCLE[(idx + 1) % MODE_CYCLE.size]
-        @@last_mode = @mode
-        clear_reference
-        clear_hover
-        update_vcb
-        view.invalidate
       end
 
       def cycle_axis(view)
@@ -5622,9 +5621,13 @@ module ASM_Extensions
 
       # Mirrors @hovered into the model selection so SketchUp draws its native
       # bbox preview. Only active in :reference mode before a sample is set.
+      def nested_hover?
+        @hover_path && @hover_path.length > 1
+      end
+
       def sync_hover_preview_selection
         return unless @mode == :reference && @ref_entity.nil?
-        desired = (@hovered && @hovered.valid?) ? [@hovered] : []
+        desired = (@hovered && @hovered.valid? && !nested_hover?) ? [@hovered] : []
         sel = @model.selection
         current = sel.to_a
         return if current == desired
@@ -5725,6 +5728,12 @@ module ASM_Extensions
           instances.each do |inst|
             next unless inst.valid?
             z_pre, x_pre = pre_axes[inst.object_id]
+            if @hover_path && instances.length == 1
+              inst = isolate_linked_group_chain(@hover_path, inst)
+              next unless inst && inst.valid?
+              z_pre = inst.transformation.zaxis
+              x_pre = inst.transformation.xaxis
+            end
             OrienterExpress.send(:align_to_min_bb, inst, z_pre, x_pre)
           end
           @model.commit_operation
@@ -5758,6 +5767,7 @@ module ASM_Extensions
           return if fully_aligned_with_sample?(instance, @ref_entity)
           @model.start_operation("Orienter Express: Align to Sample", true)
           begin
+            instance = isolate_linked_group_chain(@hover_path, instance) if @hover_path
             OrienterExpress.send(:align_to_sample, instance, @ref_entity)
             @model.commit_operation
             clear_hover
@@ -5819,13 +5829,6 @@ module ASM_Extensions
       end
 
       def update_vcb
-        mode_key = case @mode
-                   when :entity    then :mode_entity
-                   when :reference then :mode_reference
-                   else                 :mode_auto
-                   end
-        mode_label = Lang.commands.oealigner.send(mode_key).to_s.upcase
-
         axis_label = case @lock_axis
                      when :z then Lang.commands.oealigner.axis_z
                      when :x then Lang.commands.oealigner.axis_x
@@ -5835,30 +5838,28 @@ module ASM_Extensions
         case @mode
         when :entity
           desc = Lang.commands.oealigner.desc_entity.to_s
-          hint = format(Lang.commands.oealigner.vcb_hint_entity.to_s,
-                        mode: mode_label.to_s, axis: axis_label.to_s)
+          hint = format(Lang.commands.oealigner.vcb_hint_entity.to_s, axis: axis_label.to_s)
         when :reference
           if @ref_entity
             desc = Lang.commands.oealigner.desc_reference_target.to_s
-            hint = format(Lang.commands.oealigner.vcb_hint_reference_target.to_s,
-                          mode: mode_label.to_s, axis: axis_label.to_s)
+            hint = format(Lang.commands.oealigner.vcb_hint_reference_target.to_s, axis: axis_label.to_s)
           else
             desc = Lang.commands.oealigner.desc_reference_ref.to_s
-            hint = format(Lang.commands.oealigner.vcb_hint_reference_ref.to_s,
-                          mode: mode_label.to_s, axis: axis_label.to_s)
+            hint = format(Lang.commands.oealigner.vcb_hint_reference_ref.to_s, axis: axis_label.to_s)
           end
         else
           desc = Lang.commands.oealigner.desc_auto.to_s
-          hint = format(Lang.commands.oealigner.vcb_hint_auto.to_s, mode: mode_label.to_s)
+          hint = Lang.commands.oealigner.vcb_hint_auto.to_s
         end
-        Sketchup.set_status_text("#{desc}  |  #{hint}", 0)
+        text = hint.empty? ? desc : "#{desc}  |  #{hint}"
+        Sketchup.set_status_text(text, 0)
       end
     end
 
-    def self.oealigner
+    def self.oealigner(mode = :entity)
       model   = Sketchup.active_model
       targets = instances(model.selection)
-      model.select_tool(OEAlignerTool.new(targets))
+      model.select_tool(OEAlignerTool.new(targets, mode))
     end
 
     private_class_method :collect_vertices

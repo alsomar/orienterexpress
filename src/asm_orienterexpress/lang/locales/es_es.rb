@@ -70,16 +70,28 @@ module ASM_Extensions
               desc_auto:                 "Haz clic sobre un componente",
               desc_reference_ref:        "Haz clic sobre una arista/cara o componente/grupo",
               desc_reference_target:     "Haz clic sobre un componente/grupo",
-              vcb_hint_entity:           "CTRL + Clic = profundo (instancia interna)  |  TAB = eje (%<axis>s)  |  ALT = modo (%<mode>s)",
-              vcb_hint_auto:             "ALT = modo (%<mode>s)",
-              vcb_hint_reference_ref:    "TAB = eje (%<axis>s)  |  ALT = modo (%<mode>s)",
-              vcb_hint_reference_target: "CTRL + Clic = fijar nueva referencia  |  TAB = eje (%<axis>s)  |  ALT = modo (%<mode>s)",
-              mode_entity:    "entidad",
-              mode_reference: "referencia",
-              mode_auto:      "auto",
+              vcb_hint_entity:           "CTRL + Clic = profundo (instancia interna)  |  TAB = eje (%<axis>s)",
+              vcb_hint_auto:             "CTRL + Clic = profundo (instancia interna)",
+              vcb_hint_reference_ref:    "CTRL + Clic = profundo (instancia interna)  |  TAB = eje (%<axis>s)",
+              vcb_hint_reference_target: "SHIFT + Clic = nueva referencia  |  CTRL + Clic = profundo  |  TAB = eje (%<axis>s)",
               axis_z:         "Z",
               axis_x:         "X",
               axis_y:         "Y"
+            },
+            oealigner_entity: {
+              label:   "Alinear ejes a la entidad",
+              tooltip: "Alinear ejes a la entidad",
+              status:  "Alinea los ejes de un componente/grupo según una de sus caras/aristas."
+            },
+            oealigner_reference: {
+              label:   "Alinear ejes a referencia",
+              tooltip: "Alinear ejes a referencia",
+              status:  "Elige una dirección de referencia y haz clic en componentes/grupos para alinear."
+            },
+            oealigner_auto: {
+              label:   "Auto-alinear ejes",
+              tooltip: "Auto-alinear ejes",
+              status:  "Rota los ejes a la orientación que minimiza la caja contenedora."
             },
             oereset: {
               label:            "Resetear rotaciones",

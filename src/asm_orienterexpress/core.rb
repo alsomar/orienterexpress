@@ -71,13 +71,29 @@ module ASM_Extensions
       cmd_oesurface = cmd
       @commands[:oesurface] = cmd
 
-      cmd = UI::Command.new(Lang.commands.oealigner.label.to_s) { self.oealigner_tool }
-      cmd.small_icon = self.icon("oealigner_24")
-      cmd.large_icon = self.icon("oealigner_32")
-      cmd.status_bar_text = Lang.commands.oealigner.status
-      cmd.tooltip = Lang.commands.oealigner.tooltip
-      cmd_oealigner = cmd
-      @commands[:oealigner] = cmd
+      cmd = UI::Command.new(Lang.commands.oealigner_entity.label.to_s) { self.oealigner_entity_tool }
+      cmd.small_icon = self.icon("oealigner_entity_24")
+      cmd.large_icon = self.icon("oealigner_entity_32")
+      cmd.status_bar_text = Lang.commands.oealigner_entity.status
+      cmd.tooltip = Lang.commands.oealigner_entity.tooltip
+      cmd_oealigner_entity = cmd
+      @commands[:oealigner_entity] = cmd
+
+      cmd = UI::Command.new(Lang.commands.oealigner_reference.label.to_s) { self.oealigner_reference_tool }
+      cmd.small_icon = self.icon("oealigner_reference_24")
+      cmd.large_icon = self.icon("oealigner_reference_32")
+      cmd.status_bar_text = Lang.commands.oealigner_reference.status
+      cmd.tooltip = Lang.commands.oealigner_reference.tooltip
+      cmd_oealigner_reference = cmd
+      @commands[:oealigner_reference] = cmd
+
+      cmd = UI::Command.new(Lang.commands.oealigner_auto.label.to_s) { self.oealigner_auto_tool }
+      cmd.small_icon = self.icon("oealigner_auto_24")
+      cmd.large_icon = self.icon("oealigner_auto_32")
+      cmd.status_bar_text = Lang.commands.oealigner_auto.status
+      cmd.tooltip = Lang.commands.oealigner_auto.tooltip
+      cmd_oealigner_auto = cmd
+      @commands[:oealigner_auto] = cmd
 
       cmd = UI::Command.new(Lang.commands.oereset.label.to_s) { self.oereset_tool }
       cmd.small_icon = self.icon("oereset_24")
@@ -112,7 +128,9 @@ module ASM_Extensions
       menu.add_item(cmd_oeaxisscale)
       menu.add_item(cmd_oeuscale)
       menu.add_separator
-      menu.add_item(cmd_oealigner)
+      menu.add_item(cmd_oealigner_entity)
+      menu.add_item(cmd_oealigner_reference)
+      menu.add_item(cmd_oealigner_auto)
       menu.add_item(cmd_oereset)
       menu.add_separator
       menu.add_item(cmd_tool_panel)
@@ -130,13 +148,15 @@ module ASM_Extensions
         menu.add_item(cmd_oeaxisscale)
         menu.add_item(cmd_oeuscale)
         menu.add_separator
-        menu.add_item(cmd_oealigner)
+        menu.add_item(cmd_oealigner_entity)
+        menu.add_item(cmd_oealigner_reference)
+        menu.add_item(cmd_oealigner_auto)
         menu.add_item(cmd_oereset)
         menu.add_separator
         menu.add_item(cmd_settings)
       end
 
-      # Toolbar
+      # Placement toolbar
       toolbar = UI::Toolbar.new(EXT_NAME)
       toolbar.add_item(cmd_oevertex)
       toolbar.add_item(cmd_oecenter)
@@ -146,15 +166,29 @@ module ASM_Extensions
       toolbar.add_item(cmd_oeaxisscale)
       toolbar.add_item(cmd_oeuscale)
       toolbar.add_separator
-      toolbar.add_item(cmd_oealigner)
-      toolbar.add_item(cmd_oereset)
-      toolbar.add_separator
       toolbar.add_item(cmd_settings)
 
       if toolbar.get_last_state == TB_VISIBLE
         toolbar.restore
       else
         toolbar.show
+      end
+
+      # Transform toolbar (aligners + reset). Fixed name so its saved state
+      # survives a language change.
+      transform_tb = UI::Toolbar.new("#{EXT_NAME} Transform")
+      transform_tb.add_item(cmd_oealigner_entity)
+      transform_tb.add_item(cmd_oealigner_reference)
+      transform_tb.add_item(cmd_oealigner_auto)
+      transform_tb.add_separator
+      transform_tb.add_item(cmd_oereset)
+      transform_tb.add_separator
+      transform_tb.add_item(cmd_settings)
+
+      if transform_tb.get_last_state == TB_VISIBLE
+        transform_tb.restore
+      else
+        transform_tb.show
       end
 
       ## TOOL METHODS ## ---------------------------------------------------------
@@ -183,8 +217,16 @@ module ASM_Extensions
         ASM_Extensions::OrienterExpress.oesurface
       end
 
-      def self.oealigner_tool
-        ASM_Extensions::OrienterExpress.oealigner
+      def self.oealigner_entity_tool
+        ASM_Extensions::OrienterExpress.oealigner(:entity)
+      end
+
+      def self.oealigner_reference_tool
+        ASM_Extensions::OrienterExpress.oealigner(:reference)
+      end
+
+      def self.oealigner_auto_tool
+        ASM_Extensions::OrienterExpress.oealigner(:auto)
       end
 
       def self.oereset_tool

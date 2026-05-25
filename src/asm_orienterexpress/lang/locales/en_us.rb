@@ -70,16 +70,28 @@ module ASM_Extensions
               desc_auto:                 "Click on a component",
               desc_reference_ref:        "Click on a reference edge, face, or component",
               desc_reference_target:     "Click on a component or group",
-              vcb_hint_entity:           "CTRL + Click = deep (inner instance)  |  TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
-              vcb_hint_auto:             "ALT = mode (%<mode>s)",
-              vcb_hint_reference_ref:    "TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
-              vcb_hint_reference_target: "CTRL + Click = set new reference  |  TAB = axis (%<axis>s)  |  ALT = mode (%<mode>s)",
-              mode_entity:    "entity",
-              mode_reference: "reference",
-              mode_auto:      "auto",
+              vcb_hint_entity:           "CTRL + Click = deep (inner instance)  |  TAB = axis (%<axis>s)",
+              vcb_hint_auto:             "CTRL + Click = deep (inner instance)",
+              vcb_hint_reference_ref:    "CTRL + Click = deep (inner instance)  |  TAB = axis (%<axis>s)",
+              vcb_hint_reference_target: "SHIFT + Click = new reference  |  CTRL + Click = deep  |  TAB = axis (%<axis>s)",
               axis_z:         "Z",
               axis_x:         "X",
               axis_y:         "Y"
+            },
+            oealigner_entity: {
+              label:   "Align Axes to Entity",
+              tooltip: "Align Axes to Entity",
+              status:  "Align a component/group's axes to one of its own faces or edges."
+            },
+            oealigner_reference: {
+              label:   "Align Axes to Reference",
+              tooltip: "Align Axes to Reference",
+              status:  "Pick a reference direction, then click components/groups to align."
+            },
+            oealigner_auto: {
+              label:   "Auto-Align Axes",
+              tooltip: "Auto-Align Axes",
+              status:  "Rotate the axes to the orientation that minimises the bounding box."
             },
             oereset: {
               label:            "Reset Rotations",
