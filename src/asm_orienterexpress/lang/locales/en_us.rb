@@ -86,12 +86,12 @@ module ASM_Extensions
             oealigner_reference: {
               label:   "Align Axes to Reference",
               tooltip: "Align Axes to Reference",
-              status:  "Pick a reference direction, then click components/groups to align."
+              status:  "Pick a sample, then click components/groups to align their axes."
             },
             oealigner_auto: {
-              label:   "Auto-Align Axes",
-              tooltip: "Auto-Align Axes",
-              status:  "Rotate the axes to the orientation that minimises the bounding box."
+              label:   "Auto-Align Axes (beta)",
+              tooltip: "Auto-Align Axes (beta)",
+              status:  "Automatically orients the axes to the smallest possible bounding-box volume (BETA)."
             },
             oereset: {
               label:            "Reset Rotations",

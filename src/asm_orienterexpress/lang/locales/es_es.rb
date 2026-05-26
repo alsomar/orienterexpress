@@ -79,19 +79,19 @@ module ASM_Extensions
               axis_y:         "Y"
             },
             oealigner_entity: {
-              label:   "Alinear ejes a la entidad",
-              tooltip: "Alinear ejes a la entidad",
+              label:   "Alinear eje",
+              tooltip: "Alinear eje",
               status:  "Alinea los ejes de un componente/grupo según una de sus caras/aristas."
             },
             oealigner_reference: {
-              label:   "Alinear ejes a referencia",
-              tooltip: "Alinear ejes a referencia",
-              status:  "Elige una dirección de referencia y haz clic en componentes/grupos para alinear."
+              label:   "Alinear ejes según referencia",
+              tooltip: "Alinear ejes según referencia",
+              status:  "Elige una muestra y haz clic sobre componentes/grupos para alinear sus ejes."
             },
             oealigner_auto: {
-              label:   "Auto-alinear ejes",
-              tooltip: "Auto-alinear ejes",
-              status:  "Rota los ejes a la orientación que minimiza la caja contenedora."
+              label:   "Alinear ejes automáticamente (beta)",
+              tooltip: "Alinear ejes automáticamente (beta)",
+              status:  "Orienta los ejes automáticamente según el mínimo volumen posible de caja contenedora (BETA)."
             },
             oereset: {
               label:            "Resetear rotaciones",
