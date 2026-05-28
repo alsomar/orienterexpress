@@ -1,6 +1,41 @@
 let DEBUG_MODE = false;
 window.APP_I18N = window.APP_I18N || { locale: 'en-US', data: {} };
 
+// Cross-extension dark-mode sync. localStorage is shared across UI::HtmlDialog
+// webviews in the same SketchUp profile, so we use a single shared key to keep
+// every asav.* dialog in lockstep:
+//   - hydration prefers the stored value over the per-extension config (so
+//     opening OrienterExpress after toggling FaceUp picks up dark mode — and
+//     the Vue darkMode prop stays in sync with body.dark-mode, fixing the
+//     "dark page + sun icon" mismatch),
+//   - the per-extension config is still the persistent fallback (used on
+//     fresh installs / cleared localStorage),
+//   - a "storage" listener flips open dialogs live when any extension
+//     toggles dark mode.
+const DARK_MODE_KEY = 'asav_dark_mode';
+
+function readDarkModeFromStorage() {
+  try {
+    const v = localStorage.getItem(DARK_MODE_KEY);
+    return v === null ? null : v === 'true';
+  } catch (_) {
+    return null;
+  }
+}
+
+let DARK_MODE_SYNC_WIRED = false;
+function wireDarkModeSync() {
+  if (DARK_MODE_SYNC_WIRED) return;
+  DARK_MODE_SYNC_WIRED = true;
+  window.addEventListener('storage', function (e) {
+    if (e.key !== DARK_MODE_KEY) return;
+    const next = e.newValue === 'true';
+    if (window.app && window.app.darkMode !== next) {
+      window.app.darkMode = next;   // watcher updates body class + tooltip + icon
+    }
+  });
+}
+
 // Debug Icon
 function updateDebugIcon(isDebug) {
   const icon = document.getElementById("settings-icon");
@@ -17,7 +52,7 @@ function updateDebugIcon(isDebug) {
 function updateDarkMode(isDark) {
   const on = !!isDark;
   document.body.classList.toggle('dark-mode', on);
-  try { localStorage.setItem('asav_dark_mode', on); } catch (_) {}
+  try { localStorage.setItem(DARK_MODE_KEY, on); } catch (_) {}
   if (window.app) window.app.darkMode = on;
 }
 

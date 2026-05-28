@@ -90,8 +90,13 @@ function settingsJSON(payload) {
       window.app.rememberOffset = config.remember_offset != null ? config.remember_offset : true;
       window.app.rememberRoll   = config.remember_roll   != null ? config.remember_roll   : true;
       window.app.smoothGroups   = config.smooth_groups != null ? config.smooth_groups : true;
-      window.app.darkMode      = config.dark_mode  || false;
+      // darkMode: localStorage (cross-extension live state) wins; the
+      // per-extension config.dark_mode is the persistent fallback.
+      const lsDark = readDarkModeFromStorage();
+      window.app.darkMode      = lsDark !== null ? lsDark : !!config.dark_mode;
       window.app.debugMode     = config.debug_mode || false;
+
+      wireDarkModeSync();
 
       window.app.$nextTick(() => {
         window._settingsLoading = false;
