@@ -5,7 +5,21 @@ module ASM_Extensions
     INFO_AUTHOR  = "Alejandro Soriano"
     INFO_VERSION = EXTENSION[:version].to_s.freeze
     INFO_UPDATE  = EXTENSION[:update].to_s.freeze
-    INFO_COPY    = "\u00A9 #{INFO_AUTHOR}, 2026"
+    INFO_START   = EXTENSION[:dev_start].to_s.freeze
+
+    # Copyright range: dev_start year (fallback 2023) to current year
+    # (fallback "Now"), e.g. "2023-2026", "2026", or "2023-Now".
+    year_start   = INFO_START[/\d{4}/]&.to_i || 2023
+    year_current = Time.now.year rescue nil
+    year_range   =
+      if year_current.nil?
+        "#{year_start}-Now"
+      elsif year_current > year_start
+        "#{year_start}-#{year_current}"
+      else
+        year_start.to_s
+      end
+    INFO_COPY    = "\u00A9 #{INFO_AUTHOR}, #{year_range}".freeze
 
     def self.format_update_date(locale = "en-US")
       parts = INFO_UPDATE.split("-").map(&:to_i)
