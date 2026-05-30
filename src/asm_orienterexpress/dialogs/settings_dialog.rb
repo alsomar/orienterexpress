@@ -1,5 +1,3 @@
-require 'json'
-
 module ASM_Extensions
   module OrienterExpress
     module Dialogs
