@@ -670,11 +670,18 @@ module ASM_Extensions
       end
 
       def setup_naked_box
-        @bottom_edges   = make_ring(0)
-        @mid_edges      = make_ring(50)
-        @top_edges      = make_ring(100)
-        @vert_lower     = make_verticals(0, 50)
-        @vert_upper     = make_verticals(50, 100)
+        # Isolate geometry in a dedicated group so leaked entities from prior
+        # tests can't pollute vertex.edges and skew vertex_flow_direction.
+        prev_entities    = @entities
+        @naked_box_group = @entities.add_group
+        @to_erase << @naked_box_group
+        @entities        = @naked_box_group.entities
+        @bottom_edges    = make_ring(0)
+        @mid_edges       = make_ring(50)
+        @top_edges       = make_ring(100)
+        @vert_lower      = make_verticals(0, 50)
+        @vert_upper      = make_verticals(50, 100)
+        @entities        = prev_entities
       end
 
       def build_h_dir_map
