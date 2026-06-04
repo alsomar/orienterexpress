@@ -9,7 +9,8 @@ module ASM_Extensions
 
     # Copyright range: dev_start year (fallback 2023) to current year
     # (fallback "Now"), e.g. "2023-2026", "2026", or "2023-Now".
-    year_start   = INFO_START[/\d{4}/]&.to_i || 2023
+    year_match   = INFO_START[/\d{4}/]
+    year_start   = year_match ? year_match.to_i : 2023
     year_current = Time.now.year rescue nil
     year_range   =
       if year_current.nil?
