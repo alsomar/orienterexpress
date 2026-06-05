@@ -18,6 +18,12 @@ module ASM_Extensions
         @entities = @model.active_entities
         @to_erase = []
 
+        # Snapshot existing entity IDs so teardown can sweep up everything added
+        # during this test (including implicit edges left over from face.erase!)
+        # without needing every helper to track them in @to_erase.
+        @before_ids = {}
+        @entities.each { |e| @before_ids[e.entityID] = true }
+
         # 100×60×40 box aligned to world axes, origin at (0,0,0)
         # X extent: 0..100, Y extent: 0..60, Z extent: 0..40
         @definition = @model.definitions.add('TC_insertion_box')
@@ -26,7 +32,11 @@ module ASM_Extensions
       end
 
       def teardown
-        @to_erase.each { |e| e.erase! if e.respond_to?(:valid?) && e.valid? }
+        @entities.to_a.each do |e|
+          next unless e.respond_to?(:valid?) && e.valid?
+          next if @before_ids && @before_ids[e.entityID]
+          e.erase! rescue nil
+        end
         @model.definitions.purge_unused
       end
 
